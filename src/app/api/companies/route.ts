@@ -1,8 +1,13 @@
 import { prisma } from "@/lib/db";
+import { scopedCompanyIds } from "@/lib/auth";
 
 export async function GET() {
   try {
-    const companies = await prisma.company.findMany({ orderBy: { name: "asc" } });
+    const scope = await scopedCompanyIds();
+    const companies = await prisma.company.findMany({
+      where: scope === "all" ? {} : { id: { in: scope } },
+      orderBy: { name: "asc" },
+    });
     return Response.json(companies);
   } catch (e) {
     console.error(e);
