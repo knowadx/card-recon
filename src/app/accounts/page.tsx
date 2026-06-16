@@ -240,11 +240,16 @@ const save = async () => {
     const profiles = Array.isArray(list) ? list : [];
 
     const companyName = a.company.name.toLowerCase();
+    const accountName = a.name.toLowerCase();
+    const matches = (label: string) => {
+      const l = label.toLowerCase();
+      return l.includes(companyName) || companyName.includes(l) || l.includes(accountName) || accountName.includes(l);
+    };
 
-    // Try to find matching profile by name
+    // Pré-seleciona pelo profile salvo; senão tenta casar pelo nome da conta/empresa
     const match = savedProfileId
       ? profiles.find((p) => p.id === savedProfileId)
-      : profiles.find((p) => p.label.toLowerCase().includes(companyName) || companyName.includes(p.label.toLowerCase()));
+      : profiles.find((p) => matches(p.label));
 
     if (match) {
       setWiseProfileId(match.id);
@@ -710,7 +715,18 @@ const save = async () => {
               </p>
               <div className="space-y-2">
                 <Label className="text-[13px] font-medium text-[#374151]">Wise profile</Label>
-                <Select value={wiseProfileId} onValueChange={(v) => setWiseProfileId(v ?? "")}>
+                <Select value={wiseProfileId} onValueChange={(v) => {
+                  const val = v ?? "";
+                  setWiseProfileId(val);
+                  // persiste a empresa (profile) escolhida na conta na hora
+                  if (val && wiseSyncTarget) {
+                    fetch(`/api/accounts/${wiseSyncTarget.id}`, {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ syncConfig: { wiseProfileId: val } }),
+                    });
+                  }
+                }}>
                   <SelectTrigger className="h-10 text-sm rounded-lg border-[#e8eaed]"><SelectValue placeholder="Select" /></SelectTrigger>
                   <SelectContent>
                     {wiseProfiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
