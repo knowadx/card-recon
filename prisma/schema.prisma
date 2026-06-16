@@ -7,105 +7,283 @@ datasource db {
   provider = "sqlite"
 }
 
-// Business Manager do Meta — agrupa contas de anúncio
-model BusinessManager {
-  id        String      @id // Meta business id
-  name      String
-  createdAt DateTime    @default(now())
-  accounts  AdAccount[]
+model Company {
+  id          String       @id @default(cuid())
+  name        String
+  cnpj        String?      @unique
+  color       String       @default("#6366f1")
+  createdAt   DateTime     @default(now())
+  accounts    Account[]
+  memberships Membership[]
 }
 
-// Conta de Anúncio do Meta (act_...) — gasta e é financiada por um cartão
-model AdAccount {
-  id               String            @id // "act_123" sem o prefixo act_ guardamos o numérico em accountId
-  accountId        String            @unique // id numérico puro
-  name             String
-  currency         String
-  accountStatus    Int?
-  bmId             String?
-  bm               BusinessManager?  @relation(fields: [bmId], references: [id])
-  // Cartão de funding, extraído de funding_source_details.display_string
-  fundingCardBrand String?
-  fundingCardLast4 String?
-  fundingRaw       String? // display_string original p/ auditoria
-  amountSpent      Float?            @default(0) // amount_spent (lifetime do ciclo) em moeda da conta
-  updatedAt        DateTime          @updatedAt
-  snapshots        SpendSnapshot[]
-
-  @@index([bmId])
-  @@index([fundingCardLast4])
-}
-
-// Cartão conhecido, vindo das APIs de banco (registro p/ casar com funding da conta)
-model Card {
-  id         String   @id @default(cuid())
-  issuer     String // "revolut" | "wise" | "mercury"
-  bankCardId String // id do cartão no banco
-  last4      String
-  brand      String?
-  label      String? // apelido/nome no banco
-  currency   String?
-  state      String?
-  company    String? // empresa dona da credencial
-  updatedAt  DateTime @updatedAt
-
-  @@unique([issuer, bankCardId])
-  @@index([last4])
-}
-
-// Cobrança real que tocou um cartão (extraída das transações do banco)
-model BankCharge {
-  id           String   @id @default(cuid())
-  issuer       String // "revolut" | "wise" | "mercury"
-  bankTxId     String // id da transação no banco (dedup)
-  date         DateTime
-  amount       Float // valor absoluto da cobrança (positivo = saída)
+model Account {
+  id           String        @id @default(cuid())
+  companyId    String
+  company      Company       @relation(fields: [companyId], references: [id])
+  bank         String
   currency     String
-  merchantRaw  String? // nome do merchant cru
-  cardLast4    String?
-  isMetaCharge Boolean  @default(false) // classificado por regex de merchant
-  company      String? // empresa dona da credencial que trouxe esta cobrança
-  importedAt   DateTime @default(now())
+  name         String
+  syncConfig   String? // JSON: { mercuryAccountId?, mercuryEntity?, wiseProfileId? }
+  createdAt    DateTime      @default(now())
+  transactions Transaction[]
 
-  @@unique([issuer, bankTxId])
-  @@index([cardLast4])
+  @@index([companyId])
+}
+
+model Category {
+  id               String               @id @default(cuid())
+  type             String
+  name             String
+  code             String?
+  parentId         String?
+  parent           Category?            @relation("CategoryChildren", fields: [parentId], references: [id])
+  children         Category[]           @relation("CategoryChildren")
+  color            String               @default("#6366f1")
+  isInternal       Boolean              @default(false)
+  plSection        String?
+  createdAt        DateTime             @default(now())
+  managerialSplits     TransactionSplit[]   @relation("ManagerialCategory")
+  accountingSplits     TransactionSplit[]   @relation("AccountingCategory")
+  accountingSplits2    AccountingSplit[]    @relation("AccountingSplitCategory")
+  chartLines       DashboardChartLine[]
+}
+
+model Transaction {
+  id               String             @id @default(cuid())
+  accountId        String
+  account          Account            @relation(fields: [accountId], references: [id])
+  date             DateTime
+  description      String
+  amount           Float
+  currency         String
+  reference        String?
+  fee              Float?             @default(0)
+  ignored          Boolean            @default(false)
+  importedAt       DateTime           @default(now())
+  // Checagem Meta (anti-vazamento de cartão)
+  cardLast4        String? // últimos 4 do cartão usado (extraído no import)
+  isMetaCharge     Boolean            @default(false) // cobrança classificada como Meta/Facebook
+  metaCheck        String? // "ok" | "leak" | "review" | null (não-Meta)
+  metaCheckNote    String?
+  splits           TransactionSplit[]
+  accountingSplits AccountingSplit[]
+  documents        Document[]
+
+  @@unique([accountId, reference])
+  @@index([accountId])
   @@index([date])
   @@index([isMetaCharge])
+  @@index([cardLast4])
 }
 
-// Spend de uma conta de anúncio num período (do endpoint insights do Meta)
-model SpendSnapshot {
-  id          String    @id @default(cuid())
-  adAccountId String
-  adAccount   AdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
-  periodStart DateTime
-  periodEnd   DateTime
-  spend       Float
-  currency    String
-  fetchedAt   DateTime  @default(now())
+model AccountingSplit {
+  id                   String      @id @default(cuid())
+  transactionId        String
+  transaction          Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  amount               Float
+  note                 String?
+  accountingDate       DateTime?
+  accountingCategoryId String?
+  accountingCategory   Category?   @relation("AccountingSplitCategory", fields: [accountingCategoryId], references: [id])
+  createdAt            DateTime    @default(now())
 
-  @@unique([adAccountId, periodStart, periodEnd])
-  @@index([adAccountId])
+  @@index([transactionId])
+  @@index([accountingCategoryId])
 }
 
-// Configurações: tokens, credenciais, regras, tolerância
+model TransactionSplit {
+  id                   String      @id @default(cuid())
+  transactionId        String
+  transaction          Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  amount               Float
+  note                 String?
+  accountingDate       DateTime?
+  managerialCategoryId String?
+  managerialCategory   Category?   @relation("ManagerialCategory", fields: [managerialCategoryId], references: [id])
+  accountingCategoryId String?
+  accountingCategory   Category?   @relation("AccountingCategory", fields: [accountingCategoryId], references: [id])
+  createdAt            DateTime    @default(now())
+
+  @@index([transactionId])
+  @@index([managerialCategoryId])
+  @@index([accountingCategoryId])
+}
+
+model DashboardChart {
+  id        String               @id @default(cuid())
+  name      String
+  color     String               @default("#00b9a5")
+  order     Int                  @default(0)
+  lines        DashboardChartLine[]
+  seriesLinks  ChartSeriesLink[]
+  unit         String  @default("currency")
+  format       String  @default("auto")
+  createdAt DateTime             @default(now())
+}
+
+model DashboardChartLine {
+  id         String         @id @default(cuid())
+  chartId    String
+  chart      DashboardChart @relation(fields: [chartId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category       @relation(fields: [categoryId], references: [id])
+  factor     Int            @default(1)
+  order      Int            @default(0)
+  yAxis      String         @default("left")
+
+  @@index([chartId])
+  @@index([categoryId])
+}
+
+model PlanSeries {
+  id         String           @id @default(cuid())
+  name       String
+  color      String           @default("#f59e0b")
+  seriesType String           @default("line") // "line" | "bar"
+  unit       String           @default("currency") // "currency" | "percentage" | "index" | "time" | "count"
+  format     String           @default("auto") // "auto" | "thousands" | "millions" | "raw" | "percentage"
+  order      Int              @default(0)
+  values     PlanSeriesValue[]
+  chartLinks ChartSeriesLink[]
+  createdAt  DateTime         @default(now())
+  // Derived (formula) series
+  formulaOp        String?    // "+" | "-" | "*" | "/"
+  formulaSeriesAId String?    // PlanSeries id (mutually exclusive with formulaChartAId)
+  formulaSeriesBId String?    // PlanSeries id (mutually exclusive with formulaChartBId)
+  formulaChartAId  String?    // DashboardChart id
+  formulaChartBId  String?    // DashboardChart id
+}
+
+model PlanSeriesValue {
+  id       String     @id @default(cuid())
+  seriesId String
+  series   PlanSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  month    String     // "2026-01"
+  value    Float
+
+  @@unique([seriesId, month])
+}
+
+model ChartSeriesLink {
+  id       String         @id @default(cuid())
+  chartId  String
+  chart    DashboardChart @relation(fields: [chartId], references: [id], onDelete: Cascade)
+  seriesId String
+  series   PlanSeries     @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  order    Int            @default(0)
+  yAxis    String         @default("left")
+
+  @@unique([chartId, seriesId])
+}
+
+model ExchangeRate {
+  id        String @id @default(cuid())
+  currency  String
+  month     String // "2026-01"
+  rateToUsd Float
+
+  @@unique([currency, month])
+}
+
 model Setting {
   key       String   @id
   value     String
   updatedAt DateTime @updatedAt
 }
 
-// Credencial de um emissor por EMPRESA (Mercury tem 1 token por empresa; Wise/Revolut idem).
+model Document {
+  id            String      @id @default(cuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  filename      String
+  path          String
+  mimetype      String?
+  size          Int?
+  uploadedAt    DateTime    @default(now())
+
+  @@index([transactionId])
+}
+
+// ===== Multi-usuário =====
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  passwordHash String
+  name         String?
+  role         String       @default("member") // "admin" | "member"
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  sessions     Session[]
+  memberships  Membership[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// Acesso de um usuário a uma empresa (conta herda da empresa)
+model Membership {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, companyId])
+  @@index([userId])
+  @@index([companyId])
+}
+
+// ===== Credenciais por empresa (Mercury/Wise/Revolut/Meta) =====
 model Credential {
   id        String   @id @default(cuid())
   issuer    String // "mercury" | "wise" | "revolut" | "meta"
-  company   String // nome da empresa dona desta credencial
-  token     String // bearer/access token
-  secrets   String? // JSON p/ campos extras (profileId, privateKeyPath, etc.)
+  company   String
+  token     String
+  secrets   String? // JSON
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([issuer, company])
   @@index([issuer])
+}
+
+// ===== Universo Meta controlado (contas + cartão de funding) =====
+model MetaAdAccount {
+  id               String   @id @default(cuid())
+  accountId        String   @unique // id numérico Meta
+  name             String
+  currency         String?
+  accountStatus    Int?
+  company          String? // empresa/credencial Meta dona
+  bmId             String?
+  bmName           String?
+  fundingCardBrand String?
+  fundingCardLast4 String?
+  fundingRaw       String?
+  updatedAt        DateTime @updatedAt
+
+  @@index([fundingCardLast4])
+}
+
+// Whitelist manual de cartões legítimos (double-check do que a API não expõe)
+model CardWhitelist {
+  id        String   @id @default(cuid())
+  last4     String
+  label     String?
+  company   String?
+  addedBy   String?
+  createdAt DateTime @default(now())
+
+  @@unique([last4, company])
+  @@index([last4])
 }

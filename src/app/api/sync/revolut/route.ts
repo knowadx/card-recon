@@ -1,108 +1,131 @@
-import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getValidAccessToken, fetchCards, fetchTransactions, extractCardLast4 } from "@/lib/revolut";
-import { resolvePeriod } from "@/lib/period";
-import { getMetaMerchantPattern } from "@/lib/settings";
+import { getValidAccessToken, REVOLUT_BASE } from "@/lib/revolut";
 
-export const dynamic = "force-dynamic";
+interface RevolutTransaction {
+  id: string;
+  type: string;
+  state: string;
+  created_at: string;
+  completed_at?: string;
+  legs: Array<{
+    leg_id: string;
+    account_id: string;
+    counterparty?: { account_id?: string; account_type?: string; name?: string };
+    amount: number;
+    fee?: number;
+    currency: string;
+    description?: string;
+    balance?: number;
+  }>;
+  merchant?: { name?: string };
+  reference?: string;
+}
 
-/** POST /api/sync/revolut?period=YYYY-MM — itera as empresas Revolut cadastradas. */
 export async function POST(request: Request) {
+  const body = await request.json().catch(() => ({}));
+  const { accountId, revolutAccountId, from } = body as {
+    accountId: string;
+    revolutAccountId?: string;
+    from?: string;
+  };
+
+  if (!accountId) return Response.json({ error: "accountId required" }, { status: 400 });
+
+  const account = await prisma.account.findUnique({ where: { id: accountId } });
+  if (!account) return Response.json({ error: "account not found" }, { status: 404 });
+
+  let accessToken: string;
   try {
-    const url = new URL(request.url);
-    const period = resolvePeriod(url.searchParams.get("period"));
-    const metaRe = await getMetaMerchantPattern();
-
-    const creds = await prisma.credential.findMany({ where: { issuer: "revolut", isActive: true } });
-    if (creds.length === 0) {
-      return NextResponse.json(
-        { ok: false, error: "Nenhuma empresa Revolut — registre via /api/revolut/auth?company=&client_id= e consinta." },
-        { status: 400 },
-      );
-    }
-
-    const from = period.start.toISOString();
-    const to = new Date(period.end.getTime() + 86399999).toISOString();
-    const perCompany: Record<string, unknown> = {};
-
-    for (const cred of creds) {
-      const company = cred.company;
-      let token: string;
-      try {
-        token = await getValidAccessToken(company);
-      } catch (e) {
-        perCompany[company] = { ok: false, error: (e as Error).message };
-        continue;
-      }
-
-      const cards = await fetchCards(token);
-      let cardCount = 0;
-      for (const c of cards) {
-        if (!c.last_digits) continue;
-        await prisma.card.upsert({
-          where: { issuer_bankCardId: { issuer: "revolut", bankCardId: c.id } },
-          update: { last4: c.last_digits, label: c.label ?? null, state: c.state ?? null, brand: "Revolut", company },
-          create: {
-            issuer: "revolut",
-            bankCardId: c.id,
-            last4: c.last_digits,
-            label: c.label ?? null,
-            state: c.state ?? null,
-            brand: "Revolut",
-            company,
-          },
-        });
-        cardCount++;
-      }
-
-      const txs = await fetchTransactions(token, from, to);
-      let chargeCount = 0;
-      let metaCount = 0;
-      let metaCardCount = 0;
-      for (const tx of txs) {
-        if (tx.state && tx.state !== "completed") continue;
-        const leg = tx.legs?.[0];
-        const amount = leg?.amount ?? 0;
-        if (amount >= 0) continue;
-        const merchant = tx.merchant?.name ?? leg?.description ?? "";
-        const isMeta = metaRe.test(merchant);
-        const last4 = extractCardLast4(tx);
-
-        await prisma.bankCharge.upsert({
-          where: { issuer_bankTxId: { issuer: "revolut", bankTxId: tx.id } },
-          update: {
-            date: new Date(tx.completed_at ?? tx.created_at ?? period.start),
-            amount: Math.abs(amount),
-            currency: leg?.currency ?? "EUR",
-            merchantRaw: merchant || null,
-            cardLast4: last4,
-            isMetaCharge: isMeta,
-            company,
-          },
-          create: {
-            issuer: "revolut",
-            bankTxId: tx.id,
-            date: new Date(tx.completed_at ?? tx.created_at ?? period.start),
-            amount: Math.abs(amount),
-            currency: leg?.currency ?? "EUR",
-            merchantRaw: merchant || null,
-            cardLast4: last4,
-            isMetaCharge: isMeta,
-            company,
-          },
-        });
-        chargeCount++;
-        if (isMeta) {
-          metaCount++;
-          if (last4) metaCardCount++;
-        }
-      }
-
-      perCompany[company] = { cards: cardCount, charges: chargeCount, metaCharges: metaCount, metaChargesWithCard: metaCardCount };
-    }
-
-    return NextResponse.json({ ok: true, period: period.key, companies: creds.length, perCompany });
+    accessToken = await getValidAccessToken(prisma);
   } catch (e) {
-    return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
+    console.error(e); return Response.json({ error: "Erro de autenticação Revolut", needsAuth: true }, { status: 401 });
   }
+
+  const fromDate = from ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const toDate = new Date().toISOString();
+
+  const headers = { Authorization: `Bearer ${accessToken}` };
+
+  // Fetch all transactions with pagination
+  const all: RevolutTransaction[] = [];
+  let createdBefore: string | null = null;
+
+  while (true) {
+    const url = new URL(`${REVOLUT_BASE}/transactions`);
+    url.searchParams.set("from", `${fromDate}T00:00:00Z`);
+    url.searchParams.set("to", toDate);
+    url.searchParams.set("count", "1000");
+    if (createdBefore) url.searchParams.set("created_before", createdBefore);
+
+    const res = await fetch(url.toString(), { headers });
+    if (!res.ok) {
+      const err = await res.text();
+      return Response.json({ error: `Revolut API ${res.status}: ${err}` }, { status: 502 });
+    }
+
+    const batch: RevolutTransaction[] = await res.json();
+    if (!Array.isArray(batch) || batch.length === 0) break;
+    all.push(...batch);
+    if (batch.length < 1000) break;
+    createdBefore = batch[batch.length - 1].created_at;
+  }
+
+  const completed = all.filter(tx => tx.state === "completed" || tx.state === "COMPLETED");
+
+  const existing = await prisma.transaction.findMany({
+    where: { accountId, reference: { not: null } },
+    select: { reference: true },
+  });
+  const existingRefs = new Set(existing.map(t => t.reference));
+
+  const candidates = completed.flatMap(tx => {
+    return tx.legs
+      .filter(leg => {
+        if (revolutAccountId && leg.account_id !== revolutAccountId) return false;
+        return true;
+      })
+      .map(leg => {
+        const ref = `revolut:${tx.id}:${leg.leg_id}`;
+        if (existingRefs.has(ref)) return null;
+
+        const description =
+          tx.merchant?.name ||
+          leg.counterparty?.name ||
+          leg.description ||
+          tx.reference ||
+          "Revolut";
+
+        const date = new Date(tx.completed_at ?? tx.created_at);
+
+        const fee = leg.fee ?? 0;
+        // For outgoing payments, fee is charged on top of the transfer amount.
+        // leg.amount is the net value; total debit = leg.amount - fee (both negative for outflows).
+        const totalAmount = leg.amount < 0 ? leg.amount - fee : leg.amount;
+
+        return {
+          accountId,
+          date,
+          description,
+          amount: totalAmount,
+          fee,
+          currency: leg.currency,
+          reference: ref,
+        };
+      })
+      .filter(Boolean) as Array<{ accountId: string; date: Date; description: string; amount: number; currency: string; reference: string }>;
+  });
+
+  if (candidates.length > 0) {
+    await prisma.transaction.createMany({ data: candidates });
+  }
+
+  // Save syncConfig for "sync all"
+  const syncConfig = JSON.stringify({ revolutAccountId: revolutAccountId ?? null });
+  await prisma.account.update({ where: { id: accountId }, data: { syncConfig } });
+
+  return Response.json({
+    imported: candidates.length,
+    skipped: completed.length - candidates.length,
+    total: all.length,
+  });
 }

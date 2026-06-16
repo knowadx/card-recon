@@ -1,115 +1,76 @@
-/**
- * Cliente da Wise Platform API (1 token POR EMPRESA, passado por parâmetro).
- * Auth = Bearer token simples — SEM SCA/chave privada.
- *
- * Caminho (como no projeto finance): /v1/profiles/{id}/activities lista tudo
- * (CARD_PAYMENT, TRANSFER, ...) só com o bearer. Para cobranças de cartão, o
- * detalhe em /v3/profiles/{id}/card-transactions/{id} traz cardLastDigits +
- * merchant + valor (também só com bearer). O statement.json (que exige SCA) NÃO
- * é usado.
- */
+import type { PrismaClient } from "@/generated/prisma/client";
 
-function base(): string {
-  return process.env.WISE_API_BASE || "https://api.wise.com";
-}
+const WISE_BASE = "https://api.wise.com";
 
-async function wget<T = unknown>(token: string, path: string): Promise<T> {
-  const res = await fetch(`${base()}${path}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+export async function exchangeCode(code: string): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
+  const clientId = process.env.WISE_CLIENT_ID!;
+  const clientSecret = process.env.WISE_CLIENT_SECRET!;
+  const redirectUri = process.env.WISE_REDIRECT_URI!;
+
+  const res = await fetch(`${WISE_BASE}/oauth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+      code,
+    }),
   });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`Wise ${res.status}: ${text.slice(0, 200)}`);
-  return JSON.parse(text) as T;
-}
 
-export interface WiseProfile {
-  id: number;
-  type: string; // "PERSONAL" | "BUSINESS"
-}
-
-export interface WiseActivity {
-  id: string;
-  type: string; // CARD_PAYMENT | TRANSFER | BALANCE_ASSET_FEE | TOPUP | ...
-  resource?: { type: string; id: string };
-  title: string;
-  description?: string;
-  primaryAmount: string; // ex.: "<positive>+ 2.57 USD</positive>" ou "2.57 USD"
-  secondaryAmount?: string;
-  status: string; // COMPLETED | ...
-  createdOn: string;
-}
-
-export interface WiseCardTransaction {
-  id: string;
-  cardToken?: string;
-  cardLastDigits?: string;
-  state?: string;
-  createdDate?: string;
-  transactionAmount?: { amount?: number; currency?: string };
-  merchant?: { id?: string; name?: string; location?: Record<string, unknown> };
-}
-
-export async function fetchProfiles(token: string): Promise<WiseProfile[]> {
-  return wget<WiseProfile[]>(token, "/v2/profiles");
-}
-
-/** Atividades do período (paginação por cursor). Só bearer, sem SCA. */
-export async function fetchActivities(
-  token: string,
-  profileId: number | string,
-  since: string,
-  until: string,
-): Promise<WiseActivity[]> {
-  const all: WiseActivity[] = [];
-  let cursor: string | null = null;
-  for (let page = 0; page < 50; page++) {
-    const url = new URL(`${base()}/v1/profiles/${profileId}/activities`);
-    url.searchParams.set("size", "100");
-    url.searchParams.set("since", since);
-    url.searchParams.set("until", until);
-    if (cursor) url.searchParams.set("nextCursor", cursor);
-    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) break;
-    const data = await res.json();
-    const acts: WiseActivity[] = data.activities ?? [];
-    all.push(...acts);
-    cursor = typeof data.cursor === "string" ? data.cursor : null;
-    if (!cursor || acts.length === 0) break;
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Wise token exchange failed: ${res.status} ${err}`);
   }
-  return all;
+  return res.json();
 }
 
-/** Detalhe de uma transação de cartão — traz cardLastDigits + merchant. */
-export async function fetchCardTransaction(
-  token: string,
-  profileId: number | string,
-  cardTxId: string,
-): Promise<WiseCardTransaction | null> {
-  try {
-    return await wget<WiseCardTransaction>(token, `/v3/profiles/${profileId}/card-transactions/${cardTxId}`);
-  } catch {
-    return null;
+export async function refreshAccessToken(refreshToken: string): Promise<{ access_token: string; refresh_token?: string; expires_in: number }> {
+  const clientId = process.env.WISE_CLIENT_ID!;
+  const clientSecret = process.env.WISE_CLIENT_SECRET!;
+
+  const res = await fetch(`${WISE_BASE}/oauth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Wise token refresh failed: ${res.status} ${err}`);
   }
+  return res.json();
 }
 
-const SYMBOL: Record<string, string> = { "€": "EUR", $: "USD", "£": "GBP", "R$": "BRL" };
+export async function getValidWiseToken(prisma: PrismaClient): Promise<string> {
+  const [atRow, rtRow, expRow] = await Promise.all([
+    prisma.setting.findUnique({ where: { key: "wise_access_token" } }),
+    prisma.setting.findUnique({ where: { key: "wise_refresh_token" } }),
+    prisma.setting.findUnique({ where: { key: "wise_access_token_exp" } }),
+  ]);
 
-/** Parseia "2.57 USD" / "R$ 69,80" de uma string (com tags HTML). Retorna valor absoluto. */
-export function parseAmount(raw: string): { amount: number; currency: string } | null {
-  const text = (raw || "").replace(/<[^>]+>/g, "").trim();
-  let m = text.match(/[+-]?\s*([\d.,]+)\s+([A-Z]{3})/);
-  if (m) {
-    const num = parseFloat(m[1].replace(/,/g, ""));
-    if (!isNaN(num)) return { amount: num, currency: m[2] };
+  const now = Math.floor(Date.now() / 1000);
+  const exp = expRow ? parseInt(expRow.value) : 0;
+
+  if (atRow && exp > now + 60) return atRow.value;
+  if (!rtRow) throw new Error("No Wise refresh token stored. Complete OAuth first.");
+
+  const tokens = await refreshAccessToken(rtRow.value);
+  const newExp = now + (tokens.expires_in ?? 43200);
+
+  await prisma.setting.upsert({ where: { key: "wise_access_token" }, create: { key: "wise_access_token", value: tokens.access_token }, update: { value: tokens.access_token } });
+  await prisma.setting.upsert({ where: { key: "wise_access_token_exp" }, create: { key: "wise_access_token_exp", value: String(newExp) }, update: { value: String(newExp) } });
+  if (tokens.refresh_token) {
+    await prisma.setting.upsert({ where: { key: "wise_refresh_token" }, create: { key: "wise_refresh_token", value: tokens.refresh_token }, update: { value: tokens.refresh_token } });
   }
-  m = text.match(/(R\$|[€$£])\s*([\d.,]+)/);
-  if (m) {
-    const num = parseFloat(m[2].replace(/,/g, ""));
-    if (!isNaN(num)) return { amount: num, currency: SYMBOL[m[1]] ?? "USD" };
-  }
-  return null;
+
+  return tokens.access_token;
 }
 
-export function stripTags(s?: string): string {
-  return (s || "").replace(/<[^>]+>/g, "").trim();
-}
+export { WISE_BASE };

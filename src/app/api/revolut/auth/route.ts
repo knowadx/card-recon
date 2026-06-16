@@ -1,25 +1,32 @@
+import { buildJwt } from "@/lib/revolut";
+import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
-import { authorizeUrl, registerCompany } from "@/lib/revolut";
 
-export const dynamic = "force-dynamic";
+export async function GET() {
+  const clientId = process.env.REVOLUT_CLIENT_ID;
+  const redirectUri = process.env.REVOLUT_REDIRECT_URI;
 
-/**
- * GET /api/revolut/auth?company=Pixelados&client_id=XXX
- * Deriva o redirect do DOMÍNIO real desta requisição (Vercel/local), registra a
- * empresa+client_id+redirect e redireciona pro consentimento. Sem localhost fixo.
- */
-export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const company = url.searchParams.get("company");
-  const clientId = url.searchParams.get("client_id");
-  if (!company || !clientId) {
-    return NextResponse.json(
-      { ok: false, error: "Use ?company=NomeDaEmpresa&client_id=SEU_CLIENT_ID" },
-      { status: 400 },
-    );
+  if (!clientId || !redirectUri) {
+    return Response.json({ error: "REVOLUT_CLIENT_ID or REVOLUT_REDIRECT_URI not set" }, { status: 500 });
   }
-  // env override (caso queira forçar) senão o domínio atual
-  const redirectUri = process.env.REVOLUT_REDIRECT_URI || `${url.origin}/api/revolut/callback`;
-  await registerCompany(company, clientId, redirectUri);
-  return NextResponse.redirect(authorizeUrl(clientId, company, redirectUri));
+
+  try {
+    buildJwt();
+  } catch {
+    return Response.json({ error: "JWT build failed" }, { status: 500 });
+  }
+
+  const state = randomBytes(16).toString("hex");
+
+  const url = new URL("https://business.revolut.com/app-confirm");
+  url.searchParams.set("client_id", clientId);
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("state", state);
+
+  const res = NextResponse.redirect(url.toString(), 302);
+  res.cookies.set("oauth_state_revolut", state, {
+    httpOnly: true, secure: true, sameSite: "lax", maxAge: 600, path: "/",
+  });
+  return res;
 }

@@ -1,122 +1,122 @@
-import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import {
-  fetchAccounts,
-  fetchCards,
-  fetchAccountTransactions,
-  extractCardId,
-} from "@/lib/mercury";
-import { resolvePeriod } from "@/lib/period";
-import { getMetaMerchantPattern } from "@/lib/settings";
-import { getCredentials } from "@/lib/credentials";
+import { KEY_MAP } from "@/lib/mercury";
 
-export const dynamic = "force-dynamic";
+const MERCURY_BASE = "https://api.mercury.com/api/v1";
 
-/** POST /api/sync/mercury?period=YYYY-MM — itera 1 token por empresa. */
-export async function POST(request: Request) {
-  try {
-    const url = new URL(request.url);
-    const period = resolvePeriod(url.searchParams.get("period"));
-    const metaRe = await getMetaMerchantPattern();
+async function fetchAllTransactions(key: string, mercuryAccountId: string, start: string, end: string) {
+  const all: unknown[] = [];
+  let startAfter: string | null = null;
+  const limit = 500;
 
-    const creds = await getCredentials("mercury");
-    if (creds.length === 0) {
-      return NextResponse.json(
-        { ok: false, error: "Nenhuma credencial Mercury — cadastre em /settings ou defina MERCURY_API_TOKEN no .env." },
-        { status: 400 },
-      );
-    }
+  while (true) {
+    // Use the global /transactions endpoint with accountId filter — works for both
+    // bank accounts and credit card accounts
+    const url = new URL(`${MERCURY_BASE}/transactions`);
+    url.searchParams.set("accountId", mercuryAccountId);
+    url.searchParams.set("limit", String(limit));
+    url.searchParams.set("start", start);
+    url.searchParams.set("end", end);
+    if (startAfter) url.searchParams.set("start_after", startAfter);
 
-    const perCompany: Record<string, unknown> = {};
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (!res.ok) throw new Error(`Mercury API error: ${res.status} ${await res.text()}`);
 
-    for (const cred of creds) {
-      const { company, token } = cred;
-      const accounts = await fetchAccounts(token);
+    const data = await res.json();
+    const txs: Array<{
+      id: string;
+      counterpartyName: string;
+      bankDescription: string | null;
+      amount: number;
+      postedAt: string | null;
+      createdAt: string;
+      status: string;
+      note: string | null;
+      externalMemo: string | null;
+      kind: string;
+      merchantName: string | null;
+    }> = data.transactions ?? [];
 
-      // 1) Cartões → registro + mapa cardId(UUID) → last4
-      const idToLast4 = new Map<string, string>();
-      let cardCount = 0;
-      for (const acc of accounts) {
-        let cards;
-        try {
-          cards = await fetchCards(token, acc.id);
-        } catch {
-          continue;
-        }
-        for (const c of cards) {
-          const last4 = c.lastFourDigits ?? c.last4;
-          const bankCardId = c.cardId ?? c.id;
-          if (!last4 || !bankCardId) continue;
-          idToLast4.set(bankCardId, last4);
-          await prisma.card.upsert({
-            where: { issuer_bankCardId: { issuer: "mercury", bankCardId } },
-            update: { last4, brand: c.network ?? null, label: c.nickname ?? null, state: c.status ?? null, company },
-            create: {
-              issuer: "mercury",
-              bankCardId,
-              last4,
-              brand: c.network ?? null,
-              label: c.nickname ?? null,
-              state: c.status ?? null,
-              company,
-            },
-          });
-          cardCount++;
-        }
-      }
+    all.push(...txs);
 
-      // 2) Transações por conta, filtradas pelo período
-      let chargeCount = 0;
-      let metaCount = 0;
-      let metaCardCount = 0;
-      for (const acc of accounts) {
-        const txs = await fetchAccountTransactions(token, acc.id);
-        for (const tx of txs) {
-          const when = new Date(tx.postedAt ?? tx.createdAt);
-          if (when < period.start || when > period.end) continue;
-          if (tx.amount >= 0) continue; // só saídas (cobranças)
-
-          const merchant = tx.counterpartyName ?? tx.bankDescription ?? "";
-          const isMeta = metaRe.test(merchant) || metaRe.test(tx.bankDescription ?? "");
-          const cardId = extractCardId(tx);
-          const last4 = cardId ? idToLast4.get(cardId) ?? null : null;
-
-          await prisma.bankCharge.upsert({
-            where: { issuer_bankTxId: { issuer: "mercury", bankTxId: tx.id } },
-            update: {
-              date: when,
-              amount: Math.abs(tx.amount),
-              currency: "USD",
-              merchantRaw: merchant || null,
-              cardLast4: last4,
-              isMetaCharge: isMeta,
-              company,
-            },
-            create: {
-              issuer: "mercury",
-              bankTxId: tx.id,
-              date: when,
-              amount: Math.abs(tx.amount),
-              currency: "USD",
-              merchantRaw: merchant || null,
-              cardLast4: last4,
-              isMetaCharge: isMeta,
-              company,
-            },
-          });
-          chargeCount++;
-          if (isMeta) {
-            metaCount++;
-            if (last4) metaCardCount++;
-          }
-        }
-      }
-
-      perCompany[company] = { cards: cardCount, charges: chargeCount, metaCharges: metaCount, metaChargesWithCard: metaCardCount };
-    }
-
-    return NextResponse.json({ ok: true, period: period.key, companies: creds.length, perCompany });
-  } catch (e) {
-    return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
+    if (txs.length < limit) break;
+    startAfter = txs[txs.length - 1].id;
   }
+
+  return all as Array<{
+    id: string;
+    counterpartyName: string;
+    bankDescription: string | null;
+    merchantName: string | null;
+    amount: number;
+    postedAt: string | null;
+    createdAt: string;
+    status: string;
+    note: string | null;
+    externalMemo: string | null;
+    kind: string;
+  }>;
+}
+
+export async function POST(request: Request) {
+  const body = await request.json();
+  const { mercuryAccountId, accountId, from, to, entity } = body as {
+    mercuryAccountId: string;
+    accountId: string;
+    from?: string;
+    to?: string;
+    entity?: string;
+  };
+
+  const key = KEY_MAP[entity ?? "activeview"] ?? process.env.MERCURY_API_KEY;
+  if (!key) return Response.json({ error: "Mercury API key not set" }, { status: 500 });
+
+  if (!mercuryAccountId || !accountId) {
+    return Response.json({ error: "mercuryAccountId and accountId required" }, { status: 400 });
+  }
+
+  const account = await prisma.account.findUnique({ where: { id: accountId } });
+  if (!account) return Response.json({ error: "account not found" }, { status: 404 });
+
+  const end = to ?? new Date().toISOString().slice(0, 10);
+  const start = from ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const transactions = await fetchAllTransactions(key, mercuryAccountId, start, end);
+
+  const existing = await prisma.transaction.findMany({
+    where: { accountId, reference: { not: null } },
+    select: { reference: true },
+  });
+  const existingRefs = new Set(existing.map((t) => t.reference));
+
+  const toCreate = transactions.filter(
+    (tx) => tx.status !== "failed" && tx.status !== "cancelled" && !existingRefs.has(tx.id)
+  );
+
+  if (toCreate.length === 0) {
+    return Response.json({ imported: 0, skipped: transactions.length });
+  }
+
+  await prisma.transaction.createMany({
+    data: toCreate.map((tx) => ({
+      accountId,
+      date: new Date(tx.postedAt ?? tx.createdAt),
+      description: tx.merchantName || tx.counterpartyName || tx.bankDescription || "—",
+      amount: tx.amount,
+      currency: "USD",
+      reference: tx.id,
+    })),
+  });
+
+  await prisma.account.update({
+    where: { id: accountId },
+    data: { syncConfig: JSON.stringify({ mercuryAccountId, mercuryEntity: entity ?? "activeview" }) },
+  });
+
+  return Response.json({
+    imported: toCreate.length,
+    skipped: transactions.length - toCreate.length,
+    range: { start, end },
+  });
 }
