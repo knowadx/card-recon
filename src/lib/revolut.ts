@@ -21,17 +21,18 @@ function getPrivateKey(): string {
   return readFileSync(path.resolve(process.cwd(), keyPath), "utf8");
 }
 
-function redirectUri(): string {
-  return process.env.REVOLUT_REDIRECT_URI ?? "http://localhost:3007/api/revolut/callback";
-}
-
 function base64url(buf: Buffer | string): string {
   const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
   return b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
-export function buildJwt(clientId: string): string {
-  const issuer = new URL(redirectUri()).hostname;
+/**
+ * O redirect_uri usado no consentimento, no token exchange e o `iss` do JWT precisam
+ * ser o MESMO domínio (exigência do Revolut). Guardamos o redirect por empresa
+ * (derivado do domínio real da requisição), então não dependemos de env/localhost.
+ */
+export function buildJwt(clientId: string, redirectUri: string): string {
+  const issuer = new URL(redirectUri).hostname;
   const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const now = Math.floor(Date.now() / 1000);
   const payload = base64url(
@@ -43,24 +44,24 @@ export function buildJwt(clientId: string): string {
   return `${signing}.${base64url(sign.sign(getPrivateKey()))}`;
 }
 
-export function authorizeUrl(clientId: string, company: string): string {
+export function authorizeUrl(clientId: string, company: string, redirectUri: string): string {
   const u = new URL("https://business.revolut.com/app-confirm");
   u.searchParams.set("client_id", clientId);
-  u.searchParams.set("redirect_uri", redirectUri());
+  u.searchParams.set("redirect_uri", redirectUri);
   u.searchParams.set("response_type", "code");
   u.searchParams.set("scope", "READ");
   u.searchParams.set("state", company);
   return u.toString();
 }
 
-async function tokenRequest(clientId: string, params: Record<string, string>) {
+async function tokenRequest(clientId: string, redirectUri: string, params: Record<string, string>) {
   const res = await fetch(`${REVOLUT_BASE}/auth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       ...params,
       client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-      client_assertion: buildJwt(clientId),
+      client_assertion: buildJwt(clientId, redirectUri),
     }),
   });
   if (!res.ok) throw new Error(`Revolut token ${res.status}: ${await res.text()}`);
@@ -70,25 +71,25 @@ async function tokenRequest(clientId: string, params: Record<string, string>) {
 /** Troca o code pelo refresh+access token e grava na Credential da empresa. */
 export async function completeConsent(company: string, code: string): Promise<void> {
   const cred = await prisma.credential.findUnique({ where: { issuer_company: { issuer: "revolut", company } } });
-  const clientId = cred ? parseSecrets(cred.secrets).clientId : undefined;
-  if (!clientId) throw new Error(`Sem client_id cadastrado para a empresa "${company}". Use /api/revolut/auth?company=&client_id= primeiro.`);
-  const t = await tokenRequest(clientId, { grant_type: "authorization_code", code, redirect_uri: redirectUri() });
+  const s = cred ? parseSecrets(cred.secrets) : {};
+  if (!s.clientId || !s.redirectUri) throw new Error(`Empresa "${company}" sem client_id/redirect. Use /api/revolut/auth?company=&client_id= primeiro.`);
+  const t = await tokenRequest(s.clientId, s.redirectUri, { grant_type: "authorization_code", code, redirect_uri: s.redirectUri });
   const exp = Math.floor(Date.now() / 1000) + (t.expires_in ?? 1800);
   await prisma.credential.update({
     where: { issuer_company: { issuer: "revolut", company } },
     data: {
       token: t.refresh_token ?? "",
-      secrets: JSON.stringify({ clientId, accessToken: t.access_token, accessExp: exp }),
+      secrets: JSON.stringify({ clientId: s.clientId, redirectUri: s.redirectUri, accessToken: t.access_token, accessExp: exp }),
     },
   });
 }
 
-/** Registra (ou atualiza) a empresa + client_id antes do consentimento. */
-export async function registerCompany(company: string, clientId: string): Promise<void> {
+/** Registra (ou atualiza) a empresa + client_id + redirect (do domínio real). */
+export async function registerCompany(company: string, clientId: string, redirectUri: string): Promise<void> {
   await prisma.credential.upsert({
     where: { issuer_company: { issuer: "revolut", company } },
-    update: { secrets: JSON.stringify({ clientId }) },
-    create: { issuer: "revolut", company, token: "", secrets: JSON.stringify({ clientId }) },
+    update: { secrets: JSON.stringify({ clientId, redirectUri }) },
+    create: { issuer: "revolut", company, token: "", secrets: JSON.stringify({ clientId, redirectUri }) },
   });
 }
 
@@ -100,13 +101,13 @@ export async function getValidAccessToken(company: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   if (s.accessToken && s.accessExp && Number(s.accessExp) > now + 60) return s.accessToken;
   if (!cred.token) throw new Error(`Revolut "${company}" sem consentimento — abra /api/revolut/auth?company=${encodeURIComponent(company)}.`);
-  const t = await tokenRequest(s.clientId, { grant_type: "refresh_token", refresh_token: cred.token });
+  const t = await tokenRequest(s.clientId, s.redirectUri, { grant_type: "refresh_token", refresh_token: cred.token });
   const exp = now + (t.expires_in ?? 1800);
   await prisma.credential.update({
     where: { issuer_company: { issuer: "revolut", company } },
     data: {
       token: t.refresh_token ?? cred.token,
-      secrets: JSON.stringify({ clientId: s.clientId, accessToken: t.access_token, accessExp: exp }),
+      secrets: JSON.stringify({ clientId: s.clientId, redirectUri: s.redirectUri, accessToken: t.access_token, accessExp: exp }),
     },
   });
   return t.access_token;

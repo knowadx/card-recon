@@ -4,8 +4,9 @@ import { authorizeUrl, registerCompany } from "@/lib/revolut";
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/revolut/auth?company=Pixelads&client_id=XXX
- * Registra a empresa + client_id e redireciona pro consentimento OAuth do Revolut.
+ * GET /api/revolut/auth?company=Pixelados&client_id=XXX
+ * Deriva o redirect do DOMÍNIO real desta requisição (Vercel/local), registra a
+ * empresa+client_id+redirect e redireciona pro consentimento. Sem localhost fixo.
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -17,6 +18,8 @@ export async function GET(request: Request) {
       { status: 400 },
     );
   }
-  await registerCompany(company, clientId);
-  return NextResponse.redirect(authorizeUrl(clientId, company));
+  // env override (caso queira forçar) senão o domínio atual
+  const redirectUri = process.env.REVOLUT_REDIRECT_URI || `${url.origin}/api/revolut/callback`;
+  await registerCompany(company, clientId, redirectUri);
+  return NextResponse.redirect(authorizeUrl(clientId, company, redirectUri));
 }
