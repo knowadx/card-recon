@@ -1,23 +1,10 @@
-import { getSetting } from "./settings";
-
 /**
- * Cliente mínimo da Meta Marketing API (Graph API).
- *
- * NOTA DE ARQUITETURA: a Marketing API NÃO expõe eventos de cobrança individuais
- * no cartão. O que extraímos aqui:
- *   - lista de Contas de Anúncio (com o BM/business dono);
- *   - qual CARTÃO financia cada conta (funding_source_details.display_string);
- *   - SPEND por período (endpoint insights).
- * A cobrança real (valor que tocou o cartão) vem das APIs de banco.
+ * Cliente mínimo da Meta Marketing API (Graph API). Token POR EMPRESA (passado
+ * por parâmetro). Define o universo de contas controladas + o cartão de funding
+ * de cada uma (funding_source_details) — base da checagem anti-vazamento.
  */
 
 const GRAPH = "https://graph.facebook.com";
-
-async function token(): Promise<string> {
-  const t = await getSetting("meta.accessToken", "META_ACCESS_TOKEN");
-  if (!t) throw new Error("META_ACCESS_TOKEN ausente — configure em /settings ou no .env");
-  return t;
-}
 
 function version(): string {
   return process.env.META_API_VERSION || "v21.0";
@@ -25,14 +12,14 @@ function version(): string {
 
 /** GET genérico na Graph API, com paginação automática (segue paging.next). */
 async function graphGetAll<T = Record<string, unknown>>(
+  token: string,
   path: string,
   params: Record<string, string>,
 ): Promise<T[]> {
-  const accessToken = await token();
   const out: T[] = [];
   let url: string | null =
     `${GRAPH}/${version()}/${path}?` +
-    new URLSearchParams({ ...params, access_token: accessToken, limit: "100" }).toString();
+    new URLSearchParams({ ...params, access_token: token, limit: "100" }).toString();
 
   while (url) {
     const res: Response = await fetch(url);
@@ -72,9 +59,9 @@ const BASE_FIELDS = ["account_id", "name", "currency", "account_status", "amount
  * Tenta incluir o BM (`business{}`); se o token não tiver `business_management`,
  * refaz a chamada sem o BM (as contas ficam sem bmId).
  */
-export async function fetchAdAccounts(): Promise<{ accounts: MetaAdAccount[]; bmAvailable: boolean }> {
+export async function fetchAdAccounts(token: string): Promise<{ accounts: MetaAdAccount[]; bmAvailable: boolean }> {
   try {
-    const accounts = await graphGetAll<MetaAdAccount>("me/adaccounts", {
+    const accounts = await graphGetAll<MetaAdAccount>(token, "me/adaccounts", {
       fields: [...BASE_FIELDS, "business{id,name}"].join(","),
     });
     return { accounts, bmAvailable: true };
@@ -82,7 +69,7 @@ export async function fetchAdAccounts(): Promise<{ accounts: MetaAdAccount[]; bm
     const msg = (e as Error).message;
     // Sem business_management → refaz sem o campo business
     if (/business_management|Missing Permission|#100/i.test(msg)) {
-      const accounts = await graphGetAll<MetaAdAccount>("me/adaccounts", {
+      const accounts = await graphGetAll<MetaAdAccount>(token, "me/adaccounts", {
         fields: BASE_FIELDS.join(","),
       });
       return { accounts, bmAvailable: false };
@@ -93,12 +80,13 @@ export async function fetchAdAccounts(): Promise<{ accounts: MetaAdAccount[]; bm
 
 /** Spend de uma conta num intervalo (YYYY-MM-DD). Retorna em moeda da conta. */
 export async function fetchSpend(
+  token: string,
   accountId: string, // "act_123" ou "123"
   since: string,
   until: string,
 ): Promise<number> {
   const act = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
-  const rows = await graphGetAll<{ spend?: string }>(`${act}/insights`, {
+  const rows = await graphGetAll<{ spend?: string }>(token, `${act}/insights`, {
     fields: "spend",
     level: "account",
     time_range: JSON.stringify({ since, until }),

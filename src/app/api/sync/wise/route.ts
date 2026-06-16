@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { isMetaMerchant } from "@/lib/metaCheck";
 
 const WISE_BASE = "https://api.wise.com";
 
@@ -218,6 +219,8 @@ export async function POST(request: Request) {
       fee: number | null;
       currency: string;
       reference: string;
+      cardLast4: string | null;
+      isMetaCharge: boolean;
     }> = [];
 
     const transferDebug: unknown[] = [];
@@ -261,6 +264,21 @@ export async function POST(request: Request) {
       }
 
       const description = a.title.replace(/<[^>]+>/g, "").trim();
+
+      // Cartão: para CARD_TRANSACTION, o detalhe traz cardLastDigits + merchant
+      let cardLast4: string | null = null;
+      let metaName = description;
+      if (a.resource?.type?.toUpperCase() === "CARD_TRANSACTION" && a.resource.id) {
+        const det = await fetchJson(
+          `${WISE_BASE}/v3/profiles/${profileId}/card-transactions/${a.resource.id}`,
+          headers,
+        ) as { cardLastDigits?: string; merchant?: { name?: string } } | null;
+        if (det) {
+          cardLast4 = det.cardLastDigits ?? null;
+          if (det.merchant?.name) metaName = det.merchant.name;
+        }
+      }
+
       candidates.push({
         accountId,
         date: new Date(a.createdOn),
@@ -269,6 +287,8 @@ export async function POST(request: Request) {
         fee: resolved.fee || null,
         currency: resolved.currency,
         reference: `wise-activity:${a.id}`,
+        cardLast4,
+        isMetaCharge: isMetaMerchant(metaName, description),
       });
     }
 

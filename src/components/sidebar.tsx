@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { LayoutDashboard, Building2, Landmark, Tag, ArrowLeftRight, CheckSquare, BarChart2, Settings, X, Target, DollarSign, TrendingUp, ChevronLeft, ChevronRight, LineChart } from "lucide-react";
+import { LayoutDashboard, Building2, Landmark, Tag, ArrowLeftRight, CheckSquare, BarChart2, Settings, X, Target, DollarSign, TrendingUp, ChevronLeft, ChevronRight, LineChart, ShieldCheck, Users, LogOut } from "lucide-react";
 
 const mainNav = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/checagem", label: "Checagem", icon: ShieldCheck },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/control", label: "Control", icon: CheckSquare },
   { href: "/plan", label: "Planning", icon: Target },
@@ -17,6 +18,7 @@ const mainNav = [
 const settingsNav = [
   { href: "/accounts", label: "Accounts", icon: Landmark },
   { href: "/companies", label: "Companies", icon: Building2 },
+  { href: "/users", label: "Users", icon: Users },
   { href: "/categories", label: "Categories", icon: Tag },
   { href: "/charts", label: "Charts", icon: BarChart2 },
   { href: "/exchange-rates", label: "Exchange Rates", icon: DollarSign },
@@ -116,10 +118,15 @@ export function Sidebar() {
       )}
 
       {/* Footer */}
-      <div className={`px-2 py-3 border-t border-[#e8eaed] flex items-center ${collapsed ? "justify-center" : "justify-between px-3"}`}>
+      <div className={`px-2 py-3 border-t border-[#e8eaed] flex items-center ${collapsed ? "justify-center gap-1 flex-col" : "justify-between px-3"}`}>
         {!collapsed && (
-          <p className="text-[11px] text-[#9ca3af]">ActiveView Group <span className="text-[#d1d5db]">v{process.env.NEXT_PUBLIC_BUILD_ID ?? "dev"}</span></p>
+          <p className="text-[11px] text-[#9ca3af]">Card Recon <span className="text-[#d1d5db]">v{process.env.NEXT_PUBLIC_BUILD_ID ?? "dev"}</span></p>
         )}
+        <form action="/api/auth/logout" method="post" className="inline">
+          <button type="submit" title="Sair" className="p-2 rounded-lg text-[#9ca3af] hover:text-[#6b7280] hover:bg-[#f3f4f6] transition-all">
+            <LogOut className="w-4 h-4" />
+          </button>
+        </form>
         <button
           onClick={() => setSettingsOpen((v) => !v)}
           title="Settings"

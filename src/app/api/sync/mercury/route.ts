@@ -1,7 +1,27 @@
 import { prisma } from "@/lib/db";
 import { KEY_MAP } from "@/lib/mercury";
+import { isMetaMerchant } from "@/lib/metaCheck";
 
 const MERCURY_BASE = "https://api.mercury.com/api/v1";
+
+// Mapa cardId(UUID) → últimos 4 dígitos, da conta Mercury
+async function fetchCardMap(key: string, mercuryAccountId: string): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  try {
+    const res = await fetch(`${MERCURY_BASE}/account/${mercuryAccountId}/cards`, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      for (const c of data.cards ?? []) {
+        if (c.cardId && c.lastFourDigits) map.set(c.cardId, c.lastFourDigits);
+      }
+    }
+  } catch {
+    /* conta sem cartões */
+  }
+  return map;
+}
 
 async function fetchAllTransactions(key: string, mercuryAccountId: string, start: string, end: string) {
   const all: unknown[] = [];
@@ -56,6 +76,7 @@ async function fetchAllTransactions(key: string, mercuryAccountId: string, start
     note: string | null;
     externalMemo: string | null;
     kind: string;
+    details?: { debitCardInfo?: { id?: string }; creditCardInfo?: { id?: string } } | null;
   }>;
 }
 
@@ -82,7 +103,10 @@ export async function POST(request: Request) {
   const end = to ?? new Date().toISOString().slice(0, 10);
   const start = from ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  const transactions = await fetchAllTransactions(key, mercuryAccountId, start, end);
+  const [transactions, cardMap] = await Promise.all([
+    fetchAllTransactions(key, mercuryAccountId, start, end),
+    fetchCardMap(key, mercuryAccountId),
+  ]);
 
   const existing = await prisma.transaction.findMany({
     where: { accountId, reference: { not: null } },
@@ -99,14 +123,19 @@ export async function POST(request: Request) {
   }
 
   await prisma.transaction.createMany({
-    data: toCreate.map((tx) => ({
-      accountId,
-      date: new Date(tx.postedAt ?? tx.createdAt),
-      description: tx.merchantName || tx.counterpartyName || tx.bankDescription || "—",
-      amount: tx.amount,
-      currency: "USD",
-      reference: tx.id,
-    })),
+    data: toCreate.map((tx) => {
+      const cardId = tx.details?.debitCardInfo?.id ?? tx.details?.creditCardInfo?.id;
+      return {
+        accountId,
+        date: new Date(tx.postedAt ?? tx.createdAt),
+        description: tx.merchantName || tx.counterpartyName || tx.bankDescription || "—",
+        amount: tx.amount,
+        currency: "USD",
+        reference: tx.id,
+        cardLast4: cardId ? cardMap.get(cardId) ?? null : null,
+        isMetaCharge: isMetaMerchant(tx.merchantName, tx.counterpartyName, tx.bankDescription),
+      };
+    }),
   });
 
   await prisma.account.update({

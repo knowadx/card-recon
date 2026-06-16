@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { getValidAccessToken, REVOLUT_BASE } from "@/lib/revolut";
+import { isMetaMerchant, last4Of } from "@/lib/metaCheck";
 
 interface RevolutTransaction {
   id: string;
@@ -18,6 +19,7 @@ interface RevolutTransaction {
     balance?: number;
   }>;
   merchant?: { name?: string };
+  card?: { card_number?: string; last_digits?: string };
   reference?: string;
 }
 
@@ -110,9 +112,11 @@ export async function POST(request: Request) {
           fee,
           currency: leg.currency,
           reference: ref,
+          cardLast4: last4Of(tx.card?.last_digits ?? tx.card?.card_number),
+          isMetaCharge: isMetaMerchant(tx.merchant?.name, leg.counterparty?.name, leg.description),
         };
       })
-      .filter(Boolean) as Array<{ accountId: string; date: Date; description: string; amount: number; currency: string; reference: string }>;
+      .filter(Boolean) as Array<{ accountId: string; date: Date; description: string; amount: number; currency: string; reference: string; cardLast4: string | null; isMetaCharge: boolean }>;
   });
 
   if (candidates.length > 0) {
