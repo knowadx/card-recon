@@ -39,3 +39,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# prisma
+/src/generated/prisma
+dev.db
+dev.db-journal
+
+# chaves
+wise_private.pem
+revolut_private.pem
+*.pem

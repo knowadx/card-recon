@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// Business Manager do Meta — agrupa contas de anúncio
+model BusinessManager {
+  id        String      @id // Meta business id
+  name      String
+  createdAt DateTime    @default(now())
+  accounts  AdAccount[]
+}
+
+// Conta de Anúncio do Meta (act_...) — gasta e é financiada por um cartão
+model AdAccount {
+  id               String            @id // "act_123" sem o prefixo act_ guardamos o numérico em accountId
+  accountId        String            @unique // id numérico puro
+  name             String
+  currency         String
+  accountStatus    Int?
+  bmId             String?
+  bm               BusinessManager?  @relation(fields: [bmId], references: [id])
+  // Cartão de funding, extraído de funding_source_details.display_string
+  fundingCardBrand String?
+  fundingCardLast4 String?
+  fundingRaw       String? // display_string original p/ auditoria
+  amountSpent      Float?            @default(0) // amount_spent (lifetime do ciclo) em moeda da conta
+  updatedAt        DateTime          @updatedAt
+  snapshots        SpendSnapshot[]
+
+  @@index([bmId])
+  @@index([fundingCardLast4])
+}
+
+// Cartão conhecido, vindo das APIs de banco (registro p/ casar com funding da conta)
+model Card {
+  id         String   @id @default(cuid())
+  issuer     String // "revolut" | "wise" | "mercury"
+  bankCardId String // id do cartão no banco
+  last4      String
+  brand      String?
+  label      String? // apelido/nome no banco
+  currency   String?
+  state      String?
+  company    String? // empresa dona da credencial
+  updatedAt  DateTime @updatedAt
+
+  @@unique([issuer, bankCardId])
+  @@index([last4])
+}
+
+// Cobrança real que tocou um cartão (extraída das transações do banco)
+model BankCharge {
+  id           String   @id @default(cuid())
+  issuer       String // "revolut" | "wise" | "mercury"
+  bankTxId     String // id da transação no banco (dedup)
+  date         DateTime
+  amount       Float // valor absoluto da cobrança (positivo = saída)
+  currency     String
+  merchantRaw  String? // nome do merchant cru
+  cardLast4    String?
+  isMetaCharge Boolean  @default(false) // classificado por regex de merchant
+  company      String? // empresa dona da credencial que trouxe esta cobrança
+  importedAt   DateTime @default(now())
+
+  @@unique([issuer, bankTxId])
+  @@index([cardLast4])
+  @@index([date])
+  @@index([isMetaCharge])
+}
+
+// Spend de uma conta de anúncio num período (do endpoint insights do Meta)
+model SpendSnapshot {
+  id          String    @id @default(cuid())
+  adAccountId String
+  adAccount   AdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  periodStart DateTime
+  periodEnd   DateTime
+  spend       Float
+  currency    String
+  fetchedAt   DateTime  @default(now())
+
+  @@unique([adAccountId, periodStart, periodEnd])
+  @@index([adAccountId])
+}
+
+// Configurações: tokens, credenciais, regras, tolerância
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// Credencial de um emissor por EMPRESA (Mercury tem 1 token por empresa; Wise/Revolut idem).
+model Credential {
+  id        String   @id @default(cuid())
+  issuer    String // "mercury" | "wise" | "revolut" | "meta"
+  company   String // nome da empresa dona desta credencial
+  token     String // bearer/access token
+  secrets   String? // JSON p/ campos extras (profileId, privateKeyPath, etc.)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([issuer, company])
+  @@index([issuer])
+}
