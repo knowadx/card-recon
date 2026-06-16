@@ -236,7 +236,7 @@ const save = async () => {
     const savedProfileId = a.syncConfig ? (JSON.parse(a.syncConfig) as { wiseProfileId?: string }).wiseProfileId ?? "" : "";
     setWiseProfileId(savedProfileId);
 
-    const list: WiseProfile[] = await fetch("/api/sync/wise/accounts").then((r) => r.json());
+    const list: WiseProfile[] = await fetch(`/api/sync/wise/accounts?accountId=${a.id}`).then((r) => r.json());
     const profiles = Array.isArray(list) ? list : [];
 
     const companyName = a.company.name.toLowerCase();
