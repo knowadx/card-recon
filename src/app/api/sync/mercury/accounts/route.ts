@@ -34,21 +34,21 @@ export async function GET(request: Request) {
 
   // 1 token por conta: se veio accountId, lista usando o token DAQUELA conta
   if (accountId) {
-    const acc = await prisma.account.findUnique({ where: { id: accountId }, include: { company: true } });
+    const acc = await prisma.account.findUnique({ where: { id: accountId } });
     if (!acc?.apiToken) return Response.json([]);
-    return Response.json(await fetchAccounts(acc.company?.name ?? acc.name, acc.apiToken).catch(() => []));
+    // rótulo = nome da CONTA (não da empresa)
+    return Response.json(await fetchAccounts(acc.name, acc.apiToken).catch(() => []));
   }
 
   // Sem accountId: agrega todos os tokens conhecidos (contas + env) — retrocompat
   const accountsWithToken = await prisma.account.findMany({
     where: { bank: "Mercury", NOT: { apiToken: null } },
-    include: { company: true },
   });
   const sources: Array<{ label: string; key: string }> = [];
   const seen = new Set<string>();
   for (const a of accountsWithToken) {
     if (a.apiToken && !seen.has(a.apiToken)) {
-      sources.push({ label: a.company?.name ?? a.name, key: a.apiToken });
+      sources.push({ label: a.name, key: a.apiToken });
       seen.add(a.apiToken);
     }
   }
