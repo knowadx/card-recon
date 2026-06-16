@@ -14,6 +14,23 @@ const ENV_TOKEN: Record<string, string> = {
 };
 
 /**
+ * Token de um emissor para UMA empresa (cadastrado na UI). Cai em fallbacks de env
+ * legados do Finance (KEY_MAP do Mercury, WISE_API_KEY) e por fim no token único.
+ * Retorna null se nada encontrado.
+ */
+export async function getCredentialToken(issuer: string, company?: string | null): Promise<string | null> {
+  if (company) {
+    const row = await prisma.credential.findFirst({ where: { issuer, company, isActive: true } });
+    if (row?.token) return row.token;
+  }
+  // qualquer credencial cadastrada do emissor (caso a empresa não bata exatamente)
+  const any = await prisma.credential.findFirst({ where: { issuer, isActive: true } });
+  if (any?.token) return any.token;
+  const envVar = ENV_TOKEN[issuer];
+  return (envVar && process.env[envVar]) || null;
+}
+
+/**
  * Credenciais ativas de um emissor (uma por empresa). Se nenhuma cadastrada no DB,
  * cai no token único do .env (empresa "default") — mantém o setup simples funcionando.
  */

@@ -9,6 +9,16 @@ const authToken = process.env.TURSO_TOKEN;
 if (!url) throw new Error("TURSO_URL ausente");
 
 const client = createClient({ url, authToken });
+
+// RESET=1 → derruba todas as tabelas antes de aplicar (schema mudou v1→v2)
+if (process.env.RESET === "1") {
+  const t = await client.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
+  for (const row of t.rows) {
+    await client.execute(`DROP TABLE IF EXISTS "${row.name}"`);
+  }
+  console.log("reset: tabelas derrubadas");
+}
+
 const dir = "prisma/migrations";
 const migs = readdirSync(dir, { withFileTypes: true })
   .filter((d) => d.isDirectory())

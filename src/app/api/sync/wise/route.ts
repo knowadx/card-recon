@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { isMetaMerchant } from "@/lib/metaCheck";
+import { getCredentialToken } from "@/lib/credentials";
 
 const WISE_BASE = "https://api.wise.com";
 
@@ -170,9 +171,6 @@ async function resolveTransferAmount(
 
 export async function POST(request: Request) {
   try {
-    const key = process.env.WISE_API_KEY ?? process.env.WISE_API_KEY_ACTIVEVIEW_LLC;
-    if (!key) return Response.json({ error: "WISE_API_KEY not set" }, { status: 500 });
-
     const body = await request.json();
     const { profileId, accountId, from, to } = body as {
       profileId: string;
@@ -185,8 +183,15 @@ export async function POST(request: Request) {
       return Response.json({ error: "profileId and accountId required" }, { status: 400 });
     }
 
-    const account = await prisma.account.findUnique({ where: { id: accountId } });
+    const account = await prisma.account.findUnique({ where: { id: accountId }, include: { company: true } });
     if (!account) return Response.json({ error: "account not found" }, { status: 404 });
+
+    // Token: 1º do banco (Integrações, por empresa), depois env do Finance
+    const key =
+      (await getCredentialToken("wise", account.company?.name)) ??
+      process.env.WISE_API_KEY ??
+      process.env.WISE_API_KEY_ACTIVEVIEW_LLC;
+    if (!key) return Response.json({ error: "Token Wise não cadastrado (Integrações) nem em env" }, { status: 400 });
 
     const end = to ? `${to}T23:59:59.999Z` : new Date().toISOString();
     const start = from

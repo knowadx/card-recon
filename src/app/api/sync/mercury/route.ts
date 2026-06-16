@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { KEY_MAP } from "@/lib/mercury";
 import { isMetaMerchant } from "@/lib/metaCheck";
+import { getCredentialToken } from "@/lib/credentials";
 
 const MERCURY_BASE = "https://api.mercury.com/api/v1";
 
@@ -90,15 +91,19 @@ export async function POST(request: Request) {
     entity?: string;
   };
 
-  const key = KEY_MAP[entity ?? "activeview"] ?? process.env.MERCURY_API_KEY;
-  if (!key) return Response.json({ error: "Mercury API key not set" }, { status: 500 });
-
   if (!mercuryAccountId || !accountId) {
     return Response.json({ error: "mercuryAccountId and accountId required" }, { status: 400 });
   }
 
-  const account = await prisma.account.findUnique({ where: { id: accountId } });
+  const account = await prisma.account.findUnique({ where: { id: accountId }, include: { company: true } });
   if (!account) return Response.json({ error: "account not found" }, { status: 404 });
+
+  // Token: 1º do banco (cadastrado na UI, por empresa), depois KEY_MAP/env do Finance
+  const key =
+    (await getCredentialToken("mercury", account.company?.name)) ??
+    KEY_MAP[entity ?? "activeview"] ??
+    process.env.MERCURY_API_KEY;
+  if (!key) return Response.json({ error: "Token Mercury não cadastrado (Integrações) nem em env" }, { status: 400 });
 
   const end = to ?? new Date().toISOString().slice(0, 10);
   const start = from ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
