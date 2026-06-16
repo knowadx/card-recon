@@ -82,11 +82,23 @@ export async function getCurrentUser() {
   return user;
 }
 
-/** IDs de empresas que o usuário pode ver. Admin = todas. */
+/** IDs de holdings que o usuário pode ver. Admin = todos. */
+export async function accessibleHoldingIds(userId: string, role: string): Promise<string[] | "all"> {
+  if (role === "admin") return "all";
+  const m = await prisma.membership.findMany({ where: { userId }, select: { holdingId: true } });
+  return m.map((x) => x.holdingId);
+}
+
+/** IDs de empresas que o usuário pode ver (via holdings concedidos). Admin = todas. */
 export async function accessibleCompanyIds(userId: string, role: string): Promise<string[] | "all"> {
   if (role === "admin") return "all";
-  const m = await prisma.membership.findMany({ where: { userId }, select: { companyId: true } });
-  return m.map((x) => x.companyId);
+  const holdingIds = await prisma.membership.findMany({ where: { userId }, select: { holdingId: true } });
+  if (holdingIds.length === 0) return [];
+  const companies = await prisma.company.findMany({
+    where: { holdingId: { in: holdingIds.map((h) => h.holdingId) } },
+    select: { id: true },
+  });
+  return companies.map((c) => c.id);
 }
 
 /** Empresas que a sessão atual pode ver: "all" (admin) ou lista de ids. */

@@ -5,7 +5,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   const body = await request.json();
   const company = await prisma.company.update({
     where: { id },
-    data: { name: body.name, cnpj: body.cnpj || null, color: body.color },
+    data: {
+      name: body.name,
+      cnpj: body.cnpj || null,
+      color: body.color,
+      ...(body.holdingId !== undefined ? { holdingId: body.holdingId || null } : {}),
+    },
   });
   return Response.json(company);
 }

@@ -2,19 +2,19 @@
 
 import { useEffect, useState } from "react";
 
-type Company = { id: string; name: string };
+type Holding = { id: string; name: string };
 type U = {
   id: string;
   email: string;
   name: string | null;
   role: string;
   isActive: boolean;
-  companies: Company[];
+  holdings: Holding[];
 };
 
 export default function UsersPage() {
   const [users, setUsers] = useState<U[]>([]);
-  const [companies, setCompanies] = useState<Company[]>([]);
+  const [holdings, setHoldings] = useState<Holding[]>([]);
   const [forbidden, setForbidden] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -22,13 +22,13 @@ export default function UsersPage() {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("member");
-  const [companyIds, setCompanyIds] = useState<string[]>([]);
+  const [holdingIds, setHoldingIds] = useState<string[]>([]);
 
   async function load() {
     const r = await fetch("/api/users");
     if (r.status === 403) { setForbidden(true); return; }
     setUsers(await r.json());
-    setCompanies(await fetch("/api/companies").then((x) => x.json()));
+    setHoldings(await fetch("/api/holdings").then((x) => x.json()));
   }
   useEffect(() => { load(); }, []);
 
@@ -36,11 +36,11 @@ export default function UsersPage() {
     const res = await fetch("/api/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, name, password, role, companyIds }),
+      body: JSON.stringify({ email, name, password, role, holdingIds }),
     });
     const j = await res.json();
     setMsg(j.ok ? `✅ ${email} criado` : `❌ ${j.error}`);
-    if (j.ok) { setEmail(""); setName(""); setPassword(""); setRole("member"); setCompanyIds([]); load(); }
+    if (j.ok) { setEmail(""); setName(""); setPassword(""); setRole("member"); setHoldingIds([]); load(); }
   }
 
   async function patch(id: string, body: Record<string, unknown>) {
@@ -60,7 +60,8 @@ export default function UsersPage() {
 
   return (
     <div className="flex flex-col gap-6 p-2">
-      <h1 className="text-xl font-semibold">Usuários</h1>
+      <h1 className="text-xl font-semibold">Usuários (operadores)</h1>
+      <p className="text-sm text-slate-500">O acesso é concedido por <strong>Holding</strong> — o operador vê/atua em todas as empresas daquele holding.</p>
       {msg && <div className="rounded-md bg-slate-900 px-3 py-2 text-sm text-white">{msg}</div>}
 
       <section className="rounded-lg border border-slate-200 bg-white p-4 flex flex-col gap-3">
@@ -75,17 +76,17 @@ export default function UsersPage() {
           </select>
         </div>
         <div className="flex flex-wrap gap-3 text-sm">
-          {companies.map((c) => (
-            <label key={c.id} className="flex items-center gap-1">
+          {holdings.map((h) => (
+            <label key={h.id} className="flex items-center gap-1">
               <input
                 type="checkbox"
-                checked={companyIds.includes(c.id)}
-                onChange={(e) => setCompanyIds((prev) => e.target.checked ? [...prev, c.id] : prev.filter((x) => x !== c.id))}
+                checked={holdingIds.includes(h.id)}
+                onChange={(e) => setHoldingIds((prev) => e.target.checked ? [...prev, h.id] : prev.filter((x) => x !== h.id))}
               />
-              {c.name}
+              {h.name}
             </label>
           ))}
-          {role === "admin" && <span className="text-xs text-slate-400">(admin vê todas as empresas)</span>}
+          {role === "admin" && <span className="text-xs text-slate-400">(admin vê todos os holdings)</span>}
         </div>
         <button className={btn + " self-start"} onClick={create} disabled={!email || !password}>Criar</button>
       </section>
@@ -93,7 +94,7 @@ export default function UsersPage() {
       <section className="rounded-lg border border-slate-200 bg-white p-4">
         <table className="w-full text-sm">
           <thead className="text-left text-xs uppercase text-slate-500">
-            <tr><th className="py-1">Email</th><th>Papel</th><th>Empresas</th><th>Ativo</th><th></th></tr>
+            <tr><th className="py-1">Email</th><th>Papel</th><th>Holdings</th><th>Ativo</th><th></th></tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {users.map((u) => (
@@ -106,21 +107,21 @@ export default function UsersPage() {
                   </select>
                 </td>
                 <td className="py-2 text-xs">
-                  {u.role === "admin" ? <span className="text-slate-400">todas</span> : (
+                  {u.role === "admin" ? <span className="text-slate-400">todos</span> : (
                     <div className="flex flex-wrap gap-2">
-                      {companies.map((c) => (
-                        <label key={c.id} className="flex items-center gap-1">
+                      {holdings.map((h) => (
+                        <label key={h.id} className="flex items-center gap-1">
                           <input
                             type="checkbox"
-                            checked={u.companies.some((x) => x.id === c.id)}
+                            checked={u.holdings.some((x) => x.id === h.id)}
                             onChange={(e) => {
                               const ids = e.target.checked
-                                ? [...u.companies.map((x) => x.id), c.id]
-                                : u.companies.map((x) => x.id).filter((x) => x !== c.id);
-                              patch(u.id, { companyIds: ids });
+                                ? [...u.holdings.map((x) => x.id), h.id]
+                                : u.holdings.map((x) => x.id).filter((x) => x !== h.id);
+                              patch(u.id, { holdingIds: ids });
                             }}
                           />
-                          {c.name}
+                          {h.name}
                         </label>
                       ))}
                     </div>

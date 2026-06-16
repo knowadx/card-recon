@@ -6,6 +6,7 @@ export async function GET() {
     const scope = await scopedCompanyIds();
     const companies = await prisma.company.findMany({
       where: scope === "all" ? {} : { id: { in: scope } },
+      include: { holding: { select: { id: true, name: true } } },
       orderBy: { name: "asc" },
     });
     return Response.json(companies);
@@ -18,7 +19,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const body = await request.json();
   const company = await prisma.company.create({
-    data: { name: body.name, cnpj: body.cnpj || null, color: body.color || "#6366f1" },
+    data: { name: body.name, cnpj: body.cnpj || null, color: body.color || "#6366f1", holdingId: body.holdingId || null },
   });
   return Response.json(company, { status: 201 });
 }

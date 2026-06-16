@@ -7,14 +7,27 @@ datasource db {
   provider = "sqlite"
 }
 
-model Company {
+// Holding agrupa empresas. O acesso multi-usuário é concedido no nível do Holding.
+model Holding {
   id          String       @id @default(cuid())
   name        String
-  cnpj        String?      @unique
   color       String       @default("#6366f1")
   createdAt   DateTime     @default(now())
-  accounts    Account[]
+  companies   Company[]
   memberships Membership[]
+}
+
+model Company {
+  id        String    @id @default(cuid())
+  name      String
+  cnpj      String?   @unique
+  color     String    @default("#6366f1")
+  holdingId String?
+  holding   Holding?  @relation(fields: [holdingId], references: [id])
+  createdAt DateTime  @default(now())
+  accounts  Account[]
+
+  @@index([holdingId])
 }
 
 model Account {
@@ -229,18 +242,18 @@ model Session {
   @@index([userId])
 }
 
-// Acesso de um usuário a uma empresa (conta herda da empresa)
+// Acesso de um usuário a um HOLDING (empresas e contas herdam do holding)
 model Membership {
   id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  companyId String
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  holdingId String
+  holding   Holding  @relation(fields: [holdingId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 
-  @@unique([userId, companyId])
+  @@unique([userId, holdingId])
   @@index([userId])
-  @@index([companyId])
+  @@index([holdingId])
 }
 
 // ===== Credenciais por empresa (Mercury/Wise/Revolut/Meta) =====

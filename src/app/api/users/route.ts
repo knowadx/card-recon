@@ -14,7 +14,7 @@ export async function GET() {
   if (!(await requireAdmin())) return Response.json({ error: "forbidden" }, { status: 403 });
   const users = await prisma.user.findMany({
     orderBy: { createdAt: "asc" },
-    include: { memberships: { include: { company: true } } },
+    include: { memberships: { include: { holding: true } } },
   });
   return NextResponse.json(
     users.map((u) => ({
@@ -23,14 +23,14 @@ export async function GET() {
       name: u.name,
       role: u.role,
       isActive: u.isActive,
-      companies: u.memberships.map((m) => ({ id: m.companyId, name: m.company.name })),
+      holdings: u.memberships.map((m) => ({ id: m.holdingId, name: m.holding.name })),
     })),
   );
 }
 
 export async function POST(request: Request) {
   if (!(await requireAdmin())) return Response.json({ error: "forbidden" }, { status: 403 });
-  const { email, password, name, role, companyIds } = await request.json().catch(() => ({}));
+  const { email, password, name, role, holdingIds } = await request.json().catch(() => ({}));
   if (!email || !password) return Response.json({ error: "email e senha obrigatórios" }, { status: 400 });
   try {
     const user = await prisma.user.create({
@@ -39,8 +39,8 @@ export async function POST(request: Request) {
         passwordHash: hashPassword(String(password)),
         name: name ?? null,
         role: role === "admin" ? "admin" : "member",
-        memberships: Array.isArray(companyIds)
-          ? { create: companyIds.map((companyId: string) => ({ companyId })) }
+        memberships: Array.isArray(holdingIds)
+          ? { create: holdingIds.map((holdingId: string) => ({ holdingId })) }
           : undefined,
       },
     });

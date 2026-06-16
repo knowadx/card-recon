@@ -21,11 +21,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (body.password) data.passwordHash = hashPassword(String(body.password));
   if (Object.keys(data).length) await prisma.user.update({ where: { id }, data });
 
-  if (Array.isArray(body.companyIds)) {
+  if (Array.isArray(body.holdingIds)) {
     await prisma.membership.deleteMany({ where: { userId: id } });
-    if (body.companyIds.length) {
+    if (body.holdingIds.length) {
       await prisma.membership.createMany({
-        data: body.companyIds.map((companyId: string) => ({ userId: id, companyId })),
+        data: body.holdingIds.map((holdingId: string) => ({ userId: id, holdingId })),
       });
     }
   }
