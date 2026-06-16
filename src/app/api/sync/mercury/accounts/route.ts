@@ -1,11 +1,14 @@
+import { prisma } from "@/lib/db";
+
 const MERCURY_BASE = "https://api.mercury.com/api/v1";
 
+// Fallback de env (legado do Finance)
 export const KEY_MAP: Record<string, string | undefined> = {
   activeview: process.env.MERCURY_API_KEY,
   "4ads": process.env.MERCURY_API_KEY_4ADS,
 };
 
-async function fetchAccounts(entity: string, key: string) {
+async function fetchAccounts(label: string, key: string) {
   const headers = { Authorization: `Bearer ${key}` };
 
   const [accountsRes, creditRes] = await Promise.all([
@@ -14,49 +17,41 @@ async function fetchAccounts(entity: string, key: string) {
   ]);
 
   const accounts = accountsRes.ok
-    ? ((await accountsRes.json()).accounts ?? []).map((a: object) => ({ ...a, entity }))
+    ? ((await accountsRes.json()).accounts ?? []).map((a: object) => ({ ...a, entity: label, legalBusinessName: label }))
     : [];
 
-  // Credit accounts come from /credit — add kind and a display name
   const credits = creditRes.ok
     ? ((await creditRes.json()).accounts ?? []).map((c: { id: string; availableBalance: number; status: string }, i: number) => ({
         ...c,
-        entity,
+        entity: label,
         kind: "credit",
         name: `Mercury Credit${i > 0 ? ` ${i + 1}` : ""}`,
-        legalBusinessName: entity === "activeview" ? "ActiveView INC" : "4ADS MEDIA LLC",
+        legalBusinessName: label,
       }))
     : [];
 
   return [...accounts, ...credits];
 }
 
-export async function GET(request: Request) {
-  const debug = new URL(request.url).searchParams.get("debug") === "1";
+export async function GET() {
+  // Tokens: credenciais cadastradas na UI (por empresa) + fallback env KEY_MAP
+  const dbCreds = await prisma.credential.findMany({ where: { issuer: "mercury", isActive: true } });
+  const sources: Array<{ label: string; key: string }> = [];
+  const seen = new Set<string>();
 
-  if (debug) {
-    // Return raw API responses for debugging
-    const key = process.env.MERCURY_API_KEY;
-    if (!key) return Response.json({ error: "no key" });
-    const endpoints = [
-      `${MERCURY_BASE}/accounts`,
-      `${MERCURY_BASE}/credit-card/accounts`,
-      `${MERCURY_BASE}/creditCard/accounts`,
-      `${MERCURY_BASE}/credit-cards`,
-      `${MERCURY_BASE}/creditCards`,
-    ];
-    const raw: Record<string, unknown> = {};
-    for (const ep of endpoints) {
-      const res = await fetch(ep, { headers: { Authorization: `Bearer ${key}` } });
-      raw[ep] = { status: res.status, body: res.ok ? await res.json() : await res.text() };
+  for (const c of dbCreds) {
+    if (c.token && !seen.has(c.token)) {
+      sources.push({ label: c.company, key: c.token });
+      seen.add(c.token);
     }
-    return Response.json(raw);
+  }
+  for (const [entity, key] of Object.entries(KEY_MAP)) {
+    if (key && !seen.has(key)) {
+      sources.push({ label: entity, key });
+      seen.add(key);
+    }
   }
 
-  const results = await Promise.all(
-    Object.entries(KEY_MAP)
-      .filter(([, key]) => Boolean(key))
-      .map(([entity, key]) => fetchAccounts(entity, key!))
-  );
+  const results = await Promise.all(sources.map(({ label, key }) => fetchAccounts(label, key).catch(() => [])));
   return Response.json(results.flat());
 }
