@@ -24,6 +24,7 @@ model Account {
   bank         String
   currency     String
   name         String
+  apiToken     String? // token da API do banco — 1 token por conta (ex.: Mercury)
   syncConfig   String? // JSON: { mercuryAccountId?, mercuryEntity?, wiseProfileId? }
   createdAt    DateTime      @default(now())
   transactions Transaction[]

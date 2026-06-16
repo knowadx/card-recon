@@ -186,12 +186,13 @@ export async function POST(request: Request) {
     const account = await prisma.account.findUnique({ where: { id: accountId }, include: { company: true } });
     if (!account) return Response.json({ error: "account not found" }, { status: 404 });
 
-    // Token: 1º do banco (Integrações, por empresa), depois env do Finance
+    // Token: 1º o da própria CONTA, depois fallbacks legados
     const key =
-      (await getCredentialToken("wise", account.company?.name)) ??
-      process.env.WISE_API_KEY ??
+      account.apiToken ||
+      (await getCredentialToken("wise", account.company?.name)) ||
+      process.env.WISE_API_KEY ||
       process.env.WISE_API_KEY_ACTIVEVIEW_LLC;
-    if (!key) return Response.json({ error: "Token Wise não cadastrado (Integrações) nem em env" }, { status: 400 });
+    if (!key) return Response.json({ error: "Token Wise não cadastrado nesta conta" }, { status: 400 });
 
     const end = to ? `${to}T23:59:59.999Z` : new Date().toISOString();
     const start = from

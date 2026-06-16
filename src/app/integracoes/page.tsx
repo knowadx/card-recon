@@ -5,11 +5,9 @@ import { useEffect, useState } from "react";
 type Company = { id: string; name: string };
 type Cred = { id: string; issuer: string; company: string; tokenMasked: string; hasToken: boolean };
 
-const ISSUERS = [
-  { id: "mercury", label: "Mercury" },
-  { id: "wise", label: "Wise" },
-  { id: "meta", label: "Meta" },
-];
+// Tokens de banco (Mercury/Wise) ficam NA CONTA (1 token por conta) — tela Accounts.
+// Aqui só o token do Meta (cobre as contas de anúncio que o token enxerga), por empresa.
+const ISSUERS = [{ id: "meta", label: "Meta (Marketing API)" }];
 
 export default function IntegracoesPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -56,7 +54,8 @@ export default function IntegracoesPage() {
       <div>
         <h1 className="text-xl font-semibold">Integrações</h1>
         <p className="text-sm text-slate-500">
-          Cadastre os tokens de API por empresa. Os syncs usam estes tokens (com fallback nas envs). Revolut conecta por OAuth na tela Accounts.
+          Token do <strong>Meta</strong> por empresa (define quais contas de anúncio você controla, base da checagem).
+          Tokens de <strong>banco</strong> (Mercury/Wise) ficam <strong>em cada conta</strong> na tela <a className="underline" href="/accounts">Accounts</a> (1 token por conta). Revolut = OAuth em Accounts.
         </p>
       </div>
       {msg && <div className="rounded-md bg-slate-900 px-3 py-2 text-sm text-white">{msg}</div>}

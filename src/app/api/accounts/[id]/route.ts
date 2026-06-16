@@ -5,7 +5,13 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   const body = await request.json();
   const account = await prisma.account.update({
     where: { id },
-    data: { companyId: body.companyId, bank: body.bank, currency: body.currency, name: body.name },
+    data: {
+      companyId: body.companyId,
+      bank: body.bank,
+      currency: body.currency,
+      name: body.name,
+      ...(body.apiToken !== undefined ? { apiToken: body.apiToken || null } : {}),
+    },
     include: { company: true },
   });
   return Response.json(account);

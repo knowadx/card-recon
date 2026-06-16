@@ -16,7 +16,7 @@ type ApiStatus = { ok: boolean | null; label: string };
 
 const BANKS = ["Revolut", "Husky", "Wise", "Mercury", "Dolafy"];
 const CURRENCIES = ["USD", "BRL", "EUR", "GBP", "ARS", "CLP", "MXN", "COP"];
-const EMPTY = { name: "", bank: "Mercury", currency: "USD", companyId: "" };
+const EMPTY = { name: "", bank: "Mercury", currency: "USD", companyId: "", apiToken: "" };
 
 const defaultSyncFrom = () => {
   const d = new Date();
@@ -104,10 +104,12 @@ export default function AccountsPage() {
   }, []);
 
 const save = async () => {
+    // apiToken vazio na edição = manter o atual (não envia); na criação vai como está
+    const payload = editing && !form.apiToken ? { ...form, apiToken: undefined } : form;
     if (editing) {
-      await fetch(`/api/accounts/${editing.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      await fetch(`/api/accounts/${editing.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     } else {
-      await fetch("/api/accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      await fetch("/api/accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     }
     setOpen(false); setEditing(null); setForm(EMPTY); load();
   };
@@ -119,7 +121,7 @@ const save = async () => {
 
   const openEdit = (a: Account) => {
     setEditing(a);
-    setForm({ name: a.name, bank: a.bank, currency: a.currency, companyId: a.company.id });
+    setForm({ name: a.name, bank: a.bank, currency: a.currency, companyId: a.company.id, apiToken: "" });
     setOpen(true);
   };
 
@@ -128,7 +130,7 @@ const save = async () => {
     setMercurySyncResult(null);
     setMercuryAccountId("");
     setMercurySyncOpen(true);
-    const list: MercuryAccount[] = await fetch("/api/sync/mercury/accounts").then((r) => r.json());
+    const list: MercuryAccount[] = await fetch(`/api/sync/mercury/accounts?accountId=${a.id}`).then((r) => r.json());
 
     // Filter to only accounts belonging to this company, matched by legalBusinessName or entity key
     const companyName = a.company.name.toLowerCase();
@@ -628,6 +630,20 @@ const save = async () => {
                 </Select>
               </div>
             </div>
+            {(form.bank === "Mercury" || form.bank === "Wise") && (
+              <div className="space-y-2">
+                <Label className="text-[13px] font-medium text-[#374151]">
+                  Token da API ({form.bank}) — 1 token por conta
+                </Label>
+                <Input
+                  type="password"
+                  value={form.apiToken}
+                  onChange={(e) => setForm({ ...form, apiToken: e.target.value })}
+                  placeholder={editing ? "deixe vazio p/ manter o atual" : "cole o token desta conta"}
+                  className="h-10 text-sm rounded-lg border-[#e8eaed]"
+                />
+              </div>
+            )}
             <Button onClick={save} className="w-full h-10 text-sm rounded-lg bg-[#00b9a5] hover:bg-[#00a896] text-white font-semibold">Save</Button>
           </div>
         </DialogContent>
