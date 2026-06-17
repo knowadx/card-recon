@@ -16,7 +16,7 @@ type ApiStatus = { ok: boolean | null; label: string };
 
 const BANKS = ["Revolut", "Husky", "Wise", "Mercury", "Dolafy"];
 const CURRENCIES = ["USD", "BRL", "EUR", "GBP", "ARS", "CLP", "MXN", "COP"];
-const EMPTY = { name: "", bank: "Mercury", currency: "USD", companyId: "", apiToken: "", operationId: "" };
+const EMPTY = { name: "", bank: "Mercury", currency: "USD", companyId: "", apiToken: "" };
 
 const defaultSyncFrom = () => {
   const d = new Date();
@@ -35,7 +35,6 @@ const BANK_COLORS: Record<string, string> = {
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [operations, setOperations] = useState<{ id: string; name: string }[]>([]);
   const [form, setForm] = useState(EMPTY);
   const [editing, setEditing] = useState<Account | null>(null);
   const [open, setOpen] = useState(false);
@@ -87,7 +86,6 @@ export default function AccountsPage() {
   const load = () => {
     fetch("/api/accounts").then((r) => r.json()).then(setAccounts);
     fetch("/api/companies").then((r) => r.json()).then(setCompanies);
-    fetch("/api/operations").then((r) => r.json()).then((d) => setOperations(Array.isArray(d) ? d : []));
   };
 
   const loadStatus = () => {
@@ -123,7 +121,7 @@ const save = async () => {
 
   const openEdit = (a: Account) => {
     setEditing(a);
-    setForm({ name: a.name, bank: a.bank, currency: a.currency, companyId: a.company.id, apiToken: "", operationId: a.operation?.id ?? "" });
+    setForm({ name: a.name, bank: a.bank, currency: a.currency, companyId: a.company.id, apiToken: "" });
     setOpen(true);
   };
 
@@ -619,20 +617,6 @@ const save = async () => {
                   </span>
                 </SelectTrigger>
                 <SelectContent>{companies.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-[13px] font-medium text-[#374151]">Operação (de quem é o gasto)</Label>
-              <Select value={form.operationId} onValueChange={(v) => setForm({ ...form, operationId: v === "__none__" ? "" : (v ?? "") })}>
-                <SelectTrigger className="h-10 text-sm rounded-lg border-[#e8eaed]">
-                  <span className="flex-1 text-left truncate text-sm">
-                    {operations.find(o => o.id === form.operationId)?.name ?? <span className="text-[#9ca3af]">(sem operação)</span>}
-                  </span>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">(sem operação)</SelectItem>
-                  {operations.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
-                </SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-3">
