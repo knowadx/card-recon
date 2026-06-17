@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 type Tx = {
   id: string;
@@ -11,6 +11,7 @@ type Tx = {
   cardLast4: string | null;
   account: string | null;
   company: string | null;
+  operation?: string | null;
   validatedBy?: string | null;
 };
 type WL = { id: string; last4: string; label: string | null; company: string | null };
@@ -36,6 +37,8 @@ type Data = {
   whitelist: WL[];
 };
 
+const PAGE_SIZE = 25;
+
 function money(n: number, c: string) {
   return `${c} ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -44,7 +47,11 @@ export default function ChecagemPage() {
   const [data, setData] = useState<Data | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [comboFilter, setComboFilter] = useState("");
+
+  // filtros compartilhados
+  const [fOp, setFOp] = useState("");
+  const [fCard, setFCard] = useState("");
+  const [fAcct, setFAcct] = useState("");
 
   async function load() {
     setData(await fetch("/api/checagem").then((r) => r.json()));
@@ -82,11 +89,35 @@ export default function ChecagemPage() {
   }
 
   const btn = "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50";
+  const input = "rounded-md border border-slate-300 px-2 py-1 text-sm";
 
-  const f = comboFilter.trim().toLowerCase();
-  const filteredCombos = (data?.combos ?? []).filter((c) =>
-    !f || [c.last4, c.brand, c.account, c.accountId, c.bm, c.bmId, c.operation].some((v) => v?.toLowerCase().includes(f)),
-  );
+  const card = fCard.trim().toLowerCase();
+  const acct = fAcct.trim().toLowerCase();
+
+  // lista de operações p/ o dropdown (das transações + combos presentes)
+  const operations = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of data?.leak ?? []) if (t.operation) set.add(t.operation);
+    for (const t of data?.review ?? []) if (t.operation) set.add(t.operation);
+    for (const c of data?.combos ?? []) if (c.operation) set.add(c.operation);
+    return Array.from(set).sort();
+  }, [data]);
+
+  // filtra transações por Operação + Cartão (conta de anúncio não se aplica a cobrança do extrato)
+  const txMatch = (t: Tx) =>
+    (!fOp || t.operation === fOp) && (!card || (t.cardLast4 ?? "").toLowerCase().includes(card));
+  // filtra combos por Operação + Cartão + Conta de anúncio (ID/Nome)
+  const comboMatch = (c: Combo) =>
+    (!fOp || c.operation === fOp) &&
+    (!card || (c.last4 ?? "").toLowerCase().includes(card)) &&
+    (!acct || [c.account, c.accountId].some((v) => v?.toLowerCase().includes(acct)));
+
+  const leakF = (data?.leak ?? []).filter(txMatch);
+  const reviewF = (data?.review ?? []).filter(txMatch);
+  const combosF = (data?.combos ?? []).filter(comboMatch);
+
+  const filtering = !!(fOp || card || acct);
+  const clearFilters = () => { setFOp(""); setFCard(""); setFAcct(""); };
 
   return (
     <div className="flex flex-col gap-5 p-2">
@@ -118,119 +149,130 @@ export default function ChecagemPage() {
             <Kpi label="Contas Meta" value={data.metaAccounts} />
           </div>
 
-          {/* Vazamentos */}
-          <section className="flex flex-col gap-2">
-            <h2 className="text-sm font-semibold text-slate-700">🔴 Cobranças suspeitas ({data.leak.length})</h2>
-            {data.leak.length === 0 ? (
-              <p className="rounded-md border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
-                Nenhuma cobrança Meta fora das suas contas. 👍
-              </p>
-            ) : (
-              <div className="overflow-x-auto rounded-lg border border-red-200 bg-white">
-                <table className="w-full text-sm">
-                  <thead className="bg-red-50 text-left text-xs uppercase text-red-700">
-                    <tr>
-                      <th className="px-3 py-2">Data</th>
-                      <th className="px-3 py-2">Empresa / Conta</th>
-                      <th className="px-3 py-2">Descrição</th>
-                      <th className="px-3 py-2">Cartão</th>
-                      <th className="px-3 py-2 text-right">Valor</th>
-                      <th className="px-3 py-2"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {data.leak.map((t) => (
-                      <tr key={t.id}>
-                        <td className="px-3 py-2 tabular-nums">{t.date}</td>
-                        <td className="px-3 py-2 text-xs">{t.company ?? "—"}<div className="text-slate-400">{t.account}</div></td>
-                        <td className="px-3 py-2">{t.description}</td>
-                        <td className="px-3 py-2 text-xs">{t.cardLast4 ? `•••• ${t.cardLast4}` : "—"}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{money(t.amount, t.currency)}</td>
-                        <td className="px-3 py-2 text-right">
-                          {t.cardLast4 && (
-                            <button className="text-xs text-indigo-600 hover:underline" onClick={() => whitelistCard(t.cardLast4!)}>
-                              marcar cartão como meu
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+          {/* Barra de filtros */}
+          <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3">
+            <label className="flex flex-col gap-1 text-xs text-slate-500">
+              Operação
+              <select className={input} value={fOp} onChange={(e) => setFOp(e.target.value)}>
+                <option value="">Todas</option>
+                {operations.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-500">
+              Cartão (4 dígitos)
+              <input className={input} placeholder="ex.: 6830" value={fCard} onChange={(e) => setFCard(e.target.value)} />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-500">
+              Conta de anúncio (ID ou nome)
+              <input className={input + " min-w-[200px]"} placeholder="ex.: 1234567890 ou Conta X" value={fAcct} onChange={(e) => setFAcct(e.target.value)} />
+            </label>
+            {filtering && (
+              <button className="text-xs text-indigo-600 hover:underline pb-1.5" onClick={clearFilters}>limpar filtros</button>
             )}
-          </section>
+            <span className="ml-auto text-xs text-slate-400 pb-1.5">
+              {acct ? "filtro de conta de anúncio só afeta o Mapa de cartões" : ""}
+            </span>
+          </div>
+
+          {/* Vazamentos */}
+          <PagedSection
+            title={`🔴 Cobranças suspeitas (${leakF.length}${filtering ? ` de ${data.leak.length}` : ""})`}
+            empty={data.leak.length === 0 ? "Nenhuma cobrança Meta fora das suas contas. 👍" : "Nenhum resultado para o filtro."}
+            rows={leakF}
+            border="border-red-200"
+            head={
+              <tr>
+                <th className="px-3 py-2">Data</th>
+                <th className="px-3 py-2">Operação</th>
+                <th className="px-3 py-2">Empresa / Conta</th>
+                <th className="px-3 py-2">Descrição</th>
+                <th className="px-3 py-2">Cartão</th>
+                <th className="px-3 py-2 text-right">Valor</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            }
+            headClass="bg-red-50 text-red-700"
+            row={(t) => (
+              <tr key={t.id}>
+                <td className="px-3 py-2 tabular-nums">{t.date}</td>
+                <td className="px-3 py-2 text-xs">{t.operation ?? "—"}</td>
+                <td className="px-3 py-2 text-xs">{t.company ?? "—"}<div className="text-slate-400">{t.account}</div></td>
+                <td className="px-3 py-2">{t.description}</td>
+                <td className="px-3 py-2 text-xs">{t.cardLast4 ? `•••• ${t.cardLast4}` : "—"}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{money(t.amount, t.currency)}</td>
+                <td className="px-3 py-2 text-right">
+                  {t.cardLast4 && (
+                    <button className="text-xs text-indigo-600 hover:underline" onClick={() => whitelistCard(t.cardLast4!)}>
+                      marcar cartão como meu
+                    </button>
+                  )}
+                </td>
+              </tr>
+            )}
+          />
 
           {/* A revisar */}
           {data.review.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <h2 className="text-sm font-semibold text-slate-700">⚪ A revisar — cobrança Meta sem cartão identificado ({data.review.length})</h2>
-              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                <table className="w-full text-sm">
-                  <tbody className="divide-y divide-slate-100">
-                    {data.review.slice(0, 50).map((t) => (
-                      <tr key={t.id}>
-                        <td className="px-3 py-2 tabular-nums">{t.date}</td>
-                        <td className="px-3 py-2 text-xs">{t.company ?? "—"}</td>
-                        <td className="px-3 py-2">{t.description}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{money(t.amount, t.currency)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
+            <PagedSection
+              title={`⚪ A revisar — cobrança Meta sem cartão identificado (${reviewF.length}${filtering ? ` de ${data.review.length}` : ""})`}
+              empty="Nenhum resultado para o filtro."
+              rows={reviewF}
+              border="border-slate-200"
+              head={
+                <tr>
+                  <th className="px-3 py-2">Data</th>
+                  <th className="px-3 py-2">Operação</th>
+                  <th className="px-3 py-2">Empresa</th>
+                  <th className="px-3 py-2">Descrição</th>
+                  <th className="px-3 py-2 text-right">Valor</th>
+                </tr>
+              }
+              headClass="bg-slate-50 text-slate-500"
+              row={(t) => (
+                <tr key={t.id}>
+                  <td className="px-3 py-2 tabular-nums">{t.date}</td>
+                  <td className="px-3 py-2 text-xs">{t.operation ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs">{t.company ?? "—"}</td>
+                  <td className="px-3 py-2">{t.description}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{money(t.amount, t.currency)}</td>
+                </tr>
+              )}
+            />
           )}
 
-          {/* Mapa cartão → onde gasta (Conta + BM com IDs, operação, gasto) */}
-          <section className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold text-slate-700">Mapa de cartões — onde cada cartão gasta ({data.combos?.length ?? 0})</h2>
-              <input
-                className="rounded-md border border-slate-300 px-2 py-1 text-xs w-40"
-                placeholder="filtrar cartão/BM/conta…"
-                value={comboFilter}
-                onChange={(e) => setComboFilter(e.target.value)}
-              />
-            </div>
-            <p className="text-xs text-slate-500">Cada cartão de funding e as Contas de Anúncio / BMs (com IDs) que ele financia. Atualiza a cada <strong>Sync contas Meta</strong>. Cobrança nesses cartões entra como segura automaticamente.</p>
-            {(filteredCombos.length ?? 0) > 0 ? (
-              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-                    <tr>
-                      <th className="px-3 py-2">Cartão</th>
-                      <th className="px-3 py-2">Conta de anúncio</th>
-                      <th className="px-3 py-2">Account ID</th>
-                      <th className="px-3 py-2">BM</th>
-                      <th className="px-3 py-2">BM ID</th>
-                      <th className="px-3 py-2">Operação</th>
-                      <th className="px-3 py-2 text-right">Gasto (Meta)</th>
-                      <th className="px-3 py-2">Origem</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredCombos.map((c, i) => (
-                      <tr key={i}>
-                        <td className="px-3 py-2 whitespace-nowrap">{c.brand ? `${c.brand} ` : ""}•••• {c.last4}</td>
-                        <td className="px-3 py-2 text-xs">{c.account ?? "—"}</td>
-                        <td className="px-3 py-2 text-xs tabular-nums text-slate-500">{c.accountId ?? "—"}</td>
-                        <td className="px-3 py-2 text-xs">{c.bm ?? "—"}</td>
-                        <td className="px-3 py-2 text-xs tabular-nums text-slate-500">{c.bmId ?? "—"}</td>
-                        <td className="px-3 py-2 text-xs">{c.operation ?? "—"}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{c.spent != null && c.currency ? money(c.spent, c.currency) : "—"}</td>
-                        <td className="px-3 py-2 text-xs">{c.source === "meta" ? "Meta" : "manual"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="rounded-md border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">
-                {data.combos?.length ? "Nenhum resultado para o filtro." : <>Nenhuma combinação ainda. Rode <strong>Sync contas Meta</strong> (com tokens que exponham o funding) — aí cada cartão→conta/BM aparece aqui.</>}
-              </p>
+          {/* Mapa cartão → onde gasta */}
+          <PagedSection
+            title={`Mapa de cartões — onde cada cartão gasta (${combosF.length}${filtering ? ` de ${data.combos?.length ?? 0}` : ""})`}
+            note="Cada cartão de funding e as Contas de Anúncio / BMs (com IDs) que ele financia. Atualiza a cada Sync contas Meta. Cobrança nesses cartões entra como segura automaticamente."
+            empty={(data.combos?.length ?? 0) === 0 ? "Nenhuma combinação ainda. Rode Sync contas Meta." : "Nenhum resultado para o filtro."}
+            rows={combosF}
+            border="border-slate-200"
+            head={
+              <tr>
+                <th className="px-3 py-2">Cartão</th>
+                <th className="px-3 py-2">Conta de anúncio</th>
+                <th className="px-3 py-2">Account ID</th>
+                <th className="px-3 py-2">BM</th>
+                <th className="px-3 py-2">BM ID</th>
+                <th className="px-3 py-2">Operação</th>
+                <th className="px-3 py-2 text-right">Gasto (Meta)</th>
+                <th className="px-3 py-2">Origem</th>
+              </tr>
+            }
+            headClass="bg-slate-50 text-slate-500"
+            row={(c, i) => (
+              <tr key={i}>
+                <td className="px-3 py-2 whitespace-nowrap">{c.brand ? `${c.brand} ` : ""}•••• {c.last4}</td>
+                <td className="px-3 py-2 text-xs">{c.account ?? "—"}</td>
+                <td className="px-3 py-2 text-xs tabular-nums text-slate-500">{c.accountId ?? "—"}</td>
+                <td className="px-3 py-2 text-xs">{c.bm ?? "—"}</td>
+                <td className="px-3 py-2 text-xs tabular-nums text-slate-500">{c.bmId ?? "—"}</td>
+                <td className="px-3 py-2 text-xs">{c.operation ?? "—"}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{c.spent != null && c.currency ? money(c.spent, c.currency) : "—"}</td>
+                <td className="px-3 py-2 text-xs">{c.source === "meta" ? "Meta" : "manual"}</td>
+              </tr>
             )}
-          </section>
+          />
 
           {/* Whitelist */}
           <section className="flex flex-col gap-2">
@@ -250,6 +292,53 @@ export default function ChecagemPage() {
         </>
       )}
     </div>
+  );
+}
+
+/** Seção com tabela paginada (PAGE_SIZE por página). Reseta p/ página 1 quando os dados/filtros mudam. */
+function PagedSection<T>({
+  title, note, empty, rows, head, headClass, row, border,
+}: {
+  title: string;
+  note?: string;
+  empty: string;
+  rows: T[];
+  head: ReactNode;
+  headClass: string;
+  row: (item: T, index: number) => ReactNode;
+  border: string;
+}) {
+  const [page, setPage] = useState(1);
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  useEffect(() => { if (page > pages) setPage(1); }, [pages, page]);
+  const start = (page - 1) * PAGE_SIZE;
+  const slice = rows.slice(start, start + PAGE_SIZE);
+
+  return (
+    <section className="flex flex-col gap-2">
+      <h2 className="text-sm font-semibold text-slate-700">{title}</h2>
+      {note && <p className="text-xs text-slate-500">{note}</p>}
+      {rows.length === 0 ? (
+        <p className="rounded-md border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">{empty}</p>
+      ) : (
+        <>
+          <div className={`overflow-x-auto rounded-lg border ${border} bg-white`}>
+            <table className="w-full text-sm">
+              <thead className={`text-left text-xs uppercase ${headClass}`}>{head}</thead>
+              <tbody className="divide-y divide-slate-100">{slice.map((item, i) => row(item, start + i))}</tbody>
+            </table>
+          </div>
+          {pages > 1 && (
+            <div className="flex items-center justify-end gap-3 text-xs text-slate-500">
+              <span>{start + 1}–{Math.min(start + PAGE_SIZE, rows.length)} de {rows.length}</span>
+              <button className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-40" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>‹ anterior</button>
+              <span>{page}/{pages}</span>
+              <button className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-40" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>próxima ›</button>
+            </div>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

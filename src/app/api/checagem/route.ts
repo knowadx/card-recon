@@ -14,19 +14,19 @@ export async function GET() {
   const [leak, review, okSample, okCount, metaAccts, metaWithCard, whitelist] = await Promise.all([
     prisma.transaction.findMany({
       where: { ...base, metaCheck: "leak" },
-      include: { account: { include: { company: true } } },
+      include: { account: { include: { company: true } }, operation: { select: { name: true } } },
       orderBy: { date: "desc" },
       take: 500,
     }),
     prisma.transaction.findMany({
       where: { ...base, metaCheck: "review" },
-      include: { account: { include: { company: true } } },
+      include: { account: { include: { company: true } }, operation: { select: { name: true } } },
       orderBy: { date: "desc" },
       take: 200,
     }),
     prisma.transaction.findMany({
       where: { ...base, metaCheck: "ok" },
-      include: { account: { include: { company: true } } },
+      include: { account: { include: { company: true } }, operation: { select: { name: true } } },
       orderBy: { date: "desc" },
       take: 200,
     }),
@@ -52,6 +52,7 @@ export async function GET() {
     cardLast4: t.cardLast4,
     account: t.account?.name ?? null,
     company: t.account?.company?.name ?? null,
+    operation: t.operation?.name ?? null,
     validatedBy: t.metaCheckNote ?? null,
   });
 
