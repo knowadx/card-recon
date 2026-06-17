@@ -10,6 +10,47 @@ function version(): string {
   return process.env.META_API_VERSION || "v21.0";
 }
 
+// ===== OAuth (Facebook Login) — cada perfil conecta com um clique =====
+
+export function metaAuthorizeUrl(redirectUri: string, state: string): string {
+  const u = new URL(`https://www.facebook.com/${version()}/dialog/oauth`);
+  u.searchParams.set("client_id", process.env.META_APP_ID ?? "");
+  u.searchParams.set("redirect_uri", redirectUri);
+  u.searchParams.set("scope", "ads_read,business_management");
+  u.searchParams.set("response_type", "code");
+  u.searchParams.set("state", state);
+  return u.toString();
+}
+
+/** Troca o code por um token long-lived (~60 dias) do usuário. */
+export async function exchangeMetaCode(code: string, redirectUri: string): Promise<string> {
+  const appId = process.env.META_APP_ID;
+  const secret = process.env.META_APP_SECRET;
+  if (!appId || !secret) throw new Error("META_APP_ID/META_APP_SECRET ausentes");
+
+  // 1) code → token curto
+  const shortRes = await fetch(
+    `${GRAPH}/${version()}/oauth/access_token?` +
+      new URLSearchParams({ client_id: appId, redirect_uri: redirectUri, client_secret: secret, code }).toString(),
+  );
+  const shortJson = await shortRes.json();
+  if (!shortRes.ok) throw new Error(`Meta OAuth ${shortRes.status}: ${shortJson?.error?.message ?? shortRes.statusText}`);
+
+  // 2) curto → long-lived (~60d)
+  const longRes = await fetch(
+    `${GRAPH}/${version()}/oauth/access_token?` +
+      new URLSearchParams({
+        grant_type: "fb_exchange_token",
+        client_id: appId,
+        client_secret: secret,
+        fb_exchange_token: shortJson.access_token,
+      }).toString(),
+  );
+  const longJson = await longRes.json();
+  if (!longRes.ok) throw new Error(`Meta extend ${longRes.status}: ${longJson?.error?.message ?? longRes.statusText}`);
+  return longJson.access_token as string;
+}
+
 /** GET genérico na Graph API, com paginação automática (segue paging.next). */
 async function graphGetAll<T = Record<string, unknown>>(
   token: string,
