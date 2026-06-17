@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { exchangeMetaCode } from "@/lib/meta";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, findAccessibleOperation } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -25,13 +25,7 @@ export async function GET(request: NextRequest) {
   // revalida acesso (o callback é público no middleware, mas o cookie de sessão chega aqui)
   const user = await getCurrentUser();
   if (!user) return html("<h2>Sessão expirada</h2><p>Entre de novo e reconecte.</p>", 401);
-  const op = await prisma.operation.findFirst({
-    where:
-      user.role === "admin"
-        ? { id: operationId }
-        : { id: operationId, memberships: { some: { userId: user.id } } },
-    select: { id: true, name: true },
-  });
+  const op = await findAccessibleOperation(user, operationId);
   if (!op) return html("<h2>Sem acesso a essa operação</h2>", 403);
 
   try {

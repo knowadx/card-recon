@@ -99,6 +99,31 @@ export function isManager(role: string): boolean {
   return role === "superadmin" || role === "admin";
 }
 
+/**
+ * A operação está no escopo do usuário? superadmin = qualquer uma; admin = as da(s)
+ * holding(s) dele ou que é membro; member = só as que é membro. Retorna a operação ou null.
+ */
+export async function findAccessibleOperation(
+  user: { id: string; role: string },
+  operationId: string,
+): Promise<{ id: string; name: string } | null> {
+  if (isSuperadmin(user.role)) {
+    return prisma.operation.findUnique({ where: { id: operationId }, select: { id: true, name: true } });
+  }
+  const holdings = await accessibleHoldingIds(user.id, user.role);
+  const hids = holdings === "all" ? [] : holdings;
+  return prisma.operation.findFirst({
+    where: {
+      id: operationId,
+      OR: [
+        ...(hids.length ? [{ holdingId: { in: hids } }] : []),
+        { memberships: { some: { userId: user.id } } },
+      ],
+    },
+    select: { id: true, name: true },
+  });
+}
+
 /** IDs de holdings que o usuário pode ver. Superadmin = todos; admin/member = as do vínculo. */
 export async function accessibleHoldingIds(userId: string, role: string): Promise<string[] | "all"> {
   if (isSuperadmin(role)) return "all";

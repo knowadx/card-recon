@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { metaAuthorizeUrl } from "@/lib/meta";
-import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { getCurrentUser, findAccessibleOperation } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -19,14 +18,7 @@ export async function GET(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ ok: false, error: "não autenticado" }, { status: 401 });
 
-  // admin conecta qualquer operação; operador só as dele
-  const op = await prisma.operation.findFirst({
-    where:
-      user.role === "admin"
-        ? { id: operationId }
-        : { id: operationId, memberships: { some: { userId: user.id } } },
-    select: { id: true },
-  });
+  const op = await findAccessibleOperation(user, operationId);
   if (!op) return NextResponse.json({ ok: false, error: "sem acesso a essa operação" }, { status: 403 });
 
   const redirectUri = process.env.META_REDIRECT_URI || `${url.origin}/api/meta/callback`;
