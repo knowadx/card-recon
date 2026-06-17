@@ -5,8 +5,9 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/revolut/auth?company=Pixel Ads LLC&client_id=XXX
- * Deriva o redirect do domínio da requisição (sem localhost fixo), registra a
- * empresa+client_id+redirect e redireciona pro consentimento.
+ * Deriva o redirect do domínio da requisição, registra a empresa+client_id+redirect,
+ * guarda a empresa num cookie (o Revolut nem sempre devolve o `state`) e redireciona
+ * pro consentimento.
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -17,5 +18,14 @@ export async function GET(request: Request) {
   }
   const redirectUri = process.env.REVOLUT_REDIRECT_URI || `${url.origin}/api/revolut/callback`;
   await registerCompany(company, clientId, redirectUri);
-  return NextResponse.redirect(authorizeUrl(clientId, company, redirectUri));
+
+  const res = NextResponse.redirect(authorizeUrl(clientId, company, redirectUri));
+  res.cookies.set("cr_revolut_company", encodeURIComponent(company), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 900,
+    path: "/",
+  });
+  return res;
 }

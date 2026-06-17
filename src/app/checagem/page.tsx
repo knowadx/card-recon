@@ -11,12 +11,16 @@ type Tx = {
   cardLast4: string | null;
   account: string | null;
   company: string | null;
+  validatedBy?: string | null;
 };
 type WL = { id: string; last4: string; label: string | null; company: string | null };
+type Combo = { last4: string | null; account: string | null; accountId: string | null; bm: string | null; source: string };
 type Data = {
   counts: { leak: number; review: number; ok: number };
   leak: Tx[];
   review: Tx[];
+  okSample?: Tx[];
+  combos?: Combo[];
   metaAccounts: number;
   whitelist: WL[];
 };
@@ -160,6 +164,35 @@ export default function ChecagemPage() {
               </div>
             </section>
           )}
+
+          {/* Combinações validadas (cartão → conta/BM) */}
+          <section className="flex flex-col gap-2">
+            <h2 className="text-sm font-semibold text-slate-700">Combinações validadas — cartão → Conta/BM ({data.combos?.length ?? 0})</h2>
+            <p className="text-xs text-slate-500">Cartão que financia uma conta de anúncio que você controla (auto, via token Meta) ou marcado manualmente. Cobrança nesses cartões entra como segura automaticamente.</p>
+            {(data.combos?.length ?? 0) > 0 ? (
+              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                    <tr><th className="px-3 py-2">Cartão</th><th className="px-3 py-2">Conta (Account ID)</th><th className="px-3 py-2">BM</th><th className="px-3 py-2">Origem</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.combos!.map((c, i) => (
+                      <tr key={i}>
+                        <td className="px-3 py-2">•••• {c.last4}</td>
+                        <td className="px-3 py-2 text-xs">{c.account ?? "—"}{c.accountId ? ` (${c.accountId})` : ""}</td>
+                        <td className="px-3 py-2 text-xs">{c.bm ?? "—"}</td>
+                        <td className="px-3 py-2 text-xs">{c.source === "meta" ? "Meta (funding)" : "manual"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">
+                Nenhuma combinação ainda. Rode <strong>Sync contas Meta</strong> (com tokens que exponham o funding) — aí cada cartão→conta/BM vira uma combinação validada.
+              </p>
+            )}
+          </section>
 
           {/* Whitelist */}
           <section className="flex flex-col gap-2">
