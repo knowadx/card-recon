@@ -15,15 +15,12 @@ export default function IntegracoesPage() {
   const [forbidden, setForbidden] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const [revClientId, setRevClientId] = useState<Record<string, string>>({});
-  const [revConnected, setRevConnected] = useState<string[]>([]);
 
   async function load() {
     const r = await fetch("/api/credentials");
     if (r.status === 403) { setForbidden(true); return; }
     setCreds(await r.json());
     setCompanies(await fetch("/api/companies").then((x) => x.json()));
-    setRevConnected(await fetch("/api/revolut/status").then((x) => x.json()).then((d) => d.companies ?? []).catch(() => []));
   }
   useEffect(() => { load(); }, []);
 
@@ -58,7 +55,7 @@ export default function IntegracoesPage() {
         <h1 className="text-xl font-semibold">Integrações</h1>
         <p className="text-sm text-slate-500">
           Token do <strong>Meta</strong> por empresa (define quais contas de anúncio você controla, base da checagem).
-          Tokens de <strong>banco</strong> (Mercury/Wise) ficam <strong>em cada conta</strong> na tela <a className="underline" href="/accounts">Accounts</a> (1 token por conta). Revolut = OAuth em Accounts.
+          Tokens de <strong>banco</strong> (Mercury/Wise) e a conexão do <strong>Revolut</strong> (OAuth) ficam <strong>em cada conta</strong> na tela <a className="underline" href="/accounts">Accounts</a>.
         </p>
       </div>
       {msg && <div className="rounded-md bg-slate-900 px-3 py-2 text-sm text-white">{msg}</div>}
@@ -98,29 +95,6 @@ export default function IntegracoesPage() {
                 </div>
               );
             })}
-          </div>
-
-          {/* Revolut (OAuth por empresa) */}
-          <div className="border-t border-slate-100 pt-3">
-            <label className="text-xs font-medium text-slate-600">Revolut Business (OAuth)</label>
-            {revConnected.includes(co.name) ? (
-              <div className="mt-1 text-xs text-emerald-700">✓ conectado · <a className="underline" href={`/api/revolut/auth?company=${encodeURIComponent(co.name)}&client_id=${encodeURIComponent(revClientId[co.name] ?? "")}`}>reconsentir</a></div>
-            ) : (
-              <div className="mt-1 flex flex-wrap gap-1">
-                <input
-                  className={input + " flex-1 min-w-[200px]"}
-                  placeholder="Client ID (do app Revolut desta empresa)"
-                  value={revClientId[co.name] ?? ""}
-                  onChange={(e) => setRevClientId((d) => ({ ...d, [co.name]: e.target.value }))}
-                />
-                <a
-                  className={btn + (revClientId[co.name] ? "" : " pointer-events-none opacity-50")}
-                  href={`/api/revolut/auth?company=${encodeURIComponent(co.name)}&client_id=${encodeURIComponent(revClientId[co.name] ?? "")}`}
-                >
-                  Consentir
-                </a>
-              </div>
-            )}
           </div>
         </section>
       ))}

@@ -72,6 +72,8 @@ export default function AccountsPage() {
 
   const [wiseConnected, setWiseConnected] = useState<boolean | null>(null);
   const [revolutConnected, setRevolutConnected] = useState<boolean | null>(null);
+  const [revConnectedCompanies, setRevConnectedCompanies] = useState<string[]>([]);
+  const [revClientId, setRevClientId] = useState("");
   const [revolutSyncOpen, setRevolutSyncOpen] = useState(false);
   const [revolutSyncTarget, setRevolutSyncTarget] = useState<Account | null>(null);
   const [revolutAccounts, setRevolutAccounts] = useState<{ id: string; name: string; currency: string; balance: number }[]>([]);
@@ -99,7 +101,7 @@ export default function AccountsPage() {
   useEffect(() => {
     load();
     loadStatus();
-    fetch("/api/revolut/status").then(r => r.json()).then(d => setRevolutConnected(d.connected));
+    fetch("/api/revolut/status").then(r => r.json()).then(d => { setRevolutConnected(d.connected); setRevConnectedCompanies(d.companies ?? []); });
     fetch("/api/wise/status").then(r => r.json()).then(d => setWiseConnected(d.connected));
   }, []);
 
@@ -303,14 +305,6 @@ const save = async () => {
           <p className="text-[13px] text-[#6b7280] mt-0.5">{accounts.length} accounts registered</p>
         </div>
         <div className="flex items-center gap-3">
-          {revolutConnected === false && (
-            <a
-              href="/integracoes"
-              className="h-9 inline-flex items-center px-3 text-sm border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg font-medium"
-            >
-              Conectar Revolut (Integrações)
-            </a>
-          )}
           {revolutConnected === true && (
             <span className="inline-flex items-center gap-1.5 text-[12px] text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg font-medium border border-emerald-200">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Revolut conectado
@@ -648,6 +642,39 @@ const save = async () => {
                 />
               </div>
             )}
+            {form.bank === "Revolut" && (() => {
+              const companyName = companies.find(c => c.id === form.companyId)?.name ?? "";
+              const connected = companyName && revConnectedCompanies.includes(companyName);
+              return (
+                <div className="space-y-2">
+                  <Label className="text-[13px] font-medium text-[#374151]">Revolut Business (OAuth por empresa)</Label>
+                  {!companyName ? (
+                    <p className="text-[12px] text-[#9ca3af]">Escolha a empresa primeiro.</p>
+                  ) : connected ? (
+                    <p className="text-[12px] text-emerald-700">✓ Revolut conectado para {companyName}</p>
+                  ) : (
+                    <div className="flex gap-1">
+                      <Input
+                        value={revClientId}
+                        onChange={(e) => setRevClientId(e.target.value)}
+                        placeholder="Client ID do app Revolut desta empresa"
+                        className="h-10 text-sm rounded-lg border-[#e8eaed] flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={!revClientId}
+                        className="h-10 text-sm rounded-lg border-purple-200 bg-purple-50 text-purple-700"
+                        onClick={() => window.open(`/api/revolut/auth?company=${encodeURIComponent(companyName)}&client_id=${encodeURIComponent(revClientId)}`, "_blank", "width=700,height=700")}
+                      >
+                        Conectar
+                      </Button>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-[#9ca3af]">Sobe o certificado X.509 no Revolut da empresa, pega o Client ID e conecta. 1 conexão cobre todas as contas daquela org.</p>
+                </div>
+              );
+            })()}
             <Button onClick={save} className="w-full h-10 text-sm rounded-lg bg-[#00b9a5] hover:bg-[#00a896] text-white font-semibold">Save</Button>
           </div>
         </DialogContent>
