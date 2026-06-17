@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { scopedAccountIds } from "@/lib/auth";
+import { sessionScopes } from "@/lib/auth";
 
 const PAGE_SIZE = 100;
 
@@ -65,10 +65,17 @@ export async function GET(request: Request) {
     } : {}),
   };
 
-  // Escopo por conta do usuário logado (holdings + operações; admin = tudo)
-  const scope = await scopedAccountIds();
-  if (scope !== "all") {
-    where.AND = [...(where.AND ?? []), { accountId: { in: scope } }];
+  // Escopo do usuário: holdings (empresa da conta) OU operações (da transação OU da conta)
+  const sc = await sessionScopes();
+  if (!sc.isAdmin) {
+    const or: Record<string, unknown>[] = [];
+    if (sc.holdingIds.length) or.push({ account: { company: { holdingId: { in: sc.holdingIds } } } });
+    if (sc.operationIds.length) {
+      or.push({ operationId: { in: sc.operationIds } });
+      or.push({ account: { operationId: { in: sc.operationIds } } });
+    }
+    // sem nenhum escopo → não vê nada
+    where.AND = [...(where.AND ?? []), { OR: or.length ? or : [{ id: "__none__" }] }];
   }
 
   const [transactions, total] = await Promise.all([

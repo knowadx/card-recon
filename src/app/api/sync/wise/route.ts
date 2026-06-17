@@ -227,6 +227,7 @@ export async function POST(request: Request) {
       reference: string;
       cardLast4: string | null;
       isMetaCharge: boolean;
+      operationId: string | null;
     }> = [];
 
     const transferDebug: unknown[] = [];
@@ -295,6 +296,7 @@ export async function POST(request: Request) {
         reference: `wise-activity:${a.id}`,
         cardLast4,
         isMetaCharge: isMetaMerchant(metaName, description),
+        operationId: account.operationId,
       });
     }
 

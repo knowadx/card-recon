@@ -144,6 +144,15 @@ export async function scopedAccountIds(): Promise<string[] | "all"> {
   return accessibleAccountIds(s.userId, s.role);
 }
 
+/** Escopos da sessão (holdings + operações) p/ filtro de transações. */
+export async function sessionScopes(): Promise<{ isAdmin: boolean; holdingIds: string[]; operationIds: string[] }> {
+  const s = await getSession();
+  if (!s) return { isAdmin: false, holdingIds: [], operationIds: [] };
+  if (s.role === "admin") return { isAdmin: true, holdingIds: [], operationIds: [] };
+  const sc = await scopes(s.userId);
+  return { isAdmin: false, ...sc };
+}
+
 /** Garante 1 admin a partir das envs ADMIN_EMAIL/ADMIN_PASSWORD se não houver usuários. */
 export async function ensureSeedAdmin(): Promise<void> {
   const count = await prisma.user.count();

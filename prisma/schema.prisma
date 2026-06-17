@@ -28,9 +28,11 @@ model Operation {
   color       String                @default("#0ea5e9")
   holdingId   String?
   holding     Holding?              @relation(fields: [holdingId], references: [id])
-  createdAt   DateTime              @default(now())
-  accounts    Account[]
-  memberships OperationMembership[]
+  createdAt    DateTime              @default(now())
+  accounts     Account[]
+  transactions Transaction[]
+  splits       TransactionSplit[]
+  memberships  OperationMembership[]
 
   @@index([holdingId])
 }
@@ -115,6 +117,8 @@ model Transaction {
   isMetaCharge     Boolean            @default(false) // cobrança classificada como Meta/Facebook
   metaCheck        String? // "ok" | "leak" | "review" | null (não-Meta)
   metaCheckNote    String?
+  operationId      String? // operação da transação (default herdado da conta; editável)
+  operation        Operation?         @relation(fields: [operationId], references: [id])
   splits           TransactionSplit[]
   accountingSplits AccountingSplit[]
   documents        Document[]
@@ -124,6 +128,7 @@ model Transaction {
   @@index([date])
   @@index([isMetaCharge])
   @@index([cardLast4])
+  @@index([operationId])
 }
 
 model AccountingSplit {
@@ -152,11 +157,14 @@ model TransactionSplit {
   managerialCategory   Category?   @relation("ManagerialCategory", fields: [managerialCategoryId], references: [id])
   accountingCategoryId String?
   accountingCategory   Category?   @relation("AccountingCategory", fields: [accountingCategoryId], references: [id])
+  operationId          String? // operação desta linha de split (divide a transação entre operações)
+  operation            Operation?  @relation(fields: [operationId], references: [id])
   createdAt            DateTime    @default(now())
 
   @@index([transactionId])
   @@index([managerialCategoryId])
   @@index([accountingCategoryId])
+  @@index([operationId])
 }
 
 model DashboardChart {

@@ -13,8 +13,9 @@ import { format } from "date-fns";
 type Company = { id: string; name: string; color: string };
 type Account = { id: string; name: string; bank: string; currency: string; company: Company };
 type Category = { id: string; name: string; type: string; code: string | null };
-type Split = { amount: number; amountStr: string; note: string; accountingDate: string; managerialCategoryId: string; accountingCategoryId: string };
-type ApiSplit = { id: string; amount: number; note: string | null; accountingDate: string | null; managerialCategory: Category | null; accountingCategory: Category | null };
+type Operation = { id: string; name: string };
+type Split = { amount: number; amountStr: string; note: string; accountingDate: string; managerialCategoryId: string; accountingCategoryId: string; operationId: string };
+type ApiSplit = { id: string; amount: number; note: string | null; accountingDate: string | null; managerialCategory: Category | null; accountingCategory: Category | null; operation?: Operation | null };
 type AccountingSplit = { amount: number; amountStr: string; note: string; accountingDate: string; accountingCategoryId: string };
 type ApiAccountingSplit = { id: string; amount: number; note: string | null; accountingDate: string | null; accountingCategory: Category | null };
 type Document = { id: string; filename: string; path: string };
@@ -41,6 +42,7 @@ export default function TransactionsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [operations, setOperations] = useState<Operation[]>([]);
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [showIgnored, setShowIgnored] = useState(false);
@@ -128,6 +130,7 @@ export default function TransactionsPage() {
     fetch("/api/accounts").then((r) => r.json()).then(setAccounts);
     fetch("/api/companies").then((r) => r.json()).then(setCompanies);
     fetch("/api/categories").then((r) => r.json()).then(setCategories);
+    fetch("/api/operations").then((r) => r.json()).then((d) => setOperations(Array.isArray(d) ? d : []));
   }, []);
 
   useEffect(() => { load(); }, [filterFrom, filterTo, showIgnored, colCompany, colAccount, colStatus, colStatusAccounting, colManagerial, colAccounting, colDescription, colAmountMin, colAmountMax, colDirection]);
@@ -144,8 +147,9 @@ export default function TransactionsPage() {
             accountingDate: s.accountingDate ? s.accountingDate.slice(0, 10) : tx.date.slice(0, 10),
             managerialCategoryId: s.managerialCategory?.id || "",
             accountingCategoryId: "",
+            operationId: s.operation?.id || "",
           }))
-        : [{ amount: tx.amount, amountStr: String(tx.amount), note: "", accountingDate: tx.date.slice(0, 10), managerialCategoryId: "", accountingCategoryId: "" }]
+        : [{ amount: tx.amount, amountStr: String(tx.amount), note: "", accountingDate: tx.date.slice(0, 10), managerialCategoryId: "", accountingCategoryId: "", operationId: "" }]
     );
     setAccountingSplits(
       tx.accountingSplits?.length > 0
@@ -250,7 +254,7 @@ export default function TransactionsPage() {
   };
 
   const addSplit = () => {
-    setSplits(prev => [...prev, { amount: 0, amountStr: "", note: "", accountingDate: selected?.date.slice(0, 10) ?? "", managerialCategoryId: "", accountingCategoryId: "" }]);
+    setSplits(prev => [...prev, { amount: 0, amountStr: "", note: "", accountingDate: selected?.date.slice(0, 10) ?? "", managerialCategoryId: "", accountingCategoryId: "", operationId: "" }]);
   };
 
   const uploadDoc = async (file: File) => {
@@ -289,8 +293,8 @@ export default function TransactionsPage() {
     const baseAbs = parseFloat((abs - vatAbs).toFixed(2));
     const date = selected.date.slice(0, 10);
     setSplits([
-      { amount: sign * baseAbs, amountStr: String(sign * baseAbs), note: "", accountingDate: date, managerialCategoryId: "", accountingCategoryId: "" },
-      { amount: sign * vatAbs,  amountStr: String(sign * vatAbs),  note: "VAT 24%", accountingDate: date, managerialCategoryId: vatCategory.id, accountingCategoryId: "" },
+      { amount: sign * baseAbs, amountStr: String(sign * baseAbs), note: "", accountingDate: date, managerialCategoryId: "", accountingCategoryId: "", operationId: "" },
+      { amount: sign * vatAbs,  amountStr: String(sign * vatAbs),  note: "VAT 24%", accountingDate: date, managerialCategoryId: vatCategory.id, accountingCategoryId: "", operationId: "" },
     ]);
   };
 
@@ -870,6 +874,22 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
                               <SelectContent>
                                 <SelectItem value="none">—</SelectItem>
                                 {managerial.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <Label className="text-[11px] font-medium text-[#9ca3af]">Operação</Label>
+                            <Select value={s.operationId || "none"} onValueChange={(v) =>
+                              setSplits(splits.map((x, j) => j === i ? { ...x, operationId: !v || v === "none" ? "" : v } : x))
+                            }>
+                              <SelectTrigger className="w-full h-8 text-sm rounded-lg border-[#e8eaed] mt-1">
+                                <span className="flex-1 text-left truncate text-sm">
+                                  {operations.find(o => o.id === s.operationId)?.name ?? <span className="text-[#9ca3af]">—</span>}
+                                </span>
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">—</SelectItem>
+                                {operations.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
                               </SelectContent>
                             </Select>
                           </div>

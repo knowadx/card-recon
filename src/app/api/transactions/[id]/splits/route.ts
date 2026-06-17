@@ -4,7 +4,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const splits = await prisma.transactionSplit.findMany({
     where: { transactionId: id },
-    include: { managerialCategory: true, accountingCategory: true },
+    include: { managerialCategory: true, accountingCategory: true, operation: { select: { id: true, name: true } } },
   });
   return Response.json(splits);
 }
@@ -12,7 +12,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await request.json();
-  const splits: Array<{ amount: number; note?: string; accountingDate?: string; managerialCategoryId?: string; accountingCategoryId?: string }> =
+  const splits: Array<{ amount: number; note?: string; accountingDate?: string; managerialCategoryId?: string; accountingCategoryId?: string; operationId?: string }> =
     body.splits;
 
   await prisma.transactionSplit.deleteMany({ where: { transactionId: id } });
@@ -25,7 +25,14 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       accountingDate: s.accountingDate ? new Date(s.accountingDate) : null,
       managerialCategoryId: s.managerialCategoryId || null,
       accountingCategoryId: s.accountingCategoryId || null,
+      operationId: s.operationId || null,
     })),
+  });
+
+  // operação da transação = a do 1º split (resumo); editável separadamente
+  await prisma.transaction.update({
+    where: { id },
+    data: { operationId: splits.find((s) => s.operationId)?.operationId || null },
   });
 
   return Response.json({ count: created.count });

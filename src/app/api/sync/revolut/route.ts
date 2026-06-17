@@ -114,9 +114,10 @@ export async function POST(request: Request) {
           reference: ref,
           cardLast4: last4Of(tx.card?.last_digits ?? tx.card?.card_number),
           isMetaCharge: isMetaMerchant(tx.merchant?.name, leg.counterparty?.name, leg.description),
+          operationId: account.operationId,
         };
       })
-      .filter(Boolean) as Array<{ accountId: string; date: Date; description: string; amount: number; currency: string; reference: string; cardLast4: string | null; isMetaCharge: boolean }>;
+      .filter(Boolean) as Array<{ accountId: string; date: Date; description: string; amount: number; currency: string; reference: string; cardLast4: string | null; isMetaCharge: boolean; operationId: string | null }>;
   });
 
   if (candidates.length > 0) {
