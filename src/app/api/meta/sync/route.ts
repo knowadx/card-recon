@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { fetchAdAccounts, parseFundingDisplay } from "@/lib/meta";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isSuperadmin, accessibleHoldingIds } from "@/lib/auth";
 import { runMetaCheck } from "@/lib/check";
 
 export const dynamic = "force-dynamic";
@@ -16,10 +16,21 @@ export async function POST() {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ ok: false, error: "não autenticado" }, { status: 401 });
 
-    const where =
-      user.role === "admin"
-        ? { issuer: "meta", isActive: true }
-        : { issuer: "meta", isActive: true, operation: { memberships: { some: { userId: user.id } } } };
+    // superadmin sincroniza todas; admin = ops da(s) holding(s) dele ou que é membro; member = as que é membro
+    let where: Record<string, unknown> = { issuer: "meta", isActive: true };
+    if (!isSuperadmin(user.role)) {
+      const holdings = await accessibleHoldingIds(user.id, user.role);
+      const hids = holdings === "all" ? [] : holdings;
+      where = {
+        ...where,
+        operation: {
+          OR: [
+            ...(hids.length ? [{ holdingId: { in: hids } }] : []),
+            { memberships: { some: { userId: user.id } } },
+          ],
+        },
+      };
+    }
     const creds = await prisma.credential.findMany({
       where,
       select: { token: true, company: true, operationId: true },
