@@ -8,6 +8,8 @@ type Operation = {
   name: string;
   type: string;
   holding?: { id: string; name: string } | null;
+  metaConnected?: boolean;
+  metaUpdatedAt?: string | null;
 };
 
 export default function OperationsPage() {
@@ -40,6 +42,14 @@ export default function OperationsPage() {
   async function delOp(id: string) {
     if (!confirm("Remover operação? As transações marcadas com ela ficam sem operação.")) return;
     await fetch(`/api/operations?id=${id}`, { method: "DELETE" }); load();
+  }
+  async function disconnectMeta(id: string) {
+    if (!confirm("Desconectar o perfil Meta desta operação?")) return;
+    await fetch("/api/meta/disconnect", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ operationId: id }),
+    });
+    load();
   }
 
   if (forbidden) return <div className="p-6 text-slate-500">Acesso restrito.</div>;
@@ -75,10 +85,25 @@ export default function OperationsPage() {
         <h2 className="text-sm font-semibold text-slate-700">Operações ({operations.length})</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           {operations.map((o) => (
-            <div key={o.id} className="rounded-lg border border-slate-200 bg-white p-3">
+            <div key={o.id} className="rounded-lg border border-slate-200 bg-white p-3 flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <span className="font-medium">{o.name} <span className="text-xs text-slate-400">· {o.type === "holding" ? "da holding" : "própria"}{o.holding ? ` · ${o.holding.name}` : ""}</span></span>
                 <button className="text-xs text-red-600 hover:underline" onClick={() => delOp(o.id)}>remover</button>
+              </div>
+              <div className="flex items-center justify-between border-t border-slate-100 pt-2">
+                {o.metaConnected ? (
+                  <span className="text-xs text-emerald-700">Meta conectado ✓</span>
+                ) : (
+                  <span className="text-xs text-slate-400">Meta não conectado</span>
+                )}
+                <div className="flex items-center gap-3">
+                  <a className="text-xs text-indigo-600 hover:underline" href={`/api/meta/auth?operationId=${o.id}`}>
+                    {o.metaConnected ? "reconectar Meta" : "Conectar Meta"}
+                  </a>
+                  {o.metaConnected && (
+                    <button className="text-xs text-red-600 hover:underline" onClick={() => disconnectMeta(o.id)}>desconectar</button>
+                  )}
+                </div>
               </div>
             </div>
           ))}

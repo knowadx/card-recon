@@ -1,18 +1,31 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { fetchAdAccounts, parseFundingDisplay } from "@/lib/meta";
-import { getCredentials } from "@/lib/credentials";
+import { getCurrentUser } from "@/lib/auth";
 import { runMetaCheck } from "@/lib/check";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-/** POST /api/meta/sync — popula MetaAdAccount (contas controladas + cartão de funding) e roda a checagem. */
+/**
+ * POST /api/meta/sync — popula MetaAdAccount (contas controladas + cartão de funding) e roda a checagem.
+ * Cada credencial Meta é POR OPERAÇÃO. Admin sincroniza todas; operador só as operações dele.
+ */
 export async function POST() {
   try {
-    const creds = await getCredentials("meta"); // Credential(meta) + fallback META_ACCESS_TOKEN
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ ok: false, error: "não autenticado" }, { status: 401 });
+
+    const where =
+      user.role === "admin"
+        ? { issuer: "meta", isActive: true }
+        : { issuer: "meta", isActive: true, operation: { memberships: { some: { userId: user.id } } } };
+    const creds = await prisma.credential.findMany({
+      where,
+      select: { token: true, company: true, operationId: true },
+    });
     if (creds.length === 0) {
-      return NextResponse.json({ ok: false, error: "Sem token Meta (cadastre em /settings ou META_ACCESS_TOKEN no .env)" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Nenhum perfil Meta conectado (conecte em Operações)" }, { status: 400 });
     }
 
     let accountsCount = 0;
@@ -25,31 +38,22 @@ export async function POST() {
       for (const a of accounts) {
         const { brand, last4 } = parseFundingDisplay(a.funding_source_details?.display_string);
         if (last4) withCard++;
+        const data = {
+          name: a.name,
+          currency: a.currency,
+          accountStatus: a.account_status ?? null,
+          company: cred.company,
+          operationId: cred.operationId,
+          bmId: a.business?.id ?? null,
+          bmName: a.business?.name ?? null,
+          fundingCardBrand: brand,
+          fundingCardLast4: last4,
+          fundingRaw: a.funding_source_details?.display_string ?? null,
+        };
         await prisma.metaAdAccount.upsert({
           where: { accountId: a.account_id },
-          update: {
-            name: a.name,
-            currency: a.currency,
-            accountStatus: a.account_status ?? null,
-            company: cred.company,
-            bmId: a.business?.id ?? null,
-            bmName: a.business?.name ?? null,
-            fundingCardBrand: brand,
-            fundingCardLast4: last4,
-            fundingRaw: a.funding_source_details?.display_string ?? null,
-          },
-          create: {
-            accountId: a.account_id,
-            name: a.name,
-            currency: a.currency,
-            accountStatus: a.account_status ?? null,
-            company: cred.company,
-            bmId: a.business?.id ?? null,
-            bmName: a.business?.name ?? null,
-            fundingCardBrand: brand,
-            fundingCardLast4: last4,
-            fundingRaw: a.funding_source_details?.display_string ?? null,
-          },
+          update: data,
+          create: { accountId: a.account_id, ...data },
         });
         accountsCount++;
       }

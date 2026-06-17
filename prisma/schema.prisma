@@ -28,11 +28,13 @@ model Operation {
   color       String                @default("#0ea5e9")
   holdingId   String?
   holding     Holding?              @relation(fields: [holdingId], references: [id])
-  createdAt    DateTime              @default(now())
-  accounts     Account[]
-  transactions Transaction[]
-  splits       TransactionSplit[]
-  memberships  OperationMembership[]
+  createdAt      DateTime              @default(now())
+  accounts       Account[]
+  transactions   Transaction[]
+  splits         TransactionSplit[]
+  memberships    OperationMembership[]
+  credentials    Credential[]
+  metaAdAccounts MetaAdAccount[]
 
   @@index([holdingId])
 }
@@ -302,17 +304,22 @@ model Membership {
 
 // ===== Credenciais por empresa (Mercury/Wise/Revolut/Meta) =====
 model Credential {
-  id        String   @id @default(cuid())
-  issuer    String // "mercury" | "wise" | "revolut" | "meta"
-  company   String
-  token     String
-  secrets   String? // JSON
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String     @id @default(cuid())
+  issuer      String // "mercury" | "wise" | "revolut" | "meta"
+  company     String
+  token       String
+  secrets     String? // JSON
+  isActive    Boolean    @default(true)
+  // Meta: conectada POR OPERAÇÃO (o operador conecta o próprio perfil). Bancos: null.
+  operationId String?
+  operation   Operation? @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
   @@unique([issuer, company])
+  @@unique([issuer, operationId])
   @@index([issuer])
+  @@index([operationId])
 }
 
 // ===== Universo Meta controlado (contas + cartão de funding) =====
@@ -322,7 +329,9 @@ model MetaAdAccount {
   name             String
   currency         String?
   accountStatus    Int?
-  company          String? // empresa/credencial Meta dona
+  company          String? // rótulo da credencial Meta dona (nome da operação)
+  operationId      String? // operação dona desta conta Meta (FK de verdade)
+  operation        Operation? @relation(fields: [operationId], references: [id], onDelete: SetNull)
   bmId             String?
   bmName           String?
   fundingCardBrand String?
@@ -331,6 +340,7 @@ model MetaAdAccount {
   updatedAt        DateTime @updatedAt
 
   @@index([fundingCardLast4])
+  @@index([operationId])
 }
 
 // Whitelist manual de cartões legítimos (double-check do que a API não expõe)

@@ -14,10 +14,19 @@ export async function GET() {
       : { memberships: { some: { userId: user.id } } };
   const operations = await prisma.operation.findMany({
     where,
-    include: { holding: { select: { id: true, name: true } }, accounts: { select: { id: true, name: true } } },
+    include: {
+      holding: { select: { id: true, name: true } },
+      accounts: { select: { id: true, name: true } },
+      credentials: { where: { issuer: "meta" }, select: { id: true, isActive: true, updatedAt: true } },
+    },
     orderBy: { name: "asc" },
   });
-  return NextResponse.json(operations);
+  return NextResponse.json(
+    operations.map(({ credentials, ...rest }) => {
+      const meta = credentials[0];
+      return { ...rest, metaConnected: !!meta?.isActive, metaUpdatedAt: meta?.updatedAt ?? null };
+    }),
+  );
 }
 
 export async function POST(request: Request) {
