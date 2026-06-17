@@ -51,6 +51,18 @@ export async function exchangeMetaCode(code: string, redirectUri: string): Promi
   return longJson.access_token as string;
 }
 
+/** Perfil (usuário) Meta dono do token — { id, name }. Usado p/ exibir qual perfil conectou. */
+export async function fetchMetaUser(token: string): Promise<{ id: string; name: string } | null> {
+  try {
+    const res = await fetch(`${GRAPH}/${version()}/me?fields=id,name&access_token=${encodeURIComponent(token)}`);
+    const j = await res.json();
+    if (!res.ok || !j?.id) return null;
+    return { id: j.id, name: j.name ?? j.id };
+  } catch {
+    return null;
+  }
+}
+
 /** GET genérico na Graph API, com paginação automática (segue paging.next). */
 async function graphGetAll<T = Record<string, unknown>>(
   token: string,

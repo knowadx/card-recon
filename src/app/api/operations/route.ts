@@ -24,14 +24,16 @@ export async function GET() {
     include: {
       holding: { select: { id: true, name: true } },
       accounts: { select: { id: true, name: true } },
-      credentials: { where: { issuer: "meta" }, select: { id: true, isActive: true, updatedAt: true } },
+      credentials: { where: { issuer: "meta" }, select: { id: true, isActive: true, updatedAt: true, secrets: true } },
     },
     orderBy: { name: "asc" },
   });
   return NextResponse.json(
     operations.map(({ credentials, ...rest }) => {
       const meta = credentials[0];
-      return { ...rest, metaConnected: !!meta?.isActive, metaUpdatedAt: meta?.updatedAt ?? null };
+      let metaProfile: string | null = null;
+      try { metaProfile = meta?.secrets ? (JSON.parse(meta.secrets).metaUserName ?? null) : null; } catch { /* ignore */ }
+      return { ...rest, metaConnected: !!meta?.isActive, metaUpdatedAt: meta?.updatedAt ?? null, metaProfile };
     }),
   );
 }

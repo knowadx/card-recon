@@ -10,6 +10,7 @@ type Operation = {
   holding?: { id: string; name: string } | null;
   metaConnected?: boolean;
   metaUpdatedAt?: string | null;
+  metaProfile?: string | null;
 };
 
 export default function OperationsPage() {
@@ -92,7 +93,9 @@ export default function OperationsPage() {
               </div>
               <div className="flex items-center justify-between border-t border-slate-100 pt-2">
                 {o.metaConnected ? (
-                  <span className="text-xs text-emerald-700">Meta conectado ✓</span>
+                  <span className="text-xs text-emerald-700">
+                    Meta conectado ✓{o.metaProfile ? <span className="text-slate-500"> · {o.metaProfile}</span> : ""}
+                  </span>
                 ) : (
                   <span className="text-xs text-slate-400">Meta não conectado</span>
                 )}

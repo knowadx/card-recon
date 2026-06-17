@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { exchangeMetaCode } from "@/lib/meta";
+import { exchangeMetaCode, fetchMetaUser } from "@/lib/meta";
 import { getCurrentUser, findAccessibleOperation } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -31,14 +31,17 @@ export async function GET(request: NextRequest) {
   try {
     const redirectUri = process.env.META_REDIRECT_URI || `${url.origin}/api/meta/callback`;
     const token = await exchangeMetaCode(code, redirectUri);
+    const profile = await fetchMetaUser(token); // nome do perfil Facebook que conectou
+    const secrets = JSON.stringify({ metaUserId: profile?.id ?? null, metaUserName: profile?.name ?? null });
     // upsert pela operação (1 credencial Meta por operação)
     const existing = await prisma.credential.findFirst({ where: { issuer: "meta", operationId: op.id } });
     if (existing) {
-      await prisma.credential.update({ where: { id: existing.id }, data: { token, company: op.name, isActive: true } });
+      await prisma.credential.update({ where: { id: existing.id }, data: { token, company: op.name, isActive: true, secrets } });
     } else {
-      await prisma.credential.create({ data: { issuer: "meta", company: op.name, operationId: op.id, token } });
+      await prisma.credential.create({ data: { issuer: "meta", company: op.name, operationId: op.id, token, secrets } });
     }
-    return html(`<h2 style="color:#00b9a5">✓ Meta conectado (${op.name})!</h2><p>Pode fechar esta aba. Rode "Sync contas Meta" na Checagem.</p>`);
+    const who = profile?.name ? ` como <strong>${profile.name}</strong>` : "";
+    return html(`<h2 style="color:#00b9a5">✓ Meta conectado (${op.name})${who}!</h2><p>Pode fechar esta aba. Rode "Sync contas Meta" na Checagem.</p>`);
   } catch (e) {
     return html(`<h2>Erro ao conectar Meta</h2><pre style="white-space:pre-wrap">${(e as Error).message}</pre>`, 500);
   }
