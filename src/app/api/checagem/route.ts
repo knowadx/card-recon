@@ -34,7 +34,11 @@ export async function GET() {
     prisma.metaAdAccount.count(),
     prisma.metaAdAccount.findMany({
       where: { NOT: { fundingCardLast4: null } },
-      select: { fundingCardLast4: true, accountId: true, bmName: true, bmId: true, name: true },
+      select: {
+        fundingCardLast4: true, fundingCardBrand: true, accountId: true, bmName: true, bmId: true,
+        name: true, currency: true, amountSpent: true, operation: { select: { name: true } },
+      },
+      orderBy: [{ fundingCardLast4: "asc" }, { amountSpent: "desc" }],
     }),
     prisma.cardWhitelist.findMany({ orderBy: { createdAt: "desc" } }),
   ]);
@@ -51,10 +55,24 @@ export async function GET() {
     validatedBy: t.metaCheckNote ?? null,
   });
 
-  // combinações validadas (cartão → conta/BM) — origem auto (funding) + manual (whitelist)
+  // mapa cartão → onde gasta (Conta + BM com IDs, operação, gasto) — auto (funding) + manual (whitelist)
   const combos = [
-    ...metaWithCard.map((a) => ({ last4: a.fundingCardLast4, account: a.name, accountId: a.accountId, bm: a.bmName ?? a.bmId, source: "meta" })),
-    ...whitelist.map((w) => ({ last4: w.last4, account: w.label, accountId: null, bm: null, source: "manual" })),
+    ...metaWithCard.map((a) => ({
+      last4: a.fundingCardLast4,
+      brand: a.fundingCardBrand,
+      account: a.name,
+      accountId: a.accountId,
+      bm: a.bmName,
+      bmId: a.bmId,
+      operation: a.operation?.name ?? null,
+      currency: a.currency,
+      spent: a.amountSpent != null ? a.amountSpent / 100 : null,
+      source: "meta",
+    })),
+    ...whitelist.map((w) => ({
+      last4: w.last4, brand: null, account: w.label, accountId: null, bm: null, bmId: null,
+      operation: null, currency: null, spent: null, source: "manual",
+    })),
   ];
 
   return NextResponse.json({

@@ -60,6 +60,7 @@ export async function POST() {
           fundingCardBrand: brand,
           fundingCardLast4: last4,
           fundingRaw: a.funding_source_details?.display_string ?? null,
+          amountSpent: a.amount_spent != null ? Number(a.amount_spent) : null,
         };
         await prisma.metaAdAccount.upsert({
           where: { accountId: a.account_id },

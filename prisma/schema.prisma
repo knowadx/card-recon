@@ -337,6 +337,7 @@ model MetaAdAccount {
   fundingCardBrand String?
   fundingCardLast4 String?
   fundingRaw       String?
+  amountSpent      Float? // gasto total (lifetime) reportado pelo Meta, em unidades menores da moeda
   updatedAt        DateTime @updatedAt
 
   @@index([fundingCardLast4])

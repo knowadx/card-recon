@@ -14,7 +14,18 @@ type Tx = {
   validatedBy?: string | null;
 };
 type WL = { id: string; last4: string; label: string | null; company: string | null };
-type Combo = { last4: string | null; account: string | null; accountId: string | null; bm: string | null; source: string };
+type Combo = {
+  last4: string | null;
+  brand: string | null;
+  account: string | null;
+  accountId: string | null;
+  bm: string | null;
+  bmId: string | null;
+  operation: string | null;
+  currency: string | null;
+  spent: number | null;
+  source: string;
+};
 type Data = {
   counts: { leak: number; review: number; ok: number };
   leak: Tx[];
@@ -33,6 +44,7 @@ export default function ChecagemPage() {
   const [data, setData] = useState<Data | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [comboFilter, setComboFilter] = useState("");
 
   async function load() {
     setData(await fetch("/api/checagem").then((r) => r.json()));
@@ -70,6 +82,11 @@ export default function ChecagemPage() {
   }
 
   const btn = "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50";
+
+  const f = comboFilter.trim().toLowerCase();
+  const filteredCombos = (data?.combos ?? []).filter((c) =>
+    !f || [c.last4, c.brand, c.account, c.accountId, c.bm, c.bmId, c.operation].some((v) => v?.toLowerCase().includes(f)),
+  );
 
   return (
     <div className="flex flex-col gap-5 p-2">
@@ -165,23 +182,44 @@ export default function ChecagemPage() {
             </section>
           )}
 
-          {/* Combinações validadas (cartão → conta/BM) */}
+          {/* Mapa cartão → onde gasta (Conta + BM com IDs, operação, gasto) */}
           <section className="flex flex-col gap-2">
-            <h2 className="text-sm font-semibold text-slate-700">Combinações validadas — cartão → Conta/BM ({data.combos?.length ?? 0})</h2>
-            <p className="text-xs text-slate-500">Cartão que financia uma conta de anúncio que você controla (auto, via token Meta) ou marcado manualmente. Cobrança nesses cartões entra como segura automaticamente.</p>
-            {(data.combos?.length ?? 0) > 0 ? (
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-slate-700">Mapa de cartões — onde cada cartão gasta ({data.combos?.length ?? 0})</h2>
+              <input
+                className="rounded-md border border-slate-300 px-2 py-1 text-xs w-40"
+                placeholder="filtrar cartão/BM/conta…"
+                value={comboFilter}
+                onChange={(e) => setComboFilter(e.target.value)}
+              />
+            </div>
+            <p className="text-xs text-slate-500">Cada cartão de funding e as Contas de Anúncio / BMs (com IDs) que ele financia. Atualiza a cada <strong>Sync contas Meta</strong>. Cobrança nesses cartões entra como segura automaticamente.</p>
+            {(filteredCombos.length ?? 0) > 0 ? (
               <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-                    <tr><th className="px-3 py-2">Cartão</th><th className="px-3 py-2">Conta (Account ID)</th><th className="px-3 py-2">BM</th><th className="px-3 py-2">Origem</th></tr>
+                    <tr>
+                      <th className="px-3 py-2">Cartão</th>
+                      <th className="px-3 py-2">Conta de anúncio</th>
+                      <th className="px-3 py-2">Account ID</th>
+                      <th className="px-3 py-2">BM</th>
+                      <th className="px-3 py-2">BM ID</th>
+                      <th className="px-3 py-2">Operação</th>
+                      <th className="px-3 py-2 text-right">Gasto (Meta)</th>
+                      <th className="px-3 py-2">Origem</th>
+                    </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {data.combos!.map((c, i) => (
+                    {filteredCombos.map((c, i) => (
                       <tr key={i}>
-                        <td className="px-3 py-2">•••• {c.last4}</td>
-                        <td className="px-3 py-2 text-xs">{c.account ?? "—"}{c.accountId ? ` (${c.accountId})` : ""}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{c.brand ? `${c.brand} ` : ""}•••• {c.last4}</td>
+                        <td className="px-3 py-2 text-xs">{c.account ?? "—"}</td>
+                        <td className="px-3 py-2 text-xs tabular-nums text-slate-500">{c.accountId ?? "—"}</td>
                         <td className="px-3 py-2 text-xs">{c.bm ?? "—"}</td>
-                        <td className="px-3 py-2 text-xs">{c.source === "meta" ? "Meta (funding)" : "manual"}</td>
+                        <td className="px-3 py-2 text-xs tabular-nums text-slate-500">{c.bmId ?? "—"}</td>
+                        <td className="px-3 py-2 text-xs">{c.operation ?? "—"}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{c.spent != null && c.currency ? money(c.spent, c.currency) : "—"}</td>
+                        <td className="px-3 py-2 text-xs">{c.source === "meta" ? "Meta" : "manual"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -189,7 +227,7 @@ export default function ChecagemPage() {
               </div>
             ) : (
               <p className="rounded-md border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">
-                Nenhuma combinação ainda. Rode <strong>Sync contas Meta</strong> (com tokens que exponham o funding) — aí cada cartão→conta/BM vira uma combinação validada.
+                {data.combos?.length ? "Nenhum resultado para o filtro." : <>Nenhuma combinação ainda. Rode <strong>Sync contas Meta</strong> (com tokens que exponham o funding) — aí cada cartão→conta/BM aparece aqui.</>}
               </p>
             )}
           </section>
