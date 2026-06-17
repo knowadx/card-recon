@@ -83,7 +83,7 @@ export async function GET(request: Request) {
       where,
       include: {
         account: { include: { company: true } },
-        splits: { include: { managerialCategory: true, accountingCategory: true } },
+        splits: { include: { managerialCategory: true, accountingCategory: true, operation: { select: { id: true, name: true } } } },
         accountingSplits: { include: { accountingCategory: true } },
         documents: true,
       },

@@ -6,7 +6,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     where: { id },
     include: {
       account: { include: { company: true } },
-      splits: { include: { managerialCategory: true, accountingCategory: true } },
+      splits: { include: { managerialCategory: true, accountingCategory: true, operation: { select: { id: true, name: true } } } },
       accountingSplits: { include: { accountingCategory: true } },
       documents: true,
     },

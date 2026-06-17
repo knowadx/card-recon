@@ -176,6 +176,7 @@ export default function TransactionsPage() {
       accountingDate: existing?.accountingDate?.slice(0, 10) || tx.date.slice(0, 10),
       managerialCategoryId: existing?.managerialCategory?.id || "",
       accountingCategoryId: existing?.accountingCategory?.id || "",
+      operationId: existing?.operation?.id || "",
       [field]: categoryId,
     };
     await fetch(`/api/transactions/${tx.id}/splits`, {
