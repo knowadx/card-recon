@@ -10,8 +10,12 @@ export default function HoldingsPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [name, setName] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
+  const [myRole, setMyRole] = useState("");
+  const isSuper = myRole === "superadmin";
 
   async function load() {
+    const me = await fetch("/api/me").then((x) => x.ok ? x.json() : null);
+    if (me) setMyRole(me.role);
     setHoldings(await fetch("/api/holdings").then((r) => r.json()));
     setCompanies(await fetch("/api/companies").then((r) => r.json()));
   }
@@ -49,10 +53,12 @@ export default function HoldingsPage() {
       </div>
       {msg && <div className="rounded-md bg-slate-900 px-3 py-2 text-sm text-white">{msg}</div>}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4 flex items-end gap-2">
-        <input className={input} placeholder="Nome do holding" value={name} onChange={(e) => setName(e.target.value)} />
-        <button className={btn} onClick={createHolding} disabled={!name}>Criar holding</button>
-      </section>
+      {isSuper && (
+        <section className="rounded-lg border border-slate-200 bg-white p-4 flex items-end gap-2">
+          <input className={input} placeholder="Nome do holding" value={name} onChange={(e) => setName(e.target.value)} />
+          <button className={btn} onClick={createHolding} disabled={!name}>Criar holding</button>
+        </section>
+      )}
 
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold text-slate-700">Holdings ({holdings.length})</h2>
@@ -61,7 +67,7 @@ export default function HoldingsPage() {
             <div key={h.id} className="rounded-lg border border-slate-200 bg-white p-3">
               <div className="flex items-center justify-between">
                 <span className="font-medium">{h.name}</span>
-                <button className="text-xs text-red-600 hover:underline" onClick={() => delHolding(h.id)}>remover</button>
+                {isSuper && <button className="text-xs text-red-600 hover:underline" onClick={() => delHolding(h.id)}>remover</button>}
               </div>
               <div className="mt-1 text-xs text-slate-500">{h.companies.length} empresa(s): {h.companies.map((c) => c.name).join(", ") || "—"}</div>
             </div>

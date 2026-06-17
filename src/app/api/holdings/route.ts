@@ -18,7 +18,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
-  if (!user || user.role !== "admin") return Response.json({ error: "forbidden" }, { status: 403 });
+  if (!user || user.role !== "superadmin") return Response.json({ error: "forbidden" }, { status: 403 });
   const { name, color } = await request.json().catch(() => ({}));
   if (!name) return Response.json({ error: "name obrigatório" }, { status: 400 });
   const h = await prisma.holding.create({ data: { name, color: color || "#6366f1" } });
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   const user = await getCurrentUser();
-  if (!user || user.role !== "admin") return Response.json({ error: "forbidden" }, { status: 403 });
+  if (!user || user.role !== "superadmin") return Response.json({ error: "forbidden" }, { status: 403 });
   const id = new URL(request.url).searchParams.get("id");
   if (!id) return Response.json({ error: "id ausente" }, { status: 400 });
   // desvincula empresas antes de remover

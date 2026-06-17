@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 /** GET /api/revolut/diag — confirma que a chave assina o JWT em produção (admin). */
 export async function GET(request: Request) {
   const user = await getCurrentUser();
-  if (!user || user.role !== "admin") return Response.json({ error: "forbidden" }, { status: 403 });
+  if (!user || user.role !== "superadmin") return Response.json({ error: "forbidden" }, { status: 403 });
 
   const hasEnv = !!process.env.REVOLUT_PRIVATE_KEY;
   const origin = new URL(request.url).origin;

@@ -90,16 +90,25 @@ async function scopes(userId: string) {
   return { holdingIds: h.map((x) => x.holdingId), operationIds: o.map((x) => x.operationId) };
 }
 
-/** IDs de holdings que o usuário pode ver. Admin = todos. */
+/** Vê tudo, irrestrito (dono da plataforma). */
+export function isSuperadmin(role: string): boolean {
+  return role === "superadmin";
+}
+/** Pode gerenciar (criar usuários/operações/conceder acesso) — superadmin global, admin na sua holding. */
+export function isManager(role: string): boolean {
+  return role === "superadmin" || role === "admin";
+}
+
+/** IDs de holdings que o usuário pode ver. Superadmin = todos; admin/member = as do vínculo. */
 export async function accessibleHoldingIds(userId: string, role: string): Promise<string[] | "all"> {
-  if (role === "admin") return "all";
+  if (isSuperadmin(role)) return "all";
   const m = await prisma.membership.findMany({ where: { userId }, select: { holdingId: true } });
   return m.map((x) => x.holdingId);
 }
 
 /** IDs de CONTAS que o usuário pode ver: contas das holdings dele OU das operações dele. */
 export async function accessibleAccountIds(userId: string, role: string): Promise<string[] | "all"> {
-  if (role === "admin") return "all";
+  if (isSuperadmin(role)) return "all";
   const { holdingIds, operationIds } = await scopes(userId);
   if (holdingIds.length === 0 && operationIds.length === 0) return [];
   const accounts = await prisma.account.findMany({
@@ -116,7 +125,7 @@ export async function accessibleAccountIds(userId: string, role: string): Promis
 
 /** IDs de empresas que o usuário pode ver: das holdings dele + das contas das operações dele. */
 export async function accessibleCompanyIds(userId: string, role: string): Promise<string[] | "all"> {
-  if (role === "admin") return "all";
+  if (isSuperadmin(role)) return "all";
   const { holdingIds, operationIds } = await scopes(userId);
   const ids = new Set<string>();
   if (holdingIds.length) {
@@ -130,26 +139,26 @@ export async function accessibleCompanyIds(userId: string, role: string): Promis
   return Array.from(ids);
 }
 
-/** Empresas que a sessão atual pode ver: "all" (admin) ou lista de ids. */
+/** Empresas que a sessão atual pode ver: "all" (superadmin) ou lista de ids. Role vem do DB. */
 export async function scopedCompanyIds(): Promise<string[] | "all"> {
-  const s = await getSession();
-  if (!s) return [];
-  return accessibleCompanyIds(s.userId, s.role);
+  const u = await getCurrentUser();
+  if (!u) return [];
+  return accessibleCompanyIds(u.id, u.role);
 }
 
-/** Contas que a sessão atual pode ver: "all" (admin) ou lista de ids. */
+/** Contas que a sessão atual pode ver: "all" (superadmin) ou lista de ids. Role vem do DB. */
 export async function scopedAccountIds(): Promise<string[] | "all"> {
-  const s = await getSession();
-  if (!s) return [];
-  return accessibleAccountIds(s.userId, s.role);
+  const u = await getCurrentUser();
+  if (!u) return [];
+  return accessibleAccountIds(u.id, u.role);
 }
 
-/** Escopos da sessão (holdings + operações) p/ filtro de transações. */
+/** Escopos da sessão (holdings + operações) p/ filtro de transações. seeAll = superadmin. Role vem do DB. */
 export async function sessionScopes(): Promise<{ isAdmin: boolean; holdingIds: string[]; operationIds: string[] }> {
-  const s = await getSession();
-  if (!s) return { isAdmin: false, holdingIds: [], operationIds: [] };
-  if (s.role === "admin") return { isAdmin: true, holdingIds: [], operationIds: [] };
-  const sc = await scopes(s.userId);
+  const u = await getCurrentUser();
+  if (!u) return { isAdmin: false, holdingIds: [], operationIds: [] };
+  if (isSuperadmin(u.role)) return { isAdmin: true, holdingIds: [], operationIds: [] };
+  const sc = await scopes(u.id);
   return { isAdmin: false, ...sc };
 }
 
@@ -161,6 +170,6 @@ export async function ensureSeedAdmin(): Promise<void> {
   const pw = process.env.ADMIN_PASSWORD;
   if (!email || !pw) return;
   await prisma.user.create({
-    data: { email: email.toLowerCase(), passwordHash: hashPassword(pw), role: "admin", name: "Admin" },
+    data: { email: email.toLowerCase(), passwordHash: hashPassword(pw), role: "superadmin", name: "Admin" },
   });
 }

@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 async function requireAdmin() {
   const u = await getCurrentUser();
-  return u && u.role === "admin" ? u : null;
+  return u && u.role === "superadmin" ? u : null;
 }
 
 /** GET — lista credenciais (token mascarado). */

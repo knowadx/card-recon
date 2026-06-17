@@ -19,6 +19,8 @@ export default function UsersPage() {
   const [operations, setOperations] = useState<Item[]>([]);
   const [forbidden, setForbidden] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [myRole, setMyRole] = useState("");
+  const isSuper = myRole === "superadmin";
 
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -28,6 +30,8 @@ export default function UsersPage() {
   const [operationIds, setOperationIds] = useState<string[]>([]);
 
   async function load() {
+    const me = await fetch("/api/me").then((x) => x.ok ? x.json() : null);
+    if (me) setMyRole(me.role);
     const r = await fetch("/api/users");
     if (r.status === 403) { setForbidden(true); return; }
     setUsers(await r.json());
@@ -75,11 +79,12 @@ export default function UsersPage() {
           <input className={input} placeholder="Senha" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
           <select className={input} value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="member">membro</option>
-            <option value="admin">admin</option>
+            <option value="admin">admin (gerencia a holding)</option>
+            {isSuper && <option value="superadmin">superadmin (tudo)</option>}
           </select>
         </div>
-        {role === "admin" ? (
-          <span className="text-xs text-slate-400">admin vê tudo</span>
+        {role === "superadmin" ? (
+          <span className="text-xs text-slate-400">superadmin vê e gerencia tudo</span>
         ) : (
           <div className="flex flex-col gap-2 text-sm">
             <div className="flex flex-wrap gap-3">
@@ -118,10 +123,11 @@ export default function UsersPage() {
                   <select className={input} value={u.role} onChange={(e) => patch(u.id, { role: e.target.value })}>
                     <option value="member">membro</option>
                     <option value="admin">admin</option>
+                    {(isSuper || u.role === "superadmin") && <option value="superadmin">superadmin</option>}
                   </select>
                 </td>
                 <td className="py-2 text-xs">
-                  {u.role === "admin" ? <span className="text-slate-400">todos</span> : (
+                  {u.role === "superadmin" ? <span className="text-slate-400">todos</span> : (
                     <div className="flex flex-wrap gap-2">
                       {holdings.map((h) => (
                         <label key={h.id} className="flex items-center gap-1">
@@ -134,7 +140,7 @@ export default function UsersPage() {
                   )}
                 </td>
                 <td className="py-2 text-xs">
-                  {u.role === "admin" ? <span className="text-slate-400">todas</span> : (
+                  {u.role === "superadmin" ? <span className="text-slate-400">todas</span> : (
                     <div className="flex flex-wrap gap-2">
                       {operations.map((o) => (
                         <label key={o.id} className="flex items-center gap-1">
