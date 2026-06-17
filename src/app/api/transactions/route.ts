@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { scopedCompanyIds } from "@/lib/auth";
+import { scopedAccountIds } from "@/lib/auth";
 
 const PAGE_SIZE = 100;
 
@@ -65,10 +65,10 @@ export async function GET(request: Request) {
     } : {}),
   };
 
-  // Escopo por empresa do usuário logado (admin = tudo)
-  const scope = await scopedCompanyIds();
+  // Escopo por conta do usuário logado (holdings + operações; admin = tudo)
+  const scope = await scopedAccountIds();
   if (scope !== "all") {
-    where.AND = [...(where.AND ?? []), { account: { companyId: { in: scope } } }];
+    where.AND = [...(where.AND ?? []), { accountId: { in: scope } }];
   }
 
   const [transactions, total] = await Promise.all([

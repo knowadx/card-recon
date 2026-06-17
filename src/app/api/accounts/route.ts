@@ -1,11 +1,11 @@
 import { prisma } from "@/lib/db";
-import { scopedCompanyIds } from "@/lib/auth";
+import { scopedAccountIds } from "@/lib/auth";
 
 export async function GET() {
-  const scope = await scopedCompanyIds();
+  const scope = await scopedAccountIds();
   const accounts = await prisma.account.findMany({
-    where: scope === "all" ? {} : { companyId: { in: scope } },
-    include: { company: true },
+    where: scope === "all" ? {} : { id: { in: scope } },
+    include: { company: true, operation: { select: { id: true, name: true } } },
     orderBy: { name: "asc" },
   });
   // Não vaza o token pro client — só sinaliza se existe
@@ -23,6 +23,7 @@ export async function POST(request: Request) {
       currency: body.currency,
       name: body.name,
       apiToken: body.apiToken || null,
+      operationId: body.operationId || null,
     },
     include: { company: true },
   });

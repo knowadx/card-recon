@@ -14,7 +14,39 @@ model Holding {
   color       String       @default("#6366f1")
   createdAt   DateTime     @default(now())
   companies   Company[]
+  operations  Operation[]
   memberships Membership[]
+}
+
+// Operação = unidade operacional (toca sites/custos), cruza empresas. Cada CONTA
+// pertence a uma operação → as transações herdam a operação. Acesso pode ser por
+// operação (operador vê só a dele).
+model Operation {
+  id          String                @id @default(cuid())
+  name        String
+  type        String                @default("own") // "own" (própria) | "holding"
+  color       String                @default("#0ea5e9")
+  holdingId   String?
+  holding     Holding?              @relation(fields: [holdingId], references: [id])
+  createdAt   DateTime              @default(now())
+  accounts    Account[]
+  memberships OperationMembership[]
+
+  @@index([holdingId])
+}
+
+// Acesso de um usuário a UMA operação (vê só as contas/transações daquela operação).
+model OperationMembership {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  operationId String
+  operation   Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, operationId])
+  @@index([userId])
+  @@index([operationId])
 }
 
 model Company {
@@ -39,10 +71,13 @@ model Account {
   name         String
   apiToken     String? // token da API do banco — 1 token por conta (ex.: Mercury)
   syncConfig   String? // JSON: { mercuryAccountId?, mercuryEntity?, wiseProfileId? }
+  operationId  String? // operação dona desta conta (as transações herdam)
+  operation    Operation?    @relation(fields: [operationId], references: [id])
   createdAt    DateTime      @default(now())
   transactions Transaction[]
 
   @@index([companyId])
+  @@index([operationId])
 }
 
 model Category {
@@ -226,10 +261,11 @@ model User {
   passwordHash String
   name         String?
   role         String       @default("member") // "admin" | "member"
-  isActive     Boolean      @default(true)
-  createdAt    DateTime     @default(now())
-  sessions     Session[]
-  memberships  Membership[]
+  isActive             Boolean               @default(true)
+  createdAt            DateTime              @default(now())
+  sessions             Session[]
+  memberships          Membership[]
+  operationMemberships OperationMembership[]
 }
 
 model Session {

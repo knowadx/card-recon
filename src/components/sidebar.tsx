@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { LayoutDashboard, Building2, Landmark, Tag, ArrowLeftRight, CheckSquare, BarChart2, Settings, X, Target, DollarSign, TrendingUp, ChevronLeft, ChevronRight, LineChart, ShieldCheck, Users, LogOut, KeyRound, Layers } from "lucide-react";
+import { LayoutDashboard, Building2, Landmark, Tag, ArrowLeftRight, CheckSquare, BarChart2, Settings, X, Target, DollarSign, TrendingUp, ChevronLeft, ChevronRight, LineChart, ShieldCheck, Users, LogOut, KeyRound, Layers, Workflow } from "lucide-react";
 
 const mainNav = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -18,6 +18,7 @@ const mainNav = [
 const settingsNav = [
   { href: "/accounts", label: "Accounts", icon: Landmark },
   { href: "/holdings", label: "Holdings", icon: Layers },
+  { href: "/operations", label: "Operações", icon: Workflow },
   { href: "/companies", label: "Companies", icon: Building2 },
   { href: "/users", label: "Users", icon: Users },
   { href: "/integracoes", label: "Integrações", icon: KeyRound },

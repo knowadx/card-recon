@@ -29,6 +29,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       });
     }
   }
+  if (Array.isArray(body.operationIds)) {
+    await prisma.operationMembership.deleteMany({ where: { userId: id } });
+    if (body.operationIds.length) {
+      await prisma.operationMembership.createMany({
+        data: body.operationIds.map((operationId: string) => ({ userId: id, operationId })),
+      });
+    }
+  }
   return NextResponse.json({ ok: true });
 }
 

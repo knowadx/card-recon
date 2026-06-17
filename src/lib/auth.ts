@@ -82,6 +82,14 @@ export async function getCurrentUser() {
   return user;
 }
 
+async function scopes(userId: string) {
+  const [h, o] = await Promise.all([
+    prisma.membership.findMany({ where: { userId }, select: { holdingId: true } }),
+    prisma.operationMembership.findMany({ where: { userId }, select: { operationId: true } }),
+  ]);
+  return { holdingIds: h.map((x) => x.holdingId), operationIds: o.map((x) => x.operationId) };
+}
+
 /** IDs de holdings que o usuário pode ver. Admin = todos. */
 export async function accessibleHoldingIds(userId: string, role: string): Promise<string[] | "all"> {
   if (role === "admin") return "all";
@@ -89,16 +97,37 @@ export async function accessibleHoldingIds(userId: string, role: string): Promis
   return m.map((x) => x.holdingId);
 }
 
-/** IDs de empresas que o usuário pode ver (via holdings concedidos). Admin = todas. */
-export async function accessibleCompanyIds(userId: string, role: string): Promise<string[] | "all"> {
+/** IDs de CONTAS que o usuário pode ver: contas das holdings dele OU das operações dele. */
+export async function accessibleAccountIds(userId: string, role: string): Promise<string[] | "all"> {
   if (role === "admin") return "all";
-  const holdingIds = await prisma.membership.findMany({ where: { userId }, select: { holdingId: true } });
-  if (holdingIds.length === 0) return [];
-  const companies = await prisma.company.findMany({
-    where: { holdingId: { in: holdingIds.map((h) => h.holdingId) } },
+  const { holdingIds, operationIds } = await scopes(userId);
+  if (holdingIds.length === 0 && operationIds.length === 0) return [];
+  const accounts = await prisma.account.findMany({
+    where: {
+      OR: [
+        ...(holdingIds.length ? [{ company: { holdingId: { in: holdingIds } } }] : []),
+        ...(operationIds.length ? [{ operationId: { in: operationIds } }] : []),
+      ],
+    },
     select: { id: true },
   });
-  return companies.map((c) => c.id);
+  return accounts.map((a) => a.id);
+}
+
+/** IDs de empresas que o usuário pode ver: das holdings dele + das contas das operações dele. */
+export async function accessibleCompanyIds(userId: string, role: string): Promise<string[] | "all"> {
+  if (role === "admin") return "all";
+  const { holdingIds, operationIds } = await scopes(userId);
+  const ids = new Set<string>();
+  if (holdingIds.length) {
+    const c = await prisma.company.findMany({ where: { holdingId: { in: holdingIds } }, select: { id: true } });
+    c.forEach((x) => ids.add(x.id));
+  }
+  if (operationIds.length) {
+    const a = await prisma.account.findMany({ where: { operationId: { in: operationIds } }, select: { companyId: true } });
+    a.forEach((x) => ids.add(x.companyId));
+  }
+  return Array.from(ids);
 }
 
 /** Empresas que a sessão atual pode ver: "all" (admin) ou lista de ids. */
@@ -106,6 +135,13 @@ export async function scopedCompanyIds(): Promise<string[] | "all"> {
   const s = await getSession();
   if (!s) return [];
   return accessibleCompanyIds(s.userId, s.role);
+}
+
+/** Contas que a sessão atual pode ver: "all" (admin) ou lista de ids. */
+export async function scopedAccountIds(): Promise<string[] | "all"> {
+  const s = await getSession();
+  if (!s) return [];
+  return accessibleAccountIds(s.userId, s.role);
 }
 
 /** Garante 1 admin a partir das envs ADMIN_EMAIL/ADMIN_PASSWORD se não houver usuários. */

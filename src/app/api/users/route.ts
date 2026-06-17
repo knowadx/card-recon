@@ -14,7 +14,10 @@ export async function GET() {
   if (!(await requireAdmin())) return Response.json({ error: "forbidden" }, { status: 403 });
   const users = await prisma.user.findMany({
     orderBy: { createdAt: "asc" },
-    include: { memberships: { include: { holding: true } } },
+    include: {
+      memberships: { include: { holding: true } },
+      operationMemberships: { include: { operation: true } },
+    },
   });
   return NextResponse.json(
     users.map((u) => ({
@@ -24,13 +27,14 @@ export async function GET() {
       role: u.role,
       isActive: u.isActive,
       holdings: u.memberships.map((m) => ({ id: m.holdingId, name: m.holding.name })),
+      operations: u.operationMemberships.map((m) => ({ id: m.operationId, name: m.operation.name })),
     })),
   );
 }
 
 export async function POST(request: Request) {
   if (!(await requireAdmin())) return Response.json({ error: "forbidden" }, { status: 403 });
-  const { email, password, name, role, holdingIds } = await request.json().catch(() => ({}));
+  const { email, password, name, role, holdingIds, operationIds } = await request.json().catch(() => ({}));
   if (!email || !password) return Response.json({ error: "email e senha obrigatórios" }, { status: 400 });
   try {
     const user = await prisma.user.create({
@@ -41,6 +45,9 @@ export async function POST(request: Request) {
         role: role === "admin" ? "admin" : "member",
         memberships: Array.isArray(holdingIds)
           ? { create: holdingIds.map((holdingId: string) => ({ holdingId })) }
+          : undefined,
+        operationMemberships: Array.isArray(operationIds)
+          ? { create: operationIds.map((operationId: string) => ({ operationId })) }
           : undefined,
       },
     });

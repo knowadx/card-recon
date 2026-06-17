@@ -11,6 +11,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       currency: body.currency,
       name: body.name,
       ...(body.apiToken !== undefined ? { apiToken: body.apiToken || null } : {}),
+      ...(body.operationId !== undefined ? { operationId: body.operationId || null } : {}),
     },
     include: { company: true },
   });
