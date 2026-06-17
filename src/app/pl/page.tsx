@@ -41,21 +41,31 @@ export default function PlPage() {
 
   const [companies, setCompanies] = useState<Company[]>([]);
   const [companyId, setCompanyId] = useState("all");
+  const [holdings, setHoldings] = useState<{ id: string; name: string }[]>([]);
+  const [holdingId, setHoldingId] = useState("all");
+  const [operations, setOperations] = useState<{ id: string; name: string }[]>([]);
+  const [operationId, setOperationId] = useState("all");
   const [from, setFrom] = useState(defaultFrom);
   const [to, setTo] = useState(defaultTo);
   const [data, setData] = useState<PlData | null>(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => { fetch("/api/companies").then(r => r.json()).then(setCompanies); }, []);
+  useEffect(() => {
+    fetch("/api/companies").then(r => r.json()).then(setCompanies);
+    fetch("/api/holdings").then(r => r.json()).then(d => setHoldings(Array.isArray(d) ? d : []));
+    fetch("/api/operations").then(r => r.json()).then(d => setOperations(Array.isArray(d) ? d : []));
+  }, []);
 
   useEffect(() => {
     setLoading(true);
     const params = new URLSearchParams({ from, to });
     if (companyId !== "all") params.set("companyId", companyId);
+    if (holdingId !== "all") params.set("holdingId", holdingId);
+    if (operationId !== "all") params.set("operationId", operationId);
     fetch(`/api/pl?${params}`)
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false); });
-  }, [companyId, from, to]);
+  }, [companyId, holdingId, operationId, from, to]);
 
   const months = data?.months ?? [];
   const rows = data?.rows ?? [];
@@ -87,6 +97,28 @@ export default function PlPage() {
           <p className="text-[13px] text-[#6b7280] mt-0.5">Monthly revenue and expenses in USD</p>
         </div>
         <div className="flex items-center gap-2">
+          <Select value={holdingId} onValueChange={v => setHoldingId(v ?? "all")}>
+            <SelectTrigger className="h-9 text-sm w-40 bg-white border-[#e8eaed] rounded-lg">
+              <span className="flex-1 text-left text-sm truncate">
+                {holdingId === "all" ? "Todos holdings" : holdings.find(h => h.id === holdingId)?.name ?? holdingId}
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos holdings</SelectItem>
+              {holdings.map(h => <SelectItem key={h.id} value={h.id}>{h.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={operationId} onValueChange={v => setOperationId(v ?? "all")}>
+            <SelectTrigger className="h-9 text-sm w-40 bg-white border-[#e8eaed] rounded-lg">
+              <span className="flex-1 text-left text-sm truncate">
+                {operationId === "all" ? "Todas operações" : operations.find(o => o.id === operationId)?.name ?? operationId}
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas operações</SelectItem>
+              {operations.map(o => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
           <Select value={companyId} onValueChange={v => setCompanyId(v ?? "all")}>
             <SelectTrigger className="h-9 text-sm w-44 bg-white border-[#e8eaed] rounded-lg">
               <span className="flex-1 text-left text-sm truncate">

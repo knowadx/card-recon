@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { loadRateMap, toUsd } from "@/lib/exchangeRates";
+import { sessionScopes } from "@/lib/auth";
 
 function monthsBetween(from: string, to: string): string[] {
   const result: string[] = [];
@@ -16,6 +17,8 @@ function monthsBetween(from: string, to: string): string[] {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const companyId = searchParams.get("companyId") || null;
+  const holdingId = searchParams.get("holdingId") || null;
+  const operationId = searchParams.get("operationId") || null;
   const now = new Date();
   const from = searchParams.get("from") || `${now.getFullYear()}-01`;
   const to = searchParams.get("to") || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -25,14 +28,34 @@ export async function GET(request: Request) {
   rangeEnd.setMonth(rangeEnd.getMonth() + 1);
   rangeEnd.setMilliseconds(-1);
 
-  const accountFilter = companyId ? { account: { companyId } } : {};
+  // Filtro de conta (empresa e/ou holding)
+  const accountWhere: Record<string, unknown> = {};
+  if (companyId) accountWhere.companyId = companyId;
+  if (holdingId) accountWhere.company = { holdingId };
+
+  // Escopo de acesso (operador só vê holdings/operações dele; admin = tudo)
+  const sc = await sessionScopes();
+  const scopeOR: Record<string, unknown>[] | null = sc.isAdmin
+    ? null
+    : [
+        ...(sc.holdingIds.length ? [{ account: { company: { holdingId: { in: sc.holdingIds } } } }] : []),
+        ...(sc.operationIds.length ? [{ operationId: { in: sc.operationIds } }, { account: { operationId: { in: sc.operationIds } } }] : []),
+      ];
+
+  // where de transação compartilhado (conta + escopo)
+  const txWhere = {
+    ignored: false,
+    ...(Object.keys(accountWhere).length ? { account: accountWhere } : {}),
+    ...(scopeOR ? { OR: scopeOR.length ? scopeOR : [{ id: "__none__" }] } : {}),
+  };
 
   const [splits, categories, uncategorized, rateMap] = await Promise.all([
     // Categorized splits
     prisma.transactionSplit.findMany({
       where: {
         managerialCategoryId: { not: null },
-        transaction: { ignored: false, ...accountFilter },
+        ...(operationId ? { operationId } : {}),
+        transaction: txWhere,
         OR: [
           { accountingDate: { gte: rangeStart, lte: rangeEnd } },
           { accountingDate: null, transaction: { date: { gte: rangeStart, lte: rangeEnd } } },
@@ -52,8 +75,8 @@ export async function GET(request: Request) {
     // Transactions with NO managerial category split at all
     prisma.transaction.findMany({
       where: {
-        ignored: false,
-        ...accountFilter,
+        ...txWhere,
+        ...(operationId ? { operationId } : {}),
         date: { gte: rangeStart, lte: rangeEnd },
         splits: { none: { managerialCategoryId: { not: null } } },
       },
