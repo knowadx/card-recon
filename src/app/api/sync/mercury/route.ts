@@ -3,6 +3,9 @@ import { KEY_MAP } from "@/lib/mercury";
 import { isMetaMerchant } from "@/lib/metaCheck";
 import { getCredentialToken } from "@/lib/credentials";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
 const MERCURY_BASE = "https://api.mercury.com/api/v1";
 
 // Mapa cardId(UUID) → últimos 4 dígitos, da conta Mercury

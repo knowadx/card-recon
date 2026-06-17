@@ -2,7 +2,24 @@ import { prisma } from "@/lib/db";
 import { isMetaMerchant } from "@/lib/metaCheck";
 import { getCredentialToken } from "@/lib/credentials";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
 const WISE_BASE = "https://api.wise.com";
+
+/** Roda fn sobre items com no máximo `limit` em paralelo (preserva a ordem). */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
 
 interface WiseActivity {
   id: string;
@@ -53,9 +70,19 @@ function parseAmountString(raw: string): { absAmount: number; currency: string }
 }
 
 async function fetchJson(url: string, headers: Record<string, string>): Promise<unknown> {
-  const res = await fetch(url, { headers });
+  let res: Response;
+  try {
+    res = await fetch(url, { headers, signal: AbortSignal.timeout(20000) });
+  } catch (e) {
+    console.warn("Wise fetch falhou/timeout:", url, String(e));
+    return null;
+  }
   const text = await res.text();
-  if (!text || !res.ok) return null;
+  if (!res.ok) {
+    console.warn(`Wise ${res.status} em ${url}: ${text.slice(0, 200)}`);
+    return null;
+  }
+  if (!text) return null;
   try { return JSON.parse(text); } catch { return null; }
 }
 
@@ -77,8 +104,17 @@ async function fetchActivities(
     url.searchParams.set("until", end);
     if (nextCursor) url.searchParams.set("nextCursor", nextCursor);
 
-    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${key}` } });
-    if (!res.ok) break;
+    let res: Response;
+    try {
+      res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20000) });
+    } catch (e) {
+      console.warn("Wise activities fetch falhou/timeout:", String(e));
+      break;
+    }
+    if (!res.ok) {
+      console.warn(`Wise activities ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      break;
+    }
 
     const data = await res.json();
     const activities: WiseActivity[] = data.activities ?? [];
@@ -230,32 +266,14 @@ export async function POST(request: Request) {
       operationId: string | null;
     }> = [];
 
-    const transferDebug: unknown[] = [];
+    type Candidate = (typeof candidates)[number];
 
-    for (const a of newActivities) {
+    // Processa cada atividade (até 8 em paralelo) — a maioria precisa de chamadas extra ao Wise
+    // (resolver valor da transferência / detalhe do cartão). Sequencial isso "rodava eternamente".
+    const processed = await mapLimit(newActivities, 8, async (a): Promise<Candidate | null> => {
       let resolved: { amount: number; currency: string; fee: number } | null = null;
 
       if (a.resource?.type?.toUpperCase() === "TRANSFER") {
-        // Debug: capture raw transfer data for suspicious transactions
-        const resourceId = a.resource?.id;
-        const rawTransfer = resourceId
-          ? await fetchJson(`${WISE_BASE}/v1/transfers/${resourceId}`, headers) as WiseTransfer | null
-          : null;
-        const title = a.title.replace(/<[^>]+>/g, "").trim();
-        transferDebug.push({
-          title,
-          activityStatus: a.status,
-          activityType: a.type,
-          primaryAmount: a.primaryAmount,
-          transferStatus: rawTransfer?.status,
-          sourceAccount: rawTransfer?.sourceAccount,
-          sourceValue: rawTransfer?.sourceValue,
-          sourceCurrency: rawTransfer?.sourceCurrency,
-          targetValue: rawTransfer?.targetValue,
-          targetCurrency: rawTransfer?.targetCurrency,
-          ownRecipientId,
-          detectedAs: rawTransfer?.status === "outgoing_payment_sent" || (ownRecipientId !== null && rawTransfer?.sourceAccount === ownRecipientId) ? "OUTGOING" : "INCOMING",
-        });
         resolved = await resolveTransferAmount(a, profileId, ownRecipientId, headers);
       } else {
         // CARD_PAYMENT, TOPUP, etc. — use primaryAmount directly
@@ -265,9 +283,8 @@ export async function POST(request: Request) {
       }
 
       if (!resolved) {
-        parseFailCount++;
         console.warn("Could not resolve amount for activity:", a.id, a.primaryAmount);
-        continue;
+        return null;
       }
 
       const description = a.title.replace(/<[^>]+>/g, "").trim();
@@ -286,7 +303,7 @@ export async function POST(request: Request) {
         }
       }
 
-      candidates.push({
+      return {
         accountId,
         date: new Date(a.createdOn),
         description,
@@ -297,7 +314,12 @@ export async function POST(request: Request) {
         cardLast4,
         isMetaCharge: isMetaMerchant(metaName, description),
         operationId: account.operationId,
-      });
+      };
+    });
+
+    for (const r of processed) {
+      if (r) candidates.push(r);
+      else parseFailCount++;
     }
 
     // Dedup within batch
@@ -327,7 +349,7 @@ export async function POST(request: Request) {
       imported: toCreate.length,
       parseFailed: parseFailCount,
       totalCompleted: completed.length,
-      transferDebug,
+      newActivities: newActivities.length,
     });
   } catch (e) {
     console.error("Wise sync error:", e);

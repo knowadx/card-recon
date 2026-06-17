@@ -2,6 +2,9 @@ import { prisma } from "@/lib/db";
 import { KEY_MAP } from "@/lib/mercury";
 import { getValidAccessToken, REVOLUT_BASE } from "@/lib/revolut";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
 const MERCURY_BASE = "https://api.mercury.com/api/v1";
 const WISE_BASE = "https://api.wise.com";
 

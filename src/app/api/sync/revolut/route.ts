@@ -2,6 +2,9 @@ import { prisma } from "@/lib/db";
 import { getValidAccessToken, REVOLUT_BASE } from "@/lib/revolut";
 import { isMetaMerchant, last4Of } from "@/lib/metaCheck";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
 interface RevolutTransaction {
   id: string;
   type: string;
