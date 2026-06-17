@@ -8,6 +8,31 @@ export const maxDuration = 300;
 const MERCURY_BASE = "https://api.mercury.com/api/v1";
 const WISE_BASE = "https://api.wise.com";
 
+/** fetch que, no 429, espera o Retry-After (ou backoff) e tenta de novo. */
+async function fetchWith429Retry(url: string, init: RequestInit, maxRetries = 4): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, init);
+    if (res.status !== 429 || attempt >= maxRetries) return res;
+    const ra = Number(res.headers.get("retry-after"));
+    const waitMs = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 60000) : Math.min(2000 * 2 ** attempt, 30000);
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+}
+
+/** Roda fn sobre items com no máximo `limit` em paralelo (preserva a ordem). */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
 async function syncMercury(accountId: string, mercuryAccountId: string, entity: string, from: string) {
   const key = KEY_MAP[entity];
   if (!key) return { imported: 0, skipped: 0, error: `No key for ${entity}` };
@@ -148,8 +173,8 @@ async function syncRevolut(accountId: string, companyName: string, revolutAccoun
     url.searchParams.set("count", "1000");
     if (createdBefore) url.searchParams.set("created_before", createdBefore);
 
-    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
-    if (!res.ok) return { imported: 0, skipped: 0, error: `Revolut API ${res.status}` };
+    const res = await fetchWith429Retry(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) return { imported: 0, skipped: 0, error: res.status === 429 ? "Revolut 429 (limite) — tente mais tarde" : `Revolut API ${res.status}` };
 
     const batch = await res.json();
     if (!Array.isArray(batch) || batch.length === 0) break;
@@ -202,8 +227,8 @@ export async function POST(request: Request) {
     return Response.json({ error: "Nenhuma conta com sync configurado. Faça um sync manual primeiro." }, { status: 400 });
   }
 
-  const results = await Promise.all(
-    accounts.map(async (account) => {
+  // concorrência limitada (3) p/ não martelar os limites de taxa dos bancos (ex.: Revolut 429)
+  const results = await mapLimit(accounts, 3, async (account) => {
       const config = JSON.parse(account.syncConfig!);
       let result;
       if (config.mercuryAccountId) {
@@ -216,8 +241,7 @@ export async function POST(request: Request) {
         result = { imported: 0, skipped: 0, error: "Config inválida" };
       }
       return { accountId: account.id, accountName: account.name, ...result };
-    })
-  );
+  });
 
   const totalImported = results.reduce((s, r) => s + (r.imported ?? 0), 0);
   const totalSkipped = results.reduce((s, r) => s + (r.skipped ?? 0), 0);

@@ -26,6 +26,18 @@ interface RevolutTransaction {
   reference?: string;
 }
 
+/** fetch que, no 429 do Revolut, espera o Retry-After (ou backoff) e tenta de novo. */
+async function fetchWith429Retry(url: string, init: RequestInit, maxRetries = 4): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, init);
+    if (res.status !== 429 || attempt >= maxRetries) return res;
+    const ra = Number(res.headers.get("retry-after"));
+    const waitMs = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 60000) : Math.min(2000 * 2 ** attempt, 30000);
+    console.warn(`Revolut 429 — aguardando ${Math.round(waitMs / 1000)}s (tentativa ${attempt + 1}/${maxRetries})`);
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+}
+
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const { accountId, revolutAccountId, from } = body as {
@@ -62,9 +74,15 @@ export async function POST(request: Request) {
     url.searchParams.set("count", "1000");
     if (createdBefore) url.searchParams.set("created_before", createdBefore);
 
-    const res = await fetch(url.toString(), { headers });
+    const res = await fetchWith429Retry(url.toString(), { headers });
     if (!res.ok) {
       const err = await res.text();
+      if (res.status === 429) {
+        return Response.json(
+          { error: "Revolut está limitando as requisições (429). Aguarde uns minutos e tente novamente — sincronize uma conta por vez." },
+          { status: 429 },
+        );
+      }
       return Response.json({ error: `Revolut API ${res.status}: ${err}` }, { status: 502 });
     }
 
