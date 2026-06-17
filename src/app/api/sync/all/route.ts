@@ -126,10 +126,10 @@ async function syncWise(accountId: string, profileId: string, from: string) {
   return { imported: toCreate.length, skipped: completed.length - toCreate.length };
 }
 
-async function syncRevolut(accountId: string, revolutAccountId: string | null, from: string) {
+async function syncRevolut(accountId: string, companyName: string, revolutAccountId: string | null, from: string) {
   let accessToken: string;
   try {
-    accessToken = await getValidAccessToken(prisma);
+    accessToken = await getValidAccessToken(companyName);
   } catch {
     return { imported: 0, skipped: 0, error: "Revolut not authorized" };
   }
@@ -192,6 +192,7 @@ export async function POST(request: Request) {
 
   const accounts = await prisma.account.findMany({
     where: { syncConfig: { not: null } },
+    include: { company: true },
   });
 
   if (accounts.length === 0) {
@@ -207,7 +208,7 @@ export async function POST(request: Request) {
       } else if (config.wiseProfileId) {
         result = await syncWise(account.id, config.wiseProfileId, from);
       } else if ("revolutAccountId" in config) {
-        result = await syncRevolut(account.id, config.revolutAccountId, from);
+        result = await syncRevolut(account.id, account.company.name, config.revolutAccountId, from);
       } else {
         result = { imported: 0, skipped: 0, error: "Config inválida" };
       }

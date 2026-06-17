@@ -1,19 +1,19 @@
 import { prisma } from "@/lib/db";
 import { getValidAccessToken, REVOLUT_BASE } from "@/lib/revolut";
 
-export async function GET() {
+/** GET /api/revolut/accounts?accountId= — lista contas Revolut da EMPRESA daquela conta. */
+export async function GET(request: Request) {
+  const accountId = new URL(request.url).searchParams.get("accountId");
+  if (!accountId) return Response.json({ error: "accountId required" }, { status: 400 });
+  const account = await prisma.account.findUnique({ where: { id: accountId }, include: { company: true } });
+  if (!account) return Response.json({ error: "account not found" }, { status: 404 });
+
   try {
-    const accessToken = await getValidAccessToken(prisma);
-    const res = await fetch(`${REVOLUT_BASE}/accounts`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      return Response.json({ error: `Revolut API ${res.status}: ${err}` }, { status: 502 });
-    }
-    const accounts = await res.json();
-    return Response.json(accounts);
+    const accessToken = await getValidAccessToken(account.company.name);
+    const res = await fetch(`${REVOLUT_BASE}/accounts`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) return Response.json({ error: `Revolut API ${res.status}: ${await res.text()}` }, { status: 502 });
+    return Response.json(await res.json());
   } catch (e) {
-    console.error(e); return Response.json({ error: "Erro de autenticação Revolut", needsAuth: true }, { status: 401 });
+    return Response.json({ error: `Revolut "${account.company.name}" não conectado`, needsAuth: true, detail: (e as Error).message }, { status: 401 });
   }
 }

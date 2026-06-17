@@ -203,7 +203,7 @@ const save = async () => {
     setRevolutSyncResult(null);
     setRevolutAccountId("");
     setRevolutSyncOpen(true);
-    const res = await fetch("/api/revolut/accounts").then(r => r.json());
+    const res = await fetch(`/api/revolut/accounts?accountId=${a.id}`).then(r => r.json());
     if (Array.isArray(res)) {
       setRevolutAccounts(res.map((acc: { id: string; name: string; currency: string; balance: number }) => ({
         id: acc.id,
@@ -304,17 +304,16 @@ const save = async () => {
         </div>
         <div className="flex items-center gap-3">
           {revolutConnected === false && (
-            <Button
-              variant="outline"
-              className="h-9 text-sm border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg font-medium"
-              onClick={() => window.open("/api/revolut/auth", "_blank", "width=700,height=600")}
+            <a
+              href="/integracoes"
+              className="h-9 inline-flex items-center px-3 text-sm border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg font-medium"
             >
-              Connect Revolut
-            </Button>
+              Conectar Revolut (Integrações)
+            </a>
           )}
           {revolutConnected === true && (
             <span className="inline-flex items-center gap-1.5 text-[12px] text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg font-medium border border-emerald-200">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Revolut connected
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Revolut conectado
             </span>
           )}
           <Button

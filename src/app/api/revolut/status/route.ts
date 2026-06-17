@@ -1,10 +1,7 @@
-import { prisma } from "@/lib/db";
+import { connectedRevolutCompanies } from "@/lib/revolut";
 
+/** GET /api/revolut/status — empresas Revolut já conectadas (consentidas). */
 export async function GET() {
-  const row = await prisma.setting.findUnique({ where: { key: "revolut_refresh_token" } });
-  const expRow = await prisma.setting.findUnique({ where: { key: "revolut_access_token_exp" } });
-  const connected = !!row?.value;
-  const exp = expRow ? parseInt(expRow.value) : 0;
-  const now = Math.floor(Date.now() / 1000);
-  return Response.json({ connected, tokenExpired: exp < now });
+  const companies = await connectedRevolutCompanies();
+  return Response.json({ connected: companies.length > 0, companies });
 }

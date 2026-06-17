@@ -1,13 +1,14 @@
-import { prisma } from "@/lib/db";
 import { getValidAccessToken, REVOLUT_BASE } from "@/lib/revolut";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const count = parseInt(searchParams.get("count") ?? "5");
+  const company = searchParams.get("company");
+  if (!company) return Response.json({ error: "?company= obrigatório" }, { status: 400 });
 
   let accessToken: string;
   try {
-    accessToken = await getValidAccessToken(prisma);
+    accessToken = await getValidAccessToken(company);
   } catch (e) {
     return Response.json({ error: String(e) }, { status: 401 });
   }

@@ -35,7 +35,7 @@ export async function GET() {
 
   // cache por token (evita chamadas repetidas pro mesmo token)
   const cache = new Map<string, { ok: boolean; label: string }>();
-  let revolutStatus: { ok: boolean; label: string } | null = null;
+  const revolutCache = new Map<string, { ok: boolean; label: string }>();
 
   const results = await Promise.all(
     accounts.map(async (account) => {
@@ -53,15 +53,16 @@ export async function GET() {
       }
 
       if (bank === "Revolut") {
-        if (!revolutStatus) {
+        const co = account.company.name;
+        if (!revolutCache.has(co)) {
           try {
-            await getValidAccessToken(prisma);
-            revolutStatus = { ok: true, label: "Conectada" };
+            await getValidAccessToken(co);
+            revolutCache.set(co, { ok: true, label: "Conectada" });
           } catch {
-            revolutStatus = { ok: false, label: "Não autorizado" };
+            revolutCache.set(co, { ok: false, label: "Não conectado" });
           }
         }
-        return { accountId: account.id, ...revolutStatus };
+        return { accountId: account.id, ...revolutCache.get(co)! };
       }
 
       return { accountId: account.id, ok: null, label: "Manual" };

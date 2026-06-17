@@ -33,14 +33,14 @@ export async function POST(request: Request) {
 
   if (!accountId) return Response.json({ error: "accountId required" }, { status: 400 });
 
-  const account = await prisma.account.findUnique({ where: { id: accountId } });
+  const account = await prisma.account.findUnique({ where: { id: accountId }, include: { company: true } });
   if (!account) return Response.json({ error: "account not found" }, { status: 404 });
 
   let accessToken: string;
   try {
-    accessToken = await getValidAccessToken(prisma);
+    accessToken = await getValidAccessToken(account.company.name);
   } catch (e) {
-    console.error(e); return Response.json({ error: "Erro de autenticação Revolut", needsAuth: true }, { status: 401 });
+    console.error(e); return Response.json({ error: `Revolut da empresa "${account.company.name}" não conectado`, needsAuth: true }, { status: 401 });
   }
 
   const fromDate = from ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
