@@ -91,10 +91,11 @@ async function fetchActivities(
   profileId: string,
   start: string,
   end: string
-): Promise<WiseActivity[]> {
+): Promise<{ activities: WiseActivity[]; error: string | null }> {
   const all: WiseActivity[] = [];
   let nextCursor: string | null = null;
   let page = 0;
+  let error: string | null = null;
 
   while (page < 50) {
     page++;
@@ -108,11 +109,11 @@ async function fetchActivities(
     try {
       res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20000) });
     } catch (e) {
-      console.warn("Wise activities fetch falhou/timeout:", String(e));
+      error = `falha/timeout ao buscar atividades (${String(e)})`;
       break;
     }
     if (!res.ok) {
-      console.warn(`Wise activities ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      error = `HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`;
       break;
     }
 
@@ -124,7 +125,8 @@ async function fetchActivities(
     if (!nextCursor || activities.length === 0) break;
   }
 
-  return all;
+  // só reporta erro se NADA veio (erro logo na 1ª página); páginas parciais seguem com o que tem
+  return { activities: all, error: all.length === 0 ? error : null };
 }
 
 // Resolve the actual amount, currency and fee for a TRANSFER activity.
@@ -241,7 +243,10 @@ export async function POST(request: Request) {
     const baData = await fetchJson(`${WISE_BASE}/v1/borderless-accounts?profileId=${profileId}`, headers) as Array<{ recipientId: number }> | null;
     const ownRecipientId: number | null = Array.isArray(baData) ? (baData[0]?.recipientId ?? null) : null;
 
-    const activities = await fetchActivities(key, profileId, start, end);
+    const { activities, error: actErr } = await fetchActivities(key, profileId, start, end);
+    if (actErr) {
+      return Response.json({ error: `Wise não retornou atividades — ${actErr}. (token/perfil ou limite). Não é "0 importadas".` }, { status: 502 });
+    }
     const completed = activities.filter(a => a.status === "COMPLETED");
 
     const existing = await prisma.transaction.findMany({
