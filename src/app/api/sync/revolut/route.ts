@@ -29,7 +29,7 @@ interface RevolutTransaction {
 /** fetch que, no 429 do Revolut, espera o Retry-After (ou backoff) e tenta de novo. */
 async function fetchWith429Retry(url: string, init: RequestInit, maxRetries = 4): Promise<Response> {
   for (let attempt = 0; ; attempt++) {
-    const res = await fetch(url, init);
+    const res = await fetch(url, { ...init, signal: AbortSignal.timeout(25000) });
     if (res.status !== 429 || attempt >= maxRetries) return res;
     const ra = Number(res.headers.get("retry-after"));
     const waitMs = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 60000) : Math.min(2000 * 2 ** attempt, 30000);
@@ -67,7 +67,8 @@ export async function POST(request: Request) {
   const all: RevolutTransaction[] = [];
   let createdBefore: string | null = null;
 
-  while (true) {
+  // guarda anti-loop: no máximo 50 páginas (50k tx) e para se o cursor não avançar
+  for (let page = 0; page < 50; page++) {
     const url = new URL(`${REVOLUT_BASE}/transactions`);
     url.searchParams.set("from", `${fromDate}T00:00:00Z`);
     url.searchParams.set("to", toDate);
@@ -90,7 +91,9 @@ export async function POST(request: Request) {
     if (!Array.isArray(batch) || batch.length === 0) break;
     all.push(...batch);
     if (batch.length < 1000) break;
-    createdBefore = batch[batch.length - 1].created_at;
+    const nextCursor = batch[batch.length - 1].created_at;
+    if (nextCursor === createdBefore) break; // cursor não avançou → evita loop infinito
+    createdBefore = nextCursor;
   }
 
   const completed = all.filter(tx => tx.state === "completed" || tx.state === "COMPLETED");

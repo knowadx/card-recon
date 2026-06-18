@@ -60,6 +60,7 @@ async function tokenRequest(clientId: string, redirectUri: string, params: Recor
       client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
       client_assertion: buildJwt(clientId, redirectUri),
     }),
+    signal: AbortSignal.timeout(20000),
   });
   if (!res.ok) throw new Error(`Revolut token ${res.status}: ${await res.text()}`);
   return res.json() as Promise<{ access_token: string; refresh_token?: string; expires_in: number }>;
