@@ -35,8 +35,9 @@ export async function POST(request: Request) {
         },
       };
     }
-    const { from } = await request.json().catch(() => ({}));
-    const since = from ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const { from, to } = await request.json().catch(() => ({}));
+    const since = from || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const until = to || undefined;
     const creds = await prisma.credential.findMany({
       where,
       select: { token: true, company: true, operationId: true },
@@ -80,7 +81,7 @@ export async function POST(request: Request) {
     }
 
     // 2) cobranças reais por conta + 3) matching extrato × cobranças
-    const charges = await syncBillingCharges(creds.map((c) => ({ token: c.token, operationId: c.operationId })), since);
+    const charges = await syncBillingCharges(creds.map((c) => ({ token: c.token, operationId: c.operationId })), since, until);
     const check = await runChargeMatch();
     return NextResponse.json({
       ok: true,

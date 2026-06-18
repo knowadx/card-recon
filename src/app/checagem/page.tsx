@@ -54,6 +54,10 @@ export default function ChecagemPage() {
   const [fCard, setFCard] = useState("");
   const [fAcct, setFAcct] = useState("");
 
+  // janela de datas do sync (vazio = últimos 90 dias)
+  const [syncFrom, setSyncFrom] = useState("");
+  const [syncTo, setSyncTo] = useState("");
+
   async function load() {
     setData(await fetch("/api/checagem").then((r) => r.json()));
   }
@@ -61,11 +65,11 @@ export default function ChecagemPage() {
     load();
   }, []);
 
-  async function run(path: string, label: string) {
+  async function run(path: string, label: string, body?: Record<string, unknown>) {
     setBusy(label);
     setMsg(null);
     try {
-      const r = await fetch(path, { method: "POST" });
+      const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : { method: "POST" });
       const j = await r.json();
       setMsg(j.ok === false ? `❌ ${j.error}` : `✅ ${label}: ${JSON.stringify(j.check ?? j.summary ?? j)}`);
       await load();
@@ -139,8 +143,16 @@ export default function ChecagemPage() {
             Cobranças de Meta no extrato que NÃO batem com contas de anúncio que você controla → possível vazamento.
           </p>
         </div>
-        <div className="flex gap-2">
-          <button className={btn} disabled={busy !== null} onClick={() => run("/api/meta/sync", "Sincronizar Meta")}>
+        <div className="flex items-end gap-2">
+          <label className="flex flex-col gap-1 text-xs text-slate-500">
+            de
+            <input type="date" className={input} value={syncFrom} onChange={(e) => setSyncFrom(e.target.value)} />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-slate-500">
+            até
+            <input type="date" className={input} value={syncTo} onChange={(e) => setSyncTo(e.target.value)} />
+          </label>
+          <button className={btn} disabled={busy !== null} onClick={() => run("/api/meta/sync", "Sincronizar Meta", { from: syncFrom || undefined, to: syncTo || undefined })}>
             {busy === "Sincronizar Meta" ? "Sincronizando…" : "Sincronizar Meta"}
           </button>
         </div>

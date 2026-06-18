@@ -190,12 +190,14 @@ export interface MetaCharge {
  * Cobranças reais de uma conta (act_<id>/activities, event=ad_account_billing_charge).
  * É a "Atividade de pagamento" do Business Suite. Exige ads_management. `since` em YYYY-MM-DD.
  */
-export async function fetchBillingCharges(token: string, accountId: string, since: string): Promise<MetaCharge[]> {
+export async function fetchBillingCharges(token: string, accountId: string, since: string, until?: string): Promise<MetaCharge[]> {
   const act = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
+  const params: Record<string, string> = { fields: "event_type,event_time,extra_data", since };
+  if (until) params.until = until;
   const rows = await graphGetAll<{ event_type?: string; event_time?: string; extra_data?: string | Record<string, unknown> }>(
     token,
     `${act}/activities`,
-    { fields: "event_type,event_time,extra_data", since },
+    params,
   );
   const out: MetaCharge[] = [];
   for (const r of rows) {

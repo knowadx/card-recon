@@ -12,8 +12,9 @@ export async function POST(request: Request) {
   try {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ ok: false, error: "não autenticado" }, { status: 401 });
-    const { from } = await request.json().catch(() => ({}));
-    const since = from ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const { from, to } = await request.json().catch(() => ({}));
+    const since = from || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const until = to || undefined;
 
     let where: Record<string, unknown> = { issuer: "meta", isActive: true };
     if (!isSuperadmin(user.role)) {
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
     const creds = await prisma.credential.findMany({ where, select: { token: true, operationId: true } });
     if (creds.length === 0) return NextResponse.json({ ok: false, error: "Nenhum perfil Meta conectado" }, { status: 400 });
 
-    const synced = await syncBillingCharges(creds, since);
+    const synced = await syncBillingCharges(creds, since, until);
     const match = await runChargeMatch();
     return NextResponse.json({ ok: true, ...synced, since, match });
   } catch (e) {

@@ -18,6 +18,7 @@ async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<v
 export async function syncBillingCharges(
   creds: { token: string; operationId: string | null }[],
   since: string,
+  until?: string,
 ): Promise<{ charges: number; accountsOk: number; accountsErr: number }> {
   let charges = 0;
   let accountsOk = 0;
@@ -30,7 +31,7 @@ export async function syncBillingCharges(
     });
     await mapLimit(accounts, 6, async (a) => {
       try {
-        const list = await fetchBillingCharges(cred.token, a.accountId, since);
+        const list = await fetchBillingCharges(cred.token, a.accountId, since, until);
         accountsOk++;
         for (const ch of list) {
           await prisma.metaBillingCharge.upsert({
