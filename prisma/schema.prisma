@@ -119,6 +119,9 @@ model Transaction {
   isMetaCharge     Boolean            @default(false) // cobrança classificada como Meta/Facebook
   metaCheck        String? // "ok" | "leak" | "review" | null (não-Meta)
   metaCheckNote    String?
+  // Valor ORIGINAL cobrado (antes do câmbio) — Meta cobra em USD; base da reconciliação gasto×cobrança
+  billAmount       Float?
+  billCurrency     String?
   operationId      String? // operação da transação (default herdado da conta; editável)
   operation        Operation?         @relation(fields: [operationId], references: [id])
   splits           TransactionSplit[]

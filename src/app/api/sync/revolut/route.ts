@@ -18,6 +18,8 @@ interface RevolutTransaction {
     amount: number;
     fee?: number;
     currency: string;
+    bill_amount?: number; // valor cobrado na moeda de cobrança (geralmente USD na Meta)
+    bill_currency?: string;
     description?: string;
     balance?: number;
   }>;
@@ -95,9 +97,11 @@ export async function POST(request: Request) {
               cardLast4: last4Of(tx.card?.last_digits ?? tx.card?.card_number),
               isMetaCharge: isMetaMerchant(tx.merchant?.name, leg.counterparty?.name, leg.description),
               operationId: account.operationId,
+              billAmount: leg.bill_amount != null ? Math.abs(leg.bill_amount) : null,
+              billCurrency: leg.bill_currency ?? null,
             };
           })
-          .filter(Boolean) as Array<{ accountId: string; date: Date; description: string; amount: number; fee: number; currency: string; reference: string; cardLast4: string | null; isMetaCharge: boolean; operationId: string | null }>,
+          .filter(Boolean) as Array<{ accountId: string; date: Date; description: string; amount: number; fee: number; currency: string; reference: string; cardLast4: string | null; isMetaCharge: boolean; operationId: string | null; billAmount: number | null; billCurrency: string | null }>,
       );
 
   // Salva syncConfig logo de cara (não depende de terminar a paginação)
