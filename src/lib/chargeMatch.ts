@@ -1,5 +1,5 @@
 import { prisma } from "./db";
-import { META_RE } from "./metaCheck";
+import { META_RE, META_TRANSFER_RE } from "./metaCheck";
 
 /** Piso de data da Checagem: só consideramos cobranças de maio/2026 em diante. */
 export const CHECK_FLOOR = new Date("2026-05-01T00:00:00.000Z");
@@ -39,11 +39,12 @@ export async function runChargeMatch(): Promise<{ metaTx: number; ok: number; le
   const clearIds: string[] = [];
   const WINDOW = 3 * 86400000; // ±3 dias (defasagem de liquidação)
 
+  // cobrança de CARTÃO Meta (exclui transferências/faturas "Meta Platforms Ireland")
+  const isCardCharge = (t: { isMetaCharge: boolean; description: string }) =>
+    (t.isMetaCharge || META_RE.test(t.description)) && !META_TRANSFER_RE.test(t.description);
   // ordena por data p/ pareamento estável (cada cobrança Meta consumida 1x = pega excesso/duplicata)
-  const bank = txs
-    .filter((t) => t.isMetaCharge || META_RE.test(t.description))
-    .sort((a, b) => a.date.getTime() - b.date.getTime());
-  for (const t of txs) if (!(t.isMetaCharge || META_RE.test(t.description)) && t.metaCheck) clearIds.push(t.id);
+  const bank = txs.filter(isCardCharge).sort((a, b) => a.date.getTime() - b.date.getTime());
+  for (const t of txs) if (!isCardCharge(t) && t.metaCheck) clearIds.push(t.id);
 
   for (const t of bank) {
     // moeda+valor p/ casar: billAmount (moeda original da Meta) tem prioridade; senão o da transação
