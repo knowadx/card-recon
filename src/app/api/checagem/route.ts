@@ -50,6 +50,7 @@ export async function GET() {
     amount: Math.abs(t.amount),
     currency: t.currency,
     cardLast4: t.cardLast4,
+    cardLabel: t.cardLabel ?? null,
     account: t.account?.name ?? null,
     company: t.account?.company?.name ?? null,
     operation: t.operation?.name ?? null,

@@ -65,6 +65,24 @@ export async function POST(request: Request) {
 
   const headers = { Authorization: `Bearer ${accessToken}` };
 
+  // Nomes dos cartões (label, ex.: "BM 14 Snapnork") → mapa por últimos 4 dígitos.
+  // Se 2+ cartões compartilham o mesmo final, junta os nomes (o "provável").
+  const cardLabelByLast4 = new Map<string, string>();
+  try {
+    const cr = await fetchWith429Retry(`${REVOLUT_BASE}/cards`, { headers });
+    if (cr.ok) {
+      const raw = await cr.json();
+      const cards: Array<{ last_digits?: string; label?: string; name?: string }> = Array.isArray(raw) ? raw : raw?.cards ?? [];
+      for (const card of cards) {
+        const l4 = card.last_digits;
+        const label = card.label || card.name;
+        if (!l4 || !label) continue;
+        const prev = cardLabelByLast4.get(l4);
+        cardLabelByLast4.set(l4, prev && !prev.includes(label) ? `${prev} / ${label}` : prev || label);
+      }
+    }
+  } catch { /* /cards pode não estar disponível — segue sem label */ }
+
   // Fetch all transactions with pagination
   // refs já existentes (evita duplicar). Carregado 1x; novos refs são somados conforme grava.
   const existing = await prisma.transaction.findMany({
@@ -95,13 +113,14 @@ export async function POST(request: Request) {
               currency: leg.currency,
               reference: ref,
               cardLast4: last4Of(tx.card?.last_digits ?? tx.card?.card_number),
+              cardLabel: (() => { const l4 = last4Of(tx.card?.last_digits ?? tx.card?.card_number); return l4 ? cardLabelByLast4.get(l4) ?? null : null; })(),
               isMetaCharge: isMetaMerchant(tx.merchant?.name, leg.counterparty?.name, leg.description),
               operationId: account.operationId,
               billAmount: leg.bill_amount != null ? Math.abs(leg.bill_amount) : null,
               billCurrency: leg.bill_currency ?? null,
             };
           })
-          .filter(Boolean) as Array<{ accountId: string; date: Date; description: string; amount: number; fee: number; currency: string; reference: string; cardLast4: string | null; isMetaCharge: boolean; operationId: string | null; billAmount: number | null; billCurrency: string | null }>,
+          .filter(Boolean) as Array<{ accountId: string; date: Date; description: string; amount: number; fee: number; currency: string; reference: string; cardLast4: string | null; cardLabel: string | null; isMetaCharge: boolean; operationId: string | null; billAmount: number | null; billCurrency: string | null }>,
       );
 
   // Salva syncConfig logo de cara (não depende de terminar a paginação)
@@ -145,5 +164,10 @@ export async function POST(request: Request) {
     cursorTo = oldest;
   }
 
-  return Response.json({ imported, fetched, skipped: Math.max(0, fetched - imported) });
+  // Aplica o nome do cartão também nas transações já existentes desta conta (por últimos 4).
+  for (const [l4, label] of cardLabelByLast4) {
+    await prisma.transaction.updateMany({ where: { accountId, cardLast4: l4 }, data: { cardLabel: label } });
+  }
+
+  return Response.json({ imported, fetched, skipped: Math.max(0, fetched - imported), cardsLabeled: cardLabelByLast4.size });
 }

@@ -9,6 +9,7 @@ type Tx = {
   amount: number;
   currency: string;
   cardLast4: string | null;
+  cardLabel?: string | null;
   account: string | null;
   company: string | null;
   operation?: string | null;
@@ -198,7 +199,10 @@ export default function ChecagemPage() {
                 <td className="px-3 py-2 text-xs">{t.operation ?? "—"}</td>
                 <td className="px-3 py-2 text-xs">{t.company ?? "—"}<div className="text-slate-400">{t.account}</div></td>
                 <td className="px-3 py-2">{t.description}</td>
-                <td className="px-3 py-2 text-xs">{t.cardLast4 ? `•••• ${t.cardLast4}` : "—"}</td>
+                <td className="px-3 py-2 text-xs">
+                  {t.cardLast4 ? `•••• ${t.cardLast4}` : "—"}
+                  {t.cardLabel && <div className="text-[11px] text-slate-400">{t.cardLabel}</div>}
+                </td>
                 <td className="px-3 py-2 text-right tabular-nums">{money(t.amount, t.currency)}</td>
                 <td className="px-3 py-2 text-right">
                   {t.cardLast4 && (

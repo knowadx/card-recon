@@ -116,6 +116,7 @@ model Transaction {
   importedAt       DateTime           @default(now())
   // Checagem Meta (anti-vazamento de cartão)
   cardLast4        String? // últimos 4 do cartão usado (extraído no import)
+  cardLabel        String? // nome do cartão no banco (ex.: Revolut "BM 14 Snapnork") — só p/ exibição
   isMetaCharge     Boolean            @default(false) // cobrança classificada como Meta/Facebook
   metaCheck        String? // "ok" | "leak" | "review" | null (não-Meta)
   metaCheckNote    String?
