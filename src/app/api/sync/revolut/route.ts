@@ -141,5 +141,5 @@ export async function POST(request: Request) {
     cursorTo = oldest;
   }
 
-  return Response.json({ imported, fetched });
+  return Response.json({ imported, fetched, skipped: Math.max(0, fetched - imported) });
 }
