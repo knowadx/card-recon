@@ -348,6 +348,27 @@ model MetaAdAccount {
   @@index([operationId])
 }
 
+// Cobrança real de uma conta de anúncio (act_<id>/activities event=ad_account_billing_charge).
+// É a "Atividade de pagamento" do Business Suite — valor + data + conta/BM, por API.
+model MetaBillingCharge {
+  id            String   @id @default(cuid())
+  transactionId String   @unique // transaction_id do Meta (dedup)
+  accountId     String // act id numérico
+  accountName   String?
+  bmId          String?
+  bmName        String?
+  operationId   String?
+  amountUsd     Float // new_value/100 (na moeda do extra_data)
+  currency      String
+  chargedAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([accountId])
+  @@index([chargedAt])
+  @@index([amountUsd])
+  @@index([operationId])
+}
+
 // Whitelist manual de cartões legítimos (double-check do que a API não expõe)
 model CardWhitelist {
   id        String   @id @default(cuid())

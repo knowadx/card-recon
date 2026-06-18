@@ -179,6 +179,45 @@ export async function fetchControlledAccounts(token: string): Promise<{
   return { accounts: Array.from(byId.values()), bmAvailable, emptyBusinesses };
 }
 
+export interface MetaCharge {
+  transactionId: string;
+  amountUsd: number; // new_value / 100
+  currency: string;
+  chargedAt: Date;
+}
+
+/**
+ * Cobranças reais de uma conta (act_<id>/activities, event=ad_account_billing_charge).
+ * É a "Atividade de pagamento" do Business Suite. Exige ads_management. `since` em YYYY-MM-DD.
+ */
+export async function fetchBillingCharges(token: string, accountId: string, since: string): Promise<MetaCharge[]> {
+  const act = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
+  const rows = await graphGetAll<{ event_type?: string; event_time?: string; extra_data?: string | Record<string, unknown> }>(
+    token,
+    `${act}/activities`,
+    { fields: "event_type,event_time,extra_data", since },
+  );
+  const out: MetaCharge[] = [];
+  for (const r of rows) {
+    if (r.event_type !== "ad_account_billing_charge") continue;
+    const ex = typeof r.extra_data === "string" ? safeJson(r.extra_data) : (r.extra_data ?? {});
+    const newValue = Number((ex as Record<string, unknown>).new_value);
+    const txId = (ex as Record<string, unknown>).transaction_id as string | undefined;
+    if (!txId || !Number.isFinite(newValue)) continue;
+    out.push({
+      transactionId: txId,
+      amountUsd: newValue / 100,
+      currency: ((ex as Record<string, unknown>).currency as string) ?? "USD",
+      chargedAt: r.event_time ? new Date(r.event_time) : new Date(),
+    });
+  }
+  return out;
+}
+
+function safeJson(s: string): Record<string, unknown> {
+  try { return JSON.parse(s); } catch { return {}; }
+}
+
 /** Spend de uma conta num intervalo (YYYY-MM-DD). Retorna em moeda da conta. */
 export async function fetchSpend(
   token: string,
