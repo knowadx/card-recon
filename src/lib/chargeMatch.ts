@@ -22,17 +22,18 @@ export async function runChargeMatch(): Promise<{ metaTx: number; ok: number; le
     }),
   ]);
 
-  // buckets por "MOEDA|valor inteiro"; cada cobrança Meta usada 1x
+  // buckets por "MOEDA|valor inteiro"; cada cobrança Meta usada 1x.
+  // nota = Conta · BM (agrupável → updateMany em lote; o valor/data o usuário vê na própria linha)
   const buckets = new Map<string, { used: boolean; amount: number; currency: string; chargedAt: Date; note: string }[]>();
   const keyOf = (cur: string, v: number) => `${cur}|${Math.round(v)}`;
   for (const m of metaCharges) {
-    const note = `Conta ${m.accountName ?? "?"}${m.bmName ? ` · BM ${m.bmName}` : ""} · cobrança ${m.currency} ${m.amountUsd.toFixed(2)} em ${m.chargedAt.toISOString().slice(0, 10)}`;
+    const note = `Conta ${m.accountName ?? "?"}${m.bmName ? ` · BM ${m.bmName}` : ""}`;
     const k = keyOf(m.currency, m.amountUsd);
     if (!buckets.has(k)) buckets.set(k, []);
     buckets.get(k)!.push({ used: false, amount: m.amountUsd, currency: m.currency, chargedAt: m.chargedAt, note });
   }
 
-  const okByNote: { id: string; note: string }[] = [];
+  const okByNote = new Map<string, string[]>(); // nota → ids (agrupado p/ updateMany)
   const leakIds: string[] = [];
   const reviewIds: string[] = [];
   const clearIds: string[] = [];
@@ -57,7 +58,7 @@ export async function runChargeMatch(): Promise<{ metaTx: number; ok: number; le
         if (dd <= 3 * 86400000 && dd < bestDelta) { bestDelta = dd; match = e; }
       }
     }
-    if (match) { match.used = true; usedMeta++; okByNote.push({ id: t.id, note: match.note }); }
+    if (match) { match.used = true; usedMeta++; const arr = okByNote.get(match.note) ?? []; arr.push(t.id); okByNote.set(match.note, arr); }
     else leakIds.push(t.id);
   }
 
@@ -66,10 +67,11 @@ export async function runChargeMatch(): Promise<{ metaTx: number; ok: number; le
   const applyMany = async (ids: string[], data: Record<string, unknown>) => {
     for (let i = 0; i < ids.length; i += 200) await prisma.transaction.updateMany({ where: { id: { in: ids.slice(i, i + 200) } }, data });
   };
-  for (const { id, note } of okByNote) await prisma.transaction.update({ where: { id }, data: { metaCheck: "ok", metaCheckNote: note } });
+  let okCount = 0;
+  for (const [note, ids] of okByNote) { await applyMany(ids, { metaCheck: "ok", metaCheckNote: note }); okCount += ids.length; }
   await applyMany(leakIds, { metaCheck: "leak", metaCheckNote: null });
   await applyMany(reviewIds, { metaCheck: "review", metaCheckNote: null });
   await applyMany(clearIds, { metaCheck: null, metaCheckNote: null });
 
-  return { metaTx: okByNote.length + leakIds.length + reviewIds.length, ok: okByNote.length, leak: leakIds.length, review: reviewIds.length, metaUnmatched: metaCharges.length - usedMeta };
+  return { metaTx: okCount + leakIds.length + reviewIds.length, ok: okCount, leak: leakIds.length, review: reviewIds.length, metaUnmatched: metaCharges.length - usedMeta };
 }
