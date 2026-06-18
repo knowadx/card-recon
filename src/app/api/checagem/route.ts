@@ -10,7 +10,7 @@ export async function GET() {
   const companyWhere = scope === "all" ? {} : { account: { companyId: { in: scope } } };
   const base = { isMetaCharge: true, ...companyWhere };
 
-  const [leak, review, okCount, metaAccts] = await Promise.all([
+  const [leak, review, okCount, metaAccts, metaCharges, metaChargeCount, ops] = await Promise.all([
     prisma.transaction.findMany({
       where: { ...base, metaCheck: "leak" },
       include: { account: { include: { company: true } }, operation: { select: { name: true } } },
@@ -25,7 +25,11 @@ export async function GET() {
     }),
     prisma.transaction.count({ where: { ...base, metaCheck: "ok" } }),
     prisma.metaAdAccount.count(),
+    prisma.metaBillingCharge.findMany({ orderBy: { chargedAt: "desc" }, take: 2000 }),
+    prisma.metaBillingCharge.count(),
+    prisma.operation.findMany({ select: { id: true, name: true } }),
   ]);
+  const opName = new Map(ops.map((o) => [o.id, o.name]));
 
   const map = (t: (typeof leak)[number]) => ({
     id: t.id,
@@ -46,5 +50,16 @@ export async function GET() {
     leak: leak.map(map),
     review: review.map(map),
     metaAccounts: metaAccts,
+    metaChargeCount,
+    metaCharges: metaCharges.map((m) => ({
+      id: m.id,
+      date: m.chargedAt.toISOString().slice(0, 10),
+      amount: m.amountUsd,
+      currency: m.currency,
+      account: m.accountName,
+      accountId: m.accountId,
+      bm: m.bmName,
+      operation: m.operationId ? opName.get(m.operationId) ?? null : null,
+    })),
   });
 }

@@ -15,11 +15,23 @@ type Tx = {
   operation?: string | null;
   validatedBy?: string | null;
 };
+type MetaCharge = {
+  id: string;
+  date: string;
+  amount: number;
+  currency: string;
+  account: string | null;
+  accountId: string;
+  bm: string | null;
+  operation: string | null;
+};
 type Data = {
   counts: { leak: number; review: number; ok: number };
   leak: Tx[];
   review: Tx[];
   metaAccounts: number;
+  metaChargeCount?: number;
+  metaCharges?: MetaCharge[];
 };
 
 const PAGE_SIZE = 25;
@@ -37,6 +49,7 @@ export default function ChecagemPage() {
   const [fOp, setFOp] = useState("");
   const [fCard, setFCard] = useState("");
   const [fBank, setFBank] = useState(""); // Empresa/Conta bancária da cobrança
+  const [fMeta, setFMeta] = useState(""); // busca na tabela de cobranças do Meta (conta/BM)
 
   // janela de datas do sync (vazio = últimos 30 dias)
   const [syncFrom, setSyncFrom] = useState("");
@@ -101,6 +114,14 @@ export default function ChecagemPage() {
   const leakF = (data?.leak ?? []).filter(txMatch);
   const reviewF = (data?.review ?? []).filter(txMatch);
 
+  // cobranças dentro do Meta: filtra por Operação (compartilhado) + busca conta/BM
+  const metaQ = fMeta.trim().toLowerCase();
+  const metaChargesF = (data?.metaCharges ?? []).filter(
+    (m) =>
+      (!fOp || m.operation === fOp) &&
+      (!metaQ || [m.account, m.accountId, m.bm].some((v) => v?.toLowerCase().includes(metaQ))),
+  );
+
   // Somatória do valor suspeito (🔴) sob o filtro atual, por moeda
   const leakTotals = leakF.reduce<Record<string, number>>((acc, t) => {
     acc[t.currency] = (acc[t.currency] ?? 0) + t.amount;
@@ -111,8 +132,8 @@ export default function ChecagemPage() {
     .map(([cur, v]) => money(v, cur))
     .join("  ·  ") || "—";
 
-  const filtering = !!(fOp || card || fBank);
-  const clearFilters = () => { setFOp(""); setFCard(""); setFBank(""); };
+  const filtering = !!(fOp || card || fBank || fMeta);
+  const clearFilters = () => { setFOp(""); setFCard(""); setFBank(""); setFMeta(""); };
 
   return (
     <div className="flex flex-col gap-5 p-2">
@@ -172,6 +193,10 @@ export default function ChecagemPage() {
             <label className="flex flex-col gap-1 text-xs text-slate-500">
               Cartão (4 dígitos)
               <input className={input} placeholder="ex.: 6830" value={fCard} onChange={(e) => setFCard(e.target.value)} />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-500">
+              Conta/BM (Meta)
+              <input className={input + " min-w-[160px]"} placeholder="nome ou ID da conta/BM" value={fMeta} onChange={(e) => setFMeta(e.target.value)} />
             </label>
             {filtering && (
               <button className="text-xs text-indigo-600 hover:underline pb-1.5" onClick={clearFilters}>limpar filtros</button>
@@ -249,6 +274,36 @@ export default function ChecagemPage() {
               )}
             />
           )}
+
+          {/* Cobranças reais DENTRO do Meta (act/activities) — o outro lado do cruzamento */}
+          <PagedSection
+            title={`🔵 Cobranças dentro do Meta (${metaChargesF.length}${filtering ? ` de ${data.metaChargeCount ?? data.metaCharges?.length ?? 0}` : ` — ${data.metaChargeCount ?? 0} no total`})`}
+            note="As cobranças que o Meta reporta por conta/BM. É contra estas que o extrato é casado (mesma moeda + valor + data)."
+            empty={(data.metaCharges?.length ?? 0) === 0 ? "Nenhuma cobrança Meta ainda. Rode Sincronizar Meta." : "Nenhum resultado para o filtro."}
+            rows={metaChargesF}
+            border="border-sky-200"
+            head={
+              <tr>
+                <th className="px-3 py-2">Data</th>
+                <th className="px-3 py-2">Conta de anúncio</th>
+                <th className="px-3 py-2">Account ID</th>
+                <th className="px-3 py-2">BM</th>
+                <th className="px-3 py-2">Operação</th>
+                <th className="px-3 py-2 text-right">Valor</th>
+              </tr>
+            }
+            headClass="bg-sky-50 text-sky-700"
+            row={(m) => (
+              <tr key={m.id}>
+                <td className="px-3 py-2 tabular-nums">{m.date}</td>
+                <td className="px-3 py-2 text-xs">{m.account ?? "—"}</td>
+                <td className="px-3 py-2 text-xs tabular-nums text-slate-500">{m.accountId}</td>
+                <td className="px-3 py-2 text-xs">{m.bm ?? "—"}</td>
+                <td className="px-3 py-2 text-xs">{m.operation ?? "—"}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{money(m.amount, m.currency)}</td>
+              </tr>
+            )}
+          />
         </>
       )}
     </div>
