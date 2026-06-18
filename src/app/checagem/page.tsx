@@ -70,8 +70,14 @@ export default function ChecagemPage() {
     setMsg(null);
     try {
       const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : { method: "POST" });
-      const j = await r.json();
-      setMsg(j.ok === false ? `❌ ${j.error}` : `✅ ${label}: ${JSON.stringify(j.check ?? j.summary ?? j)}`);
+      const text = await r.text();
+      let j: Record<string, unknown> | null = null;
+      try { j = JSON.parse(text); } catch { /* resposta não-JSON (timeout/erro de plataforma) */ }
+      if (!j) {
+        setMsg(`⏱️ ${label}: a função excedeu o tempo (janela grande). O progresso foi salvo — use uma janela de datas menor e rode de novo, depois clique "Rodar match".`);
+      } else {
+        setMsg(j.ok === false ? `❌ ${j.error}` : `✅ ${label}: ${JSON.stringify(j.check ?? j.summary ?? j)}`);
+      }
       await load();
     } catch (e) {
       setMsg(`❌ ${(e as Error).message}`);
@@ -154,6 +160,9 @@ export default function ChecagemPage() {
           </label>
           <button className={btn} disabled={busy !== null} onClick={() => run("/api/meta/sync", "Sincronizar Meta", { from: syncFrom || undefined, to: syncTo || undefined })}>
             {busy === "Sincronizar Meta" ? "Sincronizando…" : "Sincronizar Meta"}
+          </button>
+          <button className={btn} disabled={busy !== null} onClick={() => run("/api/check", "Rodar match")} title="Re-roda o match com os dados já no banco (instantâneo, não chama a API)">
+            {busy === "Rodar match" ? "Rodando…" : "Rodar match"}
           </button>
         </div>
       </div>

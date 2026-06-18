@@ -36,7 +36,7 @@ export async function POST(request: Request) {
       };
     }
     const { from, to } = await request.json().catch(() => ({}));
-    const since = from || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const since = from || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const until = to || undefined;
     const creds = await prisma.credential.findMany({
       where,
