@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { fetchAdAccounts, parseFundingDisplay } from "@/lib/meta";
+import { fetchControlledAccounts, parseFundingDisplay } from "@/lib/meta";
 import { getCurrentUser, isSuperadmin, accessibleHoldingIds } from "@/lib/auth";
 import { runMetaCheck } from "@/lib/check";
 
@@ -42,10 +42,12 @@ export async function POST() {
     let accountsCount = 0;
     let withCard = 0;
     let bmAvailableAny = false;
+    const accessGap: { id: string; name: string }[] = []; // BMs onde o perfil não vê nenhuma conta
 
     for (const cred of creds) {
-      const { accounts, bmAvailable } = await fetchAdAccounts(cred.token);
+      const { accounts, bmAvailable, emptyBusinesses } = await fetchControlledAccounts(cred.token);
       bmAvailableAny = bmAvailableAny || bmAvailable;
+      accessGap.push(...emptyBusinesses);
       for (const a of accounts) {
         const { brand, last4 } = parseFundingDisplay(a.funding_source_details?.display_string);
         if (last4) withCard++;
@@ -72,7 +74,14 @@ export async function POST() {
     }
 
     const check = await runMetaCheck();
-    return NextResponse.json({ ok: true, accounts: accountsCount, withFundingCard: withCard, bmAvailable: bmAvailableAny, check });
+    return NextResponse.json({
+      ok: true,
+      accounts: accountsCount,
+      withFundingCard: withCard,
+      bmAvailable: bmAvailableAny,
+      accessGap: accessGap.map((b) => b.name), // BMs sem conta visível → precisam de acesso no Meta
+      check,
+    });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
   }

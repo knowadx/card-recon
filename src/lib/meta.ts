@@ -131,6 +131,52 @@ export async function fetchAdAccounts(token: string): Promise<{ accounts: MetaAd
   }
 }
 
+/**
+ * Universo COMPLETO de contas controladas: une /me/adaccounts com as contas de cada BM
+ * (owned + client) via /me/businesses. Pega mais contas (e mais cartões de funding) do que
+ * só /me/adaccounts, que lista apenas as contas em que o usuário está atribuído diretamente.
+ * Dedup por account_id. Retorna também as BMs sem nenhuma conta acessível (furo de acesso).
+ */
+export async function fetchControlledAccounts(token: string): Promise<{
+  accounts: MetaAdAccount[];
+  bmAvailable: boolean;
+  emptyBusinesses: { id: string; name: string }[];
+}> {
+  const byId = new Map<string, MetaAdAccount>();
+  let bmAvailable = true;
+
+  // 1) contas diretas
+  const direct = await fetchAdAccounts(token);
+  bmAvailable = direct.bmAvailable;
+  for (const a of direct.accounts) byId.set(a.account_id, a);
+
+  // 2) contas via cada BM (owned + client) — captura as que /me/adaccounts não lista
+  const emptyBusinesses: { id: string; name: string }[] = [];
+  try {
+    const businesses = await graphGetAll<{ id: string; name: string }>(token, "me/businesses", { fields: "id,name" });
+    for (const b of businesses) {
+      let countForBm = 0;
+      for (const edge of ["owned_ad_accounts", "client_ad_accounts"]) {
+        try {
+          const list = await graphGetAll<MetaAdAccount>(token, `${b.id}/${edge}`, {
+            fields: [...BASE_FIELDS, "business{id,name}"].join(","),
+          });
+          for (const a of list) {
+            countForBm++;
+            const existing = byId.get(a.account_id);
+            // garante bm preenchido mesmo quando /me/adaccounts veio sem business
+            if (!existing) byId.set(a.account_id, { ...a, business: a.business ?? { id: b.id, name: b.name } });
+            else if (!existing.business) existing.business = a.business ?? { id: b.id, name: b.name };
+          }
+        } catch { /* edge pode falhar p/ BM sem permissão — ignora */ }
+      }
+      if (countForBm === 0) emptyBusinesses.push({ id: b.id, name: b.name });
+    }
+  } catch { /* sem business_management → fica só com as diretas */ }
+
+  return { accounts: Array.from(byId.values()), bmAvailable, emptyBusinesses };
+}
+
 /** Spend de uma conta num intervalo (YYYY-MM-DD). Retorna em moeda da conta. */
 export async function fetchSpend(
   token: string,
