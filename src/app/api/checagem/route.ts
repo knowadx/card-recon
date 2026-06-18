@@ -55,6 +55,7 @@ export async function GET() {
     metaChargeCount,
     metaCharges: metaCharges.map((m) => ({
       id: m.id,
+      transactionId: m.transactionId,
       date: m.chargedAt.toISOString().slice(0, 10),
       amount: m.amountUsd,
       currency: m.currency,

@@ -17,6 +17,7 @@ type Tx = {
 };
 type MetaCharge = {
   id: string;
+  transactionId: string;
   date: string;
   amount: number;
   currency: string;
@@ -120,7 +121,7 @@ export default function ChecagemPage() {
   const metaChargesF = (data?.metaCharges ?? []).filter(
     (m) =>
       (!fOp || m.operation === fOp) &&
-      (!metaQ || [m.account, m.accountId, m.bm].some((v) => v?.toLowerCase().includes(metaQ))),
+      (!metaQ || [m.account, m.accountId, m.bm, m.transactionId].some((v) => v?.toLowerCase().includes(metaQ))),
   );
 
   // Somatória do valor suspeito (🔴) sob o filtro atual, por moeda
@@ -286,6 +287,7 @@ export default function ChecagemPage() {
             head={
               <tr>
                 <th className="px-3 py-2">Data</th>
+                <th className="px-3 py-2">ID da cobrança</th>
                 <th className="px-3 py-2">Conta de anúncio</th>
                 <th className="px-3 py-2">Account ID</th>
                 <th className="px-3 py-2">BM</th>
@@ -298,6 +300,7 @@ export default function ChecagemPage() {
             row={(m) => (
               <tr key={m.id}>
                 <td className="px-3 py-2 tabular-nums">{m.date}</td>
+                <td className="px-3 py-2 text-[11px] tabular-nums text-slate-500" title={m.transactionId}>{m.transactionId}</td>
                 <td className="px-3 py-2 text-xs">{m.account ?? "—"}</td>
                 <td className="px-3 py-2 text-xs tabular-nums text-slate-500">{m.accountId}</td>
                 <td className="px-3 py-2 text-xs">{m.bm ?? "—"}</td>
