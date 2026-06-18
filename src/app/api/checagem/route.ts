@@ -4,13 +4,19 @@ import { scopedCompanyIds } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-/** GET /api/checagem — resumo do match + cobranças leak/review (escopado por empresa). */
-export async function GET() {
+/** GET /api/checagem?company=<id> — resumo do match + cobranças leak/review (escopado por empresa). */
+export async function GET(request: Request) {
   const scope = await scopedCompanyIds();
-  const companyWhere = scope === "all" ? {} : { account: { companyId: { in: scope } } };
-  const base = { isMetaCharge: true, ...companyWhere };
+  const company = new URL(request.url).searchParams.get("company");
+  // filtro de empresa (se passado) ∩ escopo do usuário; senão só o escopo
+  const accountWhere = company
+    ? { companyId: company }
+    : scope === "all"
+      ? null
+      : { companyId: { in: scope } };
+  const base = { isMetaCharge: true, ...(accountWhere ? { account: accountWhere } : {}) };
 
-  const [leak, review, okCount, metaAccts, metaCharges, metaChargeCount, ops, metaAcctCards, allMetaTx] = await Promise.all([
+  const [leak, review, okCount, metaAccts, metaCharges, metaChargeCount, ops, metaAcctCards, allMetaTx, companies] = await Promise.all([
     prisma.transaction.findMany({
       where: { ...base, metaCheck: "leak" },
       include: { account: { include: { company: true } }, operation: { select: { name: true } } },
@@ -30,6 +36,7 @@ export async function GET() {
     prisma.operation.findMany({ select: { id: true, name: true } }),
     prisma.metaAdAccount.findMany({ select: { accountId: true, fundingCardLast4: true } }),
     prisma.transaction.findMany({ where: base, select: { date: true, metaCheck: true, amount: true, currency: true } }),
+    prisma.company.findMany({ where: scope === "all" ? {} : { id: { in: scope } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
 
   // controle mensal: total de cobranças, status e valor vazado (por moeda) por mês
@@ -64,6 +71,7 @@ export async function GET() {
 
   return NextResponse.json({
     counts: { leak: leak.length, review: review.length, ok: okCount },
+    companies,
     monthly,
     leak: leak.map(map),
     review: review.map(map),

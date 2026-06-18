@@ -28,8 +28,10 @@ type MetaCharge = {
   fundingCard: string | null;
 };
 type Monthly = { month: string; total: number; ok: number; leak: number; review: number; pending: number; leakValue: Record<string, number> };
+type Company = { id: string; name: string };
 type Data = {
   counts: { leak: number; review: number; ok: number };
+  companies?: Company[];
   monthly?: Monthly[];
   leak: Tx[];
   review: Tx[];
@@ -54,17 +56,20 @@ export default function ChecagemPage() {
   const [fCard, setFCard] = useState("");
   const [fBank, setFBank] = useState(""); // Empresa/Conta bancária da cobrança
   const [fMeta, setFMeta] = useState(""); // busca na tabela de cobranças do Meta (conta/BM)
+  const [fCompany, setFCompany] = useState(""); // empresa (server-side, afeta o controle mensal)
 
   // janela de datas do sync (vazio = últimos 30 dias)
   const [syncFrom, setSyncFrom] = useState("");
   const [syncTo, setSyncTo] = useState("");
 
   async function load() {
-    setData(await fetch("/api/checagem").then((r) => r.json()));
+    const q = fCompany ? `?company=${encodeURIComponent(fCompany)}` : "";
+    setData(await fetch(`/api/checagem${q}`).then((r) => r.json()));
   }
   useEffect(() => {
     load();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fCompany]);
 
   async function run(path: string, label: string, body?: Record<string, unknown>) {
     setBusy(label);
@@ -136,8 +141,8 @@ export default function ChecagemPage() {
     .map(([cur, v]) => money(v, cur))
     .join("  ·  ") || "—";
 
-  const filtering = !!(fOp || card || fBank || fMeta);
-  const clearFilters = () => { setFOp(""); setFCard(""); setFBank(""); setFMeta(""); };
+  const filtering = !!(fOp || card || fBank || fMeta || fCompany);
+  const clearFilters = () => { setFOp(""); setFCard(""); setFBank(""); setFMeta(""); setFCompany(""); };
 
   return (
     <div className="flex flex-col gap-5 p-2">
@@ -222,6 +227,13 @@ export default function ChecagemPage() {
 
           {/* Barra de filtros */}
           <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3">
+            <label className="flex flex-col gap-1 text-xs text-slate-500">
+              Empresa
+              <select className={input + " max-w-[200px]"} value={fCompany} onChange={(e) => setFCompany(e.target.value)}>
+                <option value="">Todas</option>
+                {(data.companies ?? []).map((co) => <option key={co.id} value={co.id}>{co.name}</option>)}
+              </select>
+            </label>
             <label className="flex flex-col gap-1 text-xs text-slate-500">
               Operação
               <select className={input} value={fOp} onChange={(e) => setFOp(e.target.value)}>
