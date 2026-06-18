@@ -221,8 +221,8 @@ export default function ChecagemPage() {
           {/* A revisar */}
           {data.review.length > 0 && (
             <PagedSection
-              title={`⚪ A revisar — cobrança Meta sem valor USD p/ casar (${reviewF.length}${filtering ? ` de ${data.review.length}` : ""})`}
-              note="Re-sincronize o banco (Accounts) p/ capturar o valor USD (billAmount) dessas cobranças."
+              title={`⚪ A revisar — cobrança Meta sem valor p/ casar (${reviewF.length}${filtering ? ` de ${data.review.length}` : ""})`}
+              note="Cobrança Meta sem valor utilizável p/ o match (raro)."
               empty="Nenhum resultado para o filtro."
               rows={reviewF}
               border="border-slate-200"
