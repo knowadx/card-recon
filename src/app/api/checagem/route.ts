@@ -8,16 +8,20 @@ export const dynamic = "force-dynamic";
 /** GET /api/checagem?company=<id> — resumo do match + cobranças leak/review (escopado por empresa). */
 export async function GET(request: Request) {
   const scope = await scopedCompanyIds();
-  const company = new URL(request.url).searchParams.get("company");
-  // filtro de empresa (se passado) ∩ escopo do usuário; senão só o escopo
-  const accountWhere = company
-    ? { companyId: company }
-    : scope === "all"
-      ? null
-      : { companyId: { in: scope } };
+  const params = new URL(request.url).searchParams;
+  const company = params.get("company");
+  const account = params.get("account");
+  // filtro: conta específica > empresa > escopo do usuário
+  const accountWhere = account
+    ? { id: account }
+    : company
+      ? { companyId: company }
+      : scope === "all"
+        ? null
+        : { companyId: { in: scope } };
   const base = { isMetaCharge: true, date: { gte: CHECK_FLOOR }, ...(accountWhere ? { account: accountWhere } : {}) };
 
-  const [leak, review, okCount, metaAccts, metaCharges, metaChargeCount, ops, metaAcctCards, allMetaTx, companies] = await Promise.all([
+  const [leak, review, okCount, metaAccts, metaCharges, metaChargeCount, ops, metaAcctCards, allMetaTx, companies, accounts] = await Promise.all([
     prisma.transaction.findMany({
       where: { ...base, metaCheck: "leak" },
       include: { account: { include: { company: true } }, operation: { select: { name: true } } },
@@ -38,6 +42,7 @@ export async function GET(request: Request) {
     prisma.metaAdAccount.findMany({ select: { accountId: true, fundingCardLast4: true } }),
     prisma.transaction.findMany({ where: base, select: { date: true, metaCheck: true, amount: true, currency: true } }),
     prisma.company.findMany({ where: scope === "all" ? {} : { id: { in: scope } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.account.findMany({ where: scope === "all" ? {} : { companyId: { in: scope } }, select: { id: true, name: true, company: { select: { name: true } } }, orderBy: { name: "asc" } }),
   ]);
 
   // controle mensal: total de cobranças, status e valor vazado (por moeda) por mês
@@ -73,6 +78,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     counts: { leak: leak.length, review: review.length, ok: okCount },
     companies,
+    accounts: accounts.map((a) => ({ id: a.id, name: a.name, company: a.company?.name ?? null })),
     monthly,
     leak: leak.map(map),
     review: review.map(map),

@@ -29,9 +29,11 @@ type MetaCharge = {
 };
 type Monthly = { month: string; total: number; ok: number; leak: number; review: number; pending: number; leakValue: Record<string, number> };
 type Company = { id: string; name: string };
+type AccountOpt = { id: string; name: string; company: string | null };
 type Data = {
   counts: { leak: number; review: number; ok: number };
   companies?: Company[];
+  accounts?: AccountOpt[];
   monthly?: Monthly[];
   leak: Tx[];
   review: Tx[];
@@ -63,13 +65,16 @@ export default function ChecagemPage() {
   const [syncTo, setSyncTo] = useState("");
 
   async function load() {
-    const q = fCompany ? `?company=${encodeURIComponent(fCompany)}` : "";
-    setData(await fetch(`/api/checagem${q}`).then((r) => r.json()));
+    const qs = new URLSearchParams();
+    if (fCompany) qs.set("company", fCompany);
+    if (fBank) qs.set("account", fBank);
+    const q = qs.toString();
+    setData(await fetch(`/api/checagem${q ? `?${q}` : ""}`).then((r) => r.json()));
   }
   useEffect(() => {
     load();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fCompany]);
+  }, [fCompany, fBank]);
 
   async function run(path: string, label: string, body?: Record<string, unknown>) {
     setBusy(label);
@@ -105,20 +110,10 @@ export default function ChecagemPage() {
     return Array.from(set).sort();
   }, [data]);
 
-  // lista de Empresa/Conta bancária presentes (label "Empresa · Conta", valor = conta)
-  const banks = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const t of [...(data?.leak ?? []), ...(data?.review ?? [])]) {
-      if (t.account) m.set(t.account, `${t.company ? t.company + " · " : ""}${t.account}`);
-    }
-    return Array.from(m.entries()).sort((a, b) => a[1].localeCompare(b[1]));
-  }, [data]);
-
-  // filtra cobranças do extrato por Operação + Cartão + Empresa/Conta
+  // filtra cobranças do extrato por Operação + Cartão (Empresa/Conta é server-side)
   const txMatch = (t: Tx) =>
     (!fOp || t.operation === fOp) &&
-    (!card || (t.cardLast4 ?? "").toLowerCase().includes(card)) &&
-    (!fBank || t.account === fBank);
+    (!card || (t.cardLast4 ?? "").toLowerCase().includes(card));
 
   const leakF = (data?.leak ?? []).filter(txMatch);
   const reviewF = (data?.review ?? []).filter(txMatch);
@@ -242,10 +237,10 @@ export default function ChecagemPage() {
               </select>
             </label>
             <label className="flex flex-col gap-1 text-xs text-slate-500">
-              Empresa / Conta
+              Conta
               <select className={input + " max-w-[220px]"} value={fBank} onChange={(e) => setFBank(e.target.value)}>
                 <option value="">Todas</option>
-                {banks.map(([acc, label]) => <option key={acc} value={acc}>{label}</option>)}
+                {(data.accounts ?? []).map((a) => <option key={a.id} value={a.id}>{a.company ? `${a.company} · ` : ""}{a.name}</option>)}
               </select>
             </label>
             <label className="flex flex-col gap-1 text-xs text-slate-500">
