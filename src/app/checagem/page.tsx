@@ -117,6 +117,16 @@ export default function ChecagemPage() {
   const reviewF = (data?.review ?? []).filter(txMatch);
   const combosF = (data?.combos ?? []).filter(comboMatch);
 
+  // Somatória do valor suspeito (🔴) sob o filtro atual, por moeda (somar moedas diferentes daria errado)
+  const leakTotals = leakF.reduce<Record<string, number>>((acc, t) => {
+    acc[t.currency] = (acc[t.currency] ?? 0) + t.amount;
+    return acc;
+  }, {});
+  const leakTotalStr = Object.entries(leakTotals)
+    .sort((a, b) => b[1] - a[1])
+    .map(([cur, v]) => money(v, cur))
+    .join("  ·  ") || "—";
+
   const filtering = !!(fOp || card || acct);
   const clearFilters = () => { setFOp(""); setFCard(""); setFAcct(""); };
 
@@ -173,6 +183,14 @@ export default function ChecagemPage() {
             <span className="ml-auto text-xs text-slate-400 pb-1.5">
               {acct ? "filtro de conta de anúncio só afeta o Mapa de cartões" : ""}
             </span>
+          </div>
+
+          {/* Somatória do valor suspeito sob o filtro atual */}
+          <div className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+            <span className="text-sm font-medium text-red-700">
+              🔴 Valor suspeito{filtering ? " (filtro atual)" : ""} — {leakF.length} cobrança(s)
+            </span>
+            <span className="text-lg font-semibold tabular-nums text-red-700">{leakTotalStr}</span>
           </div>
 
           {/* Vazamentos */}
