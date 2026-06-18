@@ -27,7 +27,7 @@ type MetaCharge = {
   operation: string | null;
   fundingCard: string | null;
 };
-type Monthly = { month: string; total: number; ok: number; leak: number; review: number; pending: number };
+type Monthly = { month: string; total: number; ok: number; leak: number; review: number; pending: number; leakValue: Record<string, number> };
 type Data = {
   counts: { leak: number; review: number; ok: number };
   monthly?: Monthly[];
@@ -192,6 +192,7 @@ export default function ChecagemPage() {
                       <th className="px-3 py-2 text-right">🔴 Vazam.</th>
                       <th className="px-3 py-2 text-right">⚪ Revisar</th>
                       <th className="px-3 py-2 text-right">Pendentes</th>
+                      <th className="px-3 py-2 text-right">Valor vazado</th>
                       <th className="px-3 py-2 text-right">% identif.</th>
                     </tr>
                   </thead>
@@ -206,6 +207,9 @@ export default function ChecagemPage() {
                           <td className="px-3 py-2 text-right tabular-nums text-red-600">{m.leak}</td>
                           <td className="px-3 py-2 text-right tabular-nums text-slate-500">{m.review}</td>
                           <td className="px-3 py-2 text-right tabular-nums font-semibold">{m.pending}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-red-600 whitespace-nowrap">
+                            {Object.entries(m.leakValue ?? {}).sort((a, b) => b[1] - a[1]).map(([cur, v]) => money(v, cur)).join(" · ") || "—"}
+                          </td>
                           <td className={`px-3 py-2 text-right tabular-nums ${pct >= 90 ? "text-emerald-700" : pct >= 50 ? "text-amber-600" : "text-red-600"}`}>{pct}%</td>
                         </tr>
                       );

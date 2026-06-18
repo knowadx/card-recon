@@ -29,16 +29,17 @@ export async function GET() {
     prisma.metaBillingCharge.count(),
     prisma.operation.findMany({ select: { id: true, name: true } }),
     prisma.metaAdAccount.findMany({ select: { accountId: true, fundingCardLast4: true } }),
-    prisma.transaction.findMany({ where: base, select: { date: true, metaCheck: true } }),
+    prisma.transaction.findMany({ where: base, select: { date: true, metaCheck: true, amount: true, currency: true } }),
   ]);
 
-  // controle mensal: total de cobranças e status por mês
-  const monthlyMap = new Map<string, { ok: number; leak: number; review: number; total: number }>();
+  // controle mensal: total de cobranças, status e valor vazado (por moeda) por mês
+  const monthlyMap = new Map<string, { ok: number; leak: number; review: number; total: number; leakValue: Record<string, number> }>();
   for (const t of allMetaTx) {
     const m = t.date.toISOString().slice(0, 7);
-    const row = monthlyMap.get(m) ?? { ok: 0, leak: 0, review: 0, total: 0 };
+    const row = monthlyMap.get(m) ?? { ok: 0, leak: 0, review: 0, total: 0, leakValue: {} };
     row.total++;
     if (t.metaCheck === "ok" || t.metaCheck === "leak" || t.metaCheck === "review") row[t.metaCheck]++;
+    if (t.metaCheck === "leak") row.leakValue[t.currency] = (row.leakValue[t.currency] ?? 0) + Math.abs(t.amount);
     monthlyMap.set(m, row);
   }
   const monthly = Array.from(monthlyMap.entries())
