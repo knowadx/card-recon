@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { fetchBillingCharges } from "@/lib/meta";
 import { getCurrentUser, isSuperadmin, accessibleHoldingIds } from "@/lib/auth";
+import { runChargeMatch } from "@/lib/chargeMatch";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -77,7 +78,9 @@ export async function POST(request: Request) {
       });
     }
 
-    return NextResponse.json({ ok: true, charges, accountsOk, accountsErr, since });
+    // após popular as cobranças reais, casa com o extrato (valor+data)
+    const match = await runChargeMatch();
+    return NextResponse.json({ ok: true, charges, accountsOk, accountsErr, since, match });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
   }

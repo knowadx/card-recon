@@ -143,6 +143,9 @@ export default function ChecagemPage() {
           <button className={btn} disabled={busy !== null} onClick={() => run("/api/meta/sync", "Sync Meta")}>
             {busy === "Sync Meta" ? "Sincronizando…" : "Sync contas Meta"}
           </button>
+          <button className={btn} disabled={busy !== null} onClick={() => run("/api/meta/charges/sync", "Sync cobranças")}>
+            {busy === "Sync cobranças" ? "Sincronizando…" : "Sync cobranças Meta"}
+          </button>
           <button className={btn} disabled={busy !== null} onClick={() => run("/api/check", "Checagem")}>
             {busy === "Checagem" ? "Checando…" : "Rodar checagem"}
           </button>

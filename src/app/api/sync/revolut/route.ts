@@ -158,6 +158,18 @@ export async function POST(request: Request) {
       imported += cands.length;
     }
 
+    // Backfill do valor USD (bill_amount) nas cobranças de cartão JÁ existentes (sem billAmount).
+    // Necessário p/ o matching extrato × cobranças Meta (que é em USD).
+    for (const tx of batch) {
+      for (const leg of tx.legs) {
+        if (leg.bill_amount == null) continue;
+        await prisma.transaction.updateMany({
+          where: { accountId, reference: `revolut:${tx.id}:${leg.leg_id}`, billAmount: null },
+          data: { billAmount: Math.abs(leg.bill_amount), billCurrency: leg.bill_currency ?? null },
+        });
+      }
+    }
+
     if (batch.length < 1000) break;
     const oldest = batch[batch.length - 1].created_at;
     if (oldest === cursorTo) break; // janela não avançou → evita loop infinito
