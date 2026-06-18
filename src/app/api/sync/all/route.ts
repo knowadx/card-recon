@@ -163,15 +163,14 @@ async function syncRevolut(accountId: string, companyName: string, revolutAccoun
   }
 
   const all = [];
-  let createdBefore: string | null = null;
-  const toDate = new Date().toISOString();
+  // Revolut ignora `created_before` quando `to` é enviado → paginar movendo o `to`.
+  let cursorTo: string = new Date().toISOString();
 
-  while (true) {
+  for (let page = 0; page < 50; page++) {
     const url = new URL(`${REVOLUT_BASE}/transactions`);
     url.searchParams.set("from", `${from}T00:00:00Z`);
-    url.searchParams.set("to", toDate);
+    url.searchParams.set("to", cursorTo);
     url.searchParams.set("count", "1000");
-    if (createdBefore) url.searchParams.set("created_before", createdBefore);
 
     const res = await fetchWith429Retry(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
     if (!res.ok) return { imported: 0, skipped: 0, error: res.status === 429 ? "Revolut 429 (limite) — tente mais tarde" : `Revolut API ${res.status}` };
@@ -180,7 +179,9 @@ async function syncRevolut(accountId: string, companyName: string, revolutAccoun
     if (!Array.isArray(batch) || batch.length === 0) break;
     all.push(...batch);
     if (batch.length < 1000) break;
-    createdBefore = batch[batch.length - 1].created_at;
+    const oldest = batch[batch.length - 1].created_at;
+    if (oldest === cursorTo) break;
+    cursorTo = oldest;
   }
 
   const completed = all.filter((tx: { state: string }) => tx.state === "completed" || tx.state === "COMPLETED");

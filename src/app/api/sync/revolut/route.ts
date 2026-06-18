@@ -106,13 +106,15 @@ export async function POST(request: Request) {
   // Pagina e GRAVA por página — resiliente a volume/timeout/429 e retomável (refs duplicados são pulados).
   let imported = 0;
   let fetched = 0;
-  let createdBefore: string | null = null;
+  // Paginação Revolut: mover a janela pelo `to` (created_at mais antigo da página anterior).
+  // ⚠️ O Revolut IGNORA `created_before` quando `to` também é enviado (volta sempre as mais
+  // recentes) — verificado na API. Por isso paginamos só com `to`, sem `created_before`.
+  let cursorTo: string = toDate;
   for (let page = 0; page < 50; page++) {
     const url = new URL(`${REVOLUT_BASE}/transactions`);
     url.searchParams.set("from", `${fromDate}T00:00:00Z`);
-    url.searchParams.set("to", toDate);
+    url.searchParams.set("to", cursorTo);
     url.searchParams.set("count", "1000");
-    if (createdBefore) url.searchParams.set("created_before", createdBefore);
 
     const res = await fetchWith429Retry(url.toString(), { headers });
     if (!res.ok) {
@@ -134,9 +136,9 @@ export async function POST(request: Request) {
     }
 
     if (batch.length < 1000) break;
-    const nextCursor = batch[batch.length - 1].created_at;
-    if (nextCursor === createdBefore) break; // cursor não avançou → evita loop infinito
-    createdBefore = nextCursor;
+    const oldest = batch[batch.length - 1].created_at;
+    if (oldest === cursorTo) break; // janela não avançou → evita loop infinito
+    cursorTo = oldest;
   }
 
   return Response.json({ imported, fetched });
