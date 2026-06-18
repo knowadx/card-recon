@@ -10,7 +10,7 @@ export async function GET() {
   const companyWhere = scope === "all" ? {} : { account: { companyId: { in: scope } } };
   const base = { isMetaCharge: true, ...companyWhere };
 
-  const [leak, review, okCount, metaAccts, metaCharges, metaChargeCount, ops] = await Promise.all([
+  const [leak, review, okCount, metaAccts, metaCharges, metaChargeCount, ops, metaAcctCards] = await Promise.all([
     prisma.transaction.findMany({
       where: { ...base, metaCheck: "leak" },
       include: { account: { include: { company: true } }, operation: { select: { name: true } } },
@@ -28,8 +28,10 @@ export async function GET() {
     prisma.metaBillingCharge.findMany({ orderBy: { chargedAt: "desc" }, take: 2000 }),
     prisma.metaBillingCharge.count(),
     prisma.operation.findMany({ select: { id: true, name: true } }),
+    prisma.metaAdAccount.findMany({ select: { accountId: true, fundingCardLast4: true } }),
   ]);
   const opName = new Map(ops.map((o) => [o.id, o.name]));
+  const fundingByAcct = new Map(metaAcctCards.map((a) => [a.accountId, a.fundingCardLast4]));
 
   const map = (t: (typeof leak)[number]) => ({
     id: t.id,
@@ -60,6 +62,7 @@ export async function GET() {
       accountId: m.accountId,
       bm: m.bmName,
       operation: m.operationId ? opName.get(m.operationId) ?? null : null,
+      fundingCard: fundingByAcct.get(m.accountId) ?? null, // cartão de funding primário (Meta) — referência
     })),
   });
 }

@@ -24,6 +24,7 @@ type MetaCharge = {
   accountId: string;
   bm: string | null;
   operation: string | null;
+  fundingCard: string | null;
 };
 type Data = {
   counts: { leak: number; review: number; ok: number };
@@ -278,7 +279,7 @@ export default function ChecagemPage() {
           {/* Cobranças reais DENTRO do Meta (act/activities) — o outro lado do cruzamento */}
           <PagedSection
             title={`🔵 Cobranças dentro do Meta (${metaChargesF.length}${filtering ? ` de ${data.metaChargeCount ?? data.metaCharges?.length ?? 0}` : ` — ${data.metaChargeCount ?? 0} no total`})`}
-            note="As cobranças que o Meta reporta por conta/BM. É contra estas que o extrato é casado (mesma moeda + valor + data)."
+            note="As cobranças que o Meta reporta por conta/BM. É contra estas que o extrato é casado (mesma moeda + valor + data). A cobrança em si NÃO traz cartão (a Meta não expõe); o 'Cartão (funding)' é o cartão primário da conta — referência, pode diferir do realmente cobrado."
             empty={(data.metaCharges?.length ?? 0) === 0 ? "Nenhuma cobrança Meta ainda. Rode Sincronizar Meta." : "Nenhum resultado para o filtro."}
             rows={metaChargesF}
             border="border-sky-200"
@@ -289,6 +290,7 @@ export default function ChecagemPage() {
                 <th className="px-3 py-2">Account ID</th>
                 <th className="px-3 py-2">BM</th>
                 <th className="px-3 py-2">Operação</th>
+                <th className="px-3 py-2">Cartão (funding)</th>
                 <th className="px-3 py-2 text-right">Valor</th>
               </tr>
             }
@@ -300,6 +302,7 @@ export default function ChecagemPage() {
                 <td className="px-3 py-2 text-xs tabular-nums text-slate-500">{m.accountId}</td>
                 <td className="px-3 py-2 text-xs">{m.bm ?? "—"}</td>
                 <td className="px-3 py-2 text-xs">{m.operation ?? "—"}</td>
+                <td className="px-3 py-2 text-xs">{m.fundingCard ? `•••• ${m.fundingCard}` : "—"}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{money(m.amount, m.currency)}</td>
               </tr>
             )}
