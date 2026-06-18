@@ -15,27 +15,11 @@ type Tx = {
   operation?: string | null;
   validatedBy?: string | null;
 };
-type WL = { id: string; last4: string; label: string | null; company: string | null };
-type Combo = {
-  last4: string | null;
-  brand: string | null;
-  account: string | null;
-  accountId: string | null;
-  bm: string | null;
-  bmId: string | null;
-  operation: string | null;
-  currency: string | null;
-  spent: number | null;
-  source: string;
-};
 type Data = {
   counts: { leak: number; review: number; ok: number };
   leak: Tx[];
   review: Tx[];
-  okSample?: Tx[];
-  combos?: Combo[];
   metaAccounts: number;
-  whitelist: WL[];
 };
 
 const PAGE_SIZE = 25;
@@ -52,10 +36,9 @@ export default function ChecagemPage() {
   // filtros compartilhados
   const [fOp, setFOp] = useState("");
   const [fCard, setFCard] = useState("");
-  const [fAcct, setFAcct] = useState("");
   const [fBank, setFBank] = useState(""); // Empresa/Conta bancária da cobrança
 
-  // janela de datas do sync (vazio = últimos 90 dias)
+  // janela de datas do sync (vazio = últimos 30 dias)
   const [syncFrom, setSyncFrom] = useState("");
   const [syncTo, setSyncTo] = useState("");
 
@@ -87,59 +70,38 @@ export default function ChecagemPage() {
     }
   }
 
-  async function whitelistCard(last4: string) {
-    await fetch("/api/whitelist", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ last4 }),
-    });
-    await run("/api/check", "Re-checagem");
-  }
-  async function removeWl(id: string) {
-    await fetch(`/api/whitelist?id=${id}`, { method: "DELETE" });
-    await run("/api/check", "Re-checagem");
-  }
-
   const btn = "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50";
   const input = "rounded-md border border-slate-300 px-2 py-1 text-sm";
 
   const card = fCard.trim().toLowerCase();
-  const acct = fAcct.trim().toLowerCase();
 
-  // lista de operações p/ o dropdown (das transações + combos presentes)
+  // lista de operações p/ o dropdown
   const operations = useMemo(() => {
     const set = new Set<string>();
     for (const t of data?.leak ?? []) if (t.operation) set.add(t.operation);
     for (const t of data?.review ?? []) if (t.operation) set.add(t.operation);
-    for (const c of data?.combos ?? []) if (c.operation) set.add(c.operation);
     return Array.from(set).sort();
   }, [data]);
 
   // lista de Empresa/Conta bancária presentes (label "Empresa · Conta", valor = conta)
   const banks = useMemo(() => {
-    const m = new Map<string, string>(); // account → "Empresa · Conta"
+    const m = new Map<string, string>();
     for (const t of [...(data?.leak ?? []), ...(data?.review ?? [])]) {
       if (t.account) m.set(t.account, `${t.company ? t.company + " · " : ""}${t.account}`);
     }
     return Array.from(m.entries()).sort((a, b) => a[1].localeCompare(b[1]));
   }, [data]);
 
-  // filtra transações por Operação + Cartão + Empresa/Conta (conta de anúncio não se aplica à cobrança do extrato)
+  // filtra cobranças do extrato por Operação + Cartão + Empresa/Conta
   const txMatch = (t: Tx) =>
     (!fOp || t.operation === fOp) &&
     (!card || (t.cardLast4 ?? "").toLowerCase().includes(card)) &&
     (!fBank || t.account === fBank);
-  // filtra combos por Operação + Cartão + Conta de anúncio (ID/Nome)
-  const comboMatch = (c: Combo) =>
-    (!fOp || c.operation === fOp) &&
-    (!card || (c.last4 ?? "").toLowerCase().includes(card)) &&
-    (!acct || [c.account, c.accountId].some((v) => v?.toLowerCase().includes(acct)));
 
   const leakF = (data?.leak ?? []).filter(txMatch);
   const reviewF = (data?.review ?? []).filter(txMatch);
-  const combosF = (data?.combos ?? []).filter(comboMatch);
 
-  // Somatória do valor suspeito (🔴) sob o filtro atual, por moeda (somar moedas diferentes daria errado)
+  // Somatória do valor suspeito (🔴) sob o filtro atual, por moeda
   const leakTotals = leakF.reduce<Record<string, number>>((acc, t) => {
     acc[t.currency] = (acc[t.currency] ?? 0) + t.amount;
     return acc;
@@ -149,8 +111,8 @@ export default function ChecagemPage() {
     .map(([cur, v]) => money(v, cur))
     .join("  ·  ") || "—";
 
-  const filtering = !!(fOp || card || acct || fBank);
-  const clearFilters = () => { setFOp(""); setFCard(""); setFAcct(""); setFBank(""); };
+  const filtering = !!(fOp || card || fBank);
+  const clearFilters = () => { setFOp(""); setFCard(""); setFBank(""); };
 
   return (
     <div className="flex flex-col gap-5 p-2">
@@ -158,7 +120,8 @@ export default function ChecagemPage() {
         <div>
           <h1 className="text-xl font-semibold">Checagem de cobranças Meta</h1>
           <p className="text-sm text-slate-500">
-            Cobranças de Meta no extrato que NÃO batem com contas de anúncio que você controla → possível vazamento.
+            Cada cobrança Meta do extrato é casada com uma cobrança real de uma conta sua (por valor + data).
+            Sem par em conta sua → possível vazamento.
           </p>
         </div>
         <div className="flex items-end gap-2">
@@ -210,16 +173,9 @@ export default function ChecagemPage() {
               Cartão (4 dígitos)
               <input className={input} placeholder="ex.: 6830" value={fCard} onChange={(e) => setFCard(e.target.value)} />
             </label>
-            <label className="flex flex-col gap-1 text-xs text-slate-500">
-              Conta de anúncio (ID ou nome)
-              <input className={input + " min-w-[200px]"} placeholder="ex.: 1234567890 ou Conta X" value={fAcct} onChange={(e) => setFAcct(e.target.value)} />
-            </label>
             {filtering && (
               <button className="text-xs text-indigo-600 hover:underline pb-1.5" onClick={clearFilters}>limpar filtros</button>
             )}
-            <span className="ml-auto text-xs text-slate-400 pb-1.5">
-              {acct ? "filtro de conta de anúncio só afeta o Mapa de cartões" : ""}
-            </span>
           </div>
 
           {/* Somatória do valor suspeito sob o filtro atual */}
@@ -244,7 +200,6 @@ export default function ChecagemPage() {
                 <th className="px-3 py-2">Descrição</th>
                 <th className="px-3 py-2">Cartão</th>
                 <th className="px-3 py-2 text-right">Valor</th>
-                <th className="px-3 py-2"></th>
               </tr>
             }
             headClass="bg-red-50 text-red-700"
@@ -259,13 +214,6 @@ export default function ChecagemPage() {
                   {t.cardLabel && <div className="text-[11px] text-slate-400">{t.cardLabel}</div>}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">{money(t.amount, t.currency)}</td>
-                <td className="px-3 py-2 text-right">
-                  {t.cardLast4 && (
-                    <button className="text-xs text-indigo-600 hover:underline" onClick={() => whitelistCard(t.cardLast4!)}>
-                      marcar cartão como meu
-                    </button>
-                  )}
-                </td>
               </tr>
             )}
           />
@@ -273,7 +221,8 @@ export default function ChecagemPage() {
           {/* A revisar */}
           {data.review.length > 0 && (
             <PagedSection
-              title={`⚪ A revisar — cobrança Meta sem cartão identificado (${reviewF.length}${filtering ? ` de ${data.review.length}` : ""})`}
+              title={`⚪ A revisar — cobrança Meta sem valor USD p/ casar (${reviewF.length}${filtering ? ` de ${data.review.length}` : ""})`}
+              note="Re-sincronize o banco (Accounts) p/ capturar o valor USD (billAmount) dessas cobranças."
               empty="Nenhum resultado para o filtro."
               rows={reviewF}
               border="border-slate-200"
@@ -281,8 +230,9 @@ export default function ChecagemPage() {
                 <tr>
                   <th className="px-3 py-2">Data</th>
                   <th className="px-3 py-2">Operação</th>
-                  <th className="px-3 py-2">Empresa</th>
+                  <th className="px-3 py-2">Empresa / Conta</th>
                   <th className="px-3 py-2">Descrição</th>
+                  <th className="px-3 py-2">Cartão</th>
                   <th className="px-3 py-2 text-right">Valor</th>
                 </tr>
               }
@@ -291,63 +241,14 @@ export default function ChecagemPage() {
                 <tr key={t.id}>
                   <td className="px-3 py-2 tabular-nums">{t.date}</td>
                   <td className="px-3 py-2 text-xs">{t.operation ?? "—"}</td>
-                  <td className="px-3 py-2 text-xs">{t.company ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs">{t.company ?? "—"}<div className="text-slate-400">{t.account}</div></td>
                   <td className="px-3 py-2">{t.description}</td>
+                  <td className="px-3 py-2 text-xs">{t.cardLast4 ? `•••• ${t.cardLast4}` : "—"}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{money(t.amount, t.currency)}</td>
                 </tr>
               )}
             />
           )}
-
-          {/* Mapa cartão → onde gasta */}
-          <PagedSection
-            title={`Mapa de cartões — onde cada cartão gasta (${combosF.length}${filtering ? ` de ${data.combos?.length ?? 0}` : ""})`}
-            note="Cada cartão de funding e as Contas de Anúncio / BMs (com IDs) que ele financia. Atualiza a cada Sync contas Meta. Cobrança nesses cartões entra como segura automaticamente."
-            empty={(data.combos?.length ?? 0) === 0 ? "Nenhuma combinação ainda. Rode Sync contas Meta." : "Nenhum resultado para o filtro."}
-            rows={combosF}
-            border="border-slate-200"
-            head={
-              <tr>
-                <th className="px-3 py-2">Cartão</th>
-                <th className="px-3 py-2">Conta de anúncio</th>
-                <th className="px-3 py-2">Account ID</th>
-                <th className="px-3 py-2">BM</th>
-                <th className="px-3 py-2">BM ID</th>
-                <th className="px-3 py-2">Operação</th>
-                <th className="px-3 py-2 text-right">Gasto (Meta)</th>
-                <th className="px-3 py-2">Origem</th>
-              </tr>
-            }
-            headClass="bg-slate-50 text-slate-500"
-            row={(c, i) => (
-              <tr key={i}>
-                <td className="px-3 py-2 whitespace-nowrap">{c.brand ? `${c.brand} ` : ""}•••• {c.last4}</td>
-                <td className="px-3 py-2 text-xs">{c.account ?? "—"}</td>
-                <td className="px-3 py-2 text-xs tabular-nums text-slate-500">{c.accountId ?? "—"}</td>
-                <td className="px-3 py-2 text-xs">{c.bm ?? "—"}</td>
-                <td className="px-3 py-2 text-xs tabular-nums text-slate-500">{c.bmId ?? "—"}</td>
-                <td className="px-3 py-2 text-xs">{c.operation ?? "—"}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{c.spent != null && c.currency ? money(c.spent, c.currency) : "—"}</td>
-                <td className="px-3 py-2 text-xs">{c.source === "meta" ? "Meta" : "manual"}</td>
-              </tr>
-            )}
-          />
-
-          {/* Whitelist */}
-          <section className="flex flex-col gap-2">
-            <h2 className="text-sm font-semibold text-slate-700">Cartões na whitelist ({data.whitelist.length})</h2>
-            <p className="text-xs text-slate-500">Cartões marcados como legítimos (double-check do que a API do Meta não expõe).</p>
-            {data.whitelist.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {data.whitelist.map((w) => (
-                  <span key={w.id} className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs">
-                    •••• {w.last4} {w.label ? `(${w.label})` : ""}
-                    <button className="text-red-600 hover:underline" onClick={() => removeWl(w.id)}>×</button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </section>
         </>
       )}
     </div>
