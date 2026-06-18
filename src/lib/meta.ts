@@ -16,7 +16,9 @@ export function metaAuthorizeUrl(redirectUri: string, state: string): string {
   const u = new URL(`https://www.facebook.com/${version()}/dialog/oauth`);
   u.searchParams.set("client_id", process.env.META_APP_ID ?? "");
   u.searchParams.set("redirect_uri", redirectUri);
-  u.searchParams.set("scope", "ads_read,business_management");
+  // ads_management: necessário p/ act_<id>/activities expor os eventos de cobrança
+  // (event_type=ad_account_billing_charge) — a "Atividade de pagamento" do Business Suite.
+  u.searchParams.set("scope", "ads_read,ads_management,business_management");
   u.searchParams.set("response_type", "code");
   u.searchParams.set("state", state);
   return u.toString();
