@@ -27,8 +27,10 @@ type MetaCharge = {
   operation: string | null;
   fundingCard: string | null;
 };
+type Monthly = { month: string; total: number; ok: number; leak: number; review: number; pending: number };
 type Data = {
   counts: { leak: number; review: number; ok: number };
+  monthly?: Monthly[];
   leak: Tx[];
   review: Tx[];
   metaAccounts: number;
@@ -175,6 +177,44 @@ export default function ChecagemPage() {
             <Kpi label="🟢 OK" value={data.counts.ok} />
             <Kpi label="Contas Meta" value={data.metaAccounts} />
           </div>
+
+          {/* Controle mensal — cobranças por mês e quantas faltam identificar */}
+          {(data.monthly?.length ?? 0) > 0 && (
+            <section className="flex flex-col gap-2">
+              <h2 className="text-sm font-semibold text-slate-700">Controle mensal</h2>
+              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">Mês</th>
+                      <th className="px-3 py-2 text-right">Cobranças</th>
+                      <th className="px-3 py-2 text-right">🟢 OK</th>
+                      <th className="px-3 py-2 text-right">🔴 Vazam.</th>
+                      <th className="px-3 py-2 text-right">⚪ Revisar</th>
+                      <th className="px-3 py-2 text-right">Pendentes</th>
+                      <th className="px-3 py-2 text-right">% identif.</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.monthly!.map((m) => {
+                      const pct = m.total ? Math.round((m.ok / m.total) * 100) : 0;
+                      return (
+                        <tr key={m.month}>
+                          <td className="px-3 py-2 tabular-nums">{m.month}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{m.total}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-emerald-700">{m.ok}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-red-600">{m.leak}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-slate-500">{m.review}</td>
+                          <td className="px-3 py-2 text-right tabular-nums font-semibold">{m.pending}</td>
+                          <td className={`px-3 py-2 text-right tabular-nums ${pct >= 90 ? "text-emerald-700" : pct >= 50 ? "text-amber-600" : "text-red-600"}`}>{pct}%</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
           {/* Barra de filtros */}
           <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3">
