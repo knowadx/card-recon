@@ -64,10 +64,49 @@ export async function POST(request: Request) {
   const headers = { Authorization: `Bearer ${accessToken}` };
 
   // Fetch all transactions with pagination
-  const all: RevolutTransaction[] = [];
-  let createdBefore: string | null = null;
+  // refs já existentes (evita duplicar). Carregado 1x; novos refs são somados conforme grava.
+  const existing = await prisma.transaction.findMany({
+    where: { accountId, reference: { not: null } },
+    select: { reference: true },
+  });
+  const seenRefs = new Set(existing.map(t => t.reference));
 
-  // guarda anti-loop: no máximo 50 páginas (50k tx) e para se o cursor não avançar
+  // Converte um lote da Graph em candidatos novos (pula os já vistos nesta run e os existentes).
+  const toCandidates = (batch: RevolutTransaction[]) =>
+    batch
+      .filter(tx => tx.state === "completed" || tx.state === "COMPLETED")
+      .flatMap(tx =>
+        tx.legs
+          .filter(leg => !revolutAccountId || leg.account_id === revolutAccountId)
+          .map(leg => {
+            const ref = `revolut:${tx.id}:${leg.leg_id}`;
+            if (seenRefs.has(ref)) return null;
+            seenRefs.add(ref);
+            const fee = leg.fee ?? 0;
+            const totalAmount = leg.amount < 0 ? leg.amount - fee : leg.amount;
+            return {
+              accountId,
+              date: new Date(tx.completed_at ?? tx.created_at),
+              description: tx.merchant?.name || leg.counterparty?.name || leg.description || tx.reference || "Revolut",
+              amount: totalAmount,
+              fee,
+              currency: leg.currency,
+              reference: ref,
+              cardLast4: last4Of(tx.card?.last_digits ?? tx.card?.card_number),
+              isMetaCharge: isMetaMerchant(tx.merchant?.name, leg.counterparty?.name, leg.description),
+              operationId: account.operationId,
+            };
+          })
+          .filter(Boolean) as Array<{ accountId: string; date: Date; description: string; amount: number; fee: number; currency: string; reference: string; cardLast4: string | null; isMetaCharge: boolean; operationId: string | null }>,
+      );
+
+  // Salva syncConfig logo de cara (não depende de terminar a paginação)
+  await prisma.account.update({ where: { id: accountId }, data: { syncConfig: JSON.stringify({ revolutAccountId: revolutAccountId ?? null }) } });
+
+  // Pagina e GRAVA por página — resiliente a volume/timeout/429 e retomável (refs duplicados são pulados).
+  let imported = 0;
+  let fetched = 0;
+  let createdBefore: string | null = null;
   for (let page = 0; page < 50; page++) {
     const url = new URL(`${REVOLUT_BASE}/transactions`);
     url.searchParams.set("from", `${fromDate}T00:00:00Z`);
@@ -77,84 +116,28 @@ export async function POST(request: Request) {
 
     const res = await fetchWith429Retry(url.toString(), { headers });
     if (!res.ok) {
-      const err = await res.text();
-      if (res.status === 429) {
-        return Response.json(
-          { error: "Revolut está limitando as requisições (429). Aguarde uns minutos e tente novamente — sincronize uma conta por vez." },
-          { status: 429 },
-        );
-      }
-      return Response.json({ error: `Revolut API ${res.status}: ${err}` }, { status: 502 });
+      // o que já gravou persiste — basta rodar de novo p/ continuar
+      const msg = res.status === 429
+        ? `Revolut limitou (429) após importar ${imported}. Aguarde uns minutos e rode de novo — ele continua de onde parou.`
+        : `Revolut API ${res.status} após importar ${imported}: ${(await res.text()).slice(0, 200)}`;
+      return Response.json({ error: msg, imported, partial: true }, { status: res.status === 429 ? 429 : 502 });
     }
 
     const batch: RevolutTransaction[] = await res.json();
     if (!Array.isArray(batch) || batch.length === 0) break;
-    all.push(...batch);
+    fetched += batch.length;
+
+    const cands = toCandidates(batch);
+    if (cands.length > 0) {
+      await prisma.transaction.createMany({ data: cands });
+      imported += cands.length;
+    }
+
     if (batch.length < 1000) break;
     const nextCursor = batch[batch.length - 1].created_at;
     if (nextCursor === createdBefore) break; // cursor não avançou → evita loop infinito
     createdBefore = nextCursor;
   }
 
-  const completed = all.filter(tx => tx.state === "completed" || tx.state === "COMPLETED");
-
-  const existing = await prisma.transaction.findMany({
-    where: { accountId, reference: { not: null } },
-    select: { reference: true },
-  });
-  const existingRefs = new Set(existing.map(t => t.reference));
-
-  const candidates = completed.flatMap(tx => {
-    return tx.legs
-      .filter(leg => {
-        if (revolutAccountId && leg.account_id !== revolutAccountId) return false;
-        return true;
-      })
-      .map(leg => {
-        const ref = `revolut:${tx.id}:${leg.leg_id}`;
-        if (existingRefs.has(ref)) return null;
-
-        const description =
-          tx.merchant?.name ||
-          leg.counterparty?.name ||
-          leg.description ||
-          tx.reference ||
-          "Revolut";
-
-        const date = new Date(tx.completed_at ?? tx.created_at);
-
-        const fee = leg.fee ?? 0;
-        // For outgoing payments, fee is charged on top of the transfer amount.
-        // leg.amount is the net value; total debit = leg.amount - fee (both negative for outflows).
-        const totalAmount = leg.amount < 0 ? leg.amount - fee : leg.amount;
-
-        return {
-          accountId,
-          date,
-          description,
-          amount: totalAmount,
-          fee,
-          currency: leg.currency,
-          reference: ref,
-          cardLast4: last4Of(tx.card?.last_digits ?? tx.card?.card_number),
-          isMetaCharge: isMetaMerchant(tx.merchant?.name, leg.counterparty?.name, leg.description),
-          operationId: account.operationId,
-        };
-      })
-      .filter(Boolean) as Array<{ accountId: string; date: Date; description: string; amount: number; currency: string; reference: string; cardLast4: string | null; isMetaCharge: boolean; operationId: string | null }>;
-  });
-
-  if (candidates.length > 0) {
-    await prisma.transaction.createMany({ data: candidates });
-  }
-
-  // Save syncConfig for "sync all"
-  const syncConfig = JSON.stringify({ revolutAccountId: revolutAccountId ?? null });
-  await prisma.account.update({ where: { id: accountId }, data: { syncConfig } });
-
-  return Response.json({
-    imported: candidates.length,
-    skipped: completed.length - candidates.length,
-    total: all.length,
-  });
+  return Response.json({ imported, fetched });
 }
