@@ -78,8 +78,9 @@ export default function TransactionsPage() {
       ...overrides,
     };
     const params = new URLSearchParams();
-    if (state.filterFrom) params.set("from", state.filterFrom);
-    if (state.filterTo) params.set("to", state.filterTo);
+    // limites do dia no FUSO LOCAL (a tela mostra a data em horário local) → envia em ISO/UTC
+    if (state.filterFrom) params.set("from", new Date(`${state.filterFrom}T00:00:00`).toISOString());
+    if (state.filterTo) params.set("to", new Date(`${state.filterTo}T23:59:59.999`).toISOString());
     if (state.showIgnored) params.set("showIgnored", "true");
     if (state.colDescription.trim()) params.set("search", state.colDescription.trim());
     if (state.colCompany !== "all") params.set("colCompany", state.colCompany);
