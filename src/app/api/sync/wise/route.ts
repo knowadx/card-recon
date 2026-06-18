@@ -352,6 +352,7 @@ export async function POST(request: Request) {
 
     return Response.json({
       imported: toCreate.length,
+      alreadyExisted: Math.max(0, completed.length - toCreate.length),
       parseFailed: parseFailCount,
       totalCompleted: completed.length,
       newActivities: newActivities.length,
