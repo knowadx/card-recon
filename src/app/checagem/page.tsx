@@ -53,6 +53,7 @@ export default function ChecagemPage() {
   const [fOp, setFOp] = useState("");
   const [fCard, setFCard] = useState("");
   const [fAcct, setFAcct] = useState("");
+  const [fBank, setFBank] = useState(""); // Empresa/Conta bancária da cobrança
 
   // janela de datas do sync (vazio = últimos 90 dias)
   const [syncFrom, setSyncFrom] = useState("");
@@ -114,9 +115,20 @@ export default function ChecagemPage() {
     return Array.from(set).sort();
   }, [data]);
 
-  // filtra transações por Operação + Cartão (conta de anúncio não se aplica a cobrança do extrato)
+  // lista de Empresa/Conta bancária presentes (label "Empresa · Conta", valor = conta)
+  const banks = useMemo(() => {
+    const m = new Map<string, string>(); // account → "Empresa · Conta"
+    for (const t of [...(data?.leak ?? []), ...(data?.review ?? [])]) {
+      if (t.account) m.set(t.account, `${t.company ? t.company + " · " : ""}${t.account}`);
+    }
+    return Array.from(m.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [data]);
+
+  // filtra transações por Operação + Cartão + Empresa/Conta (conta de anúncio não se aplica à cobrança do extrato)
   const txMatch = (t: Tx) =>
-    (!fOp || t.operation === fOp) && (!card || (t.cardLast4 ?? "").toLowerCase().includes(card));
+    (!fOp || t.operation === fOp) &&
+    (!card || (t.cardLast4 ?? "").toLowerCase().includes(card)) &&
+    (!fBank || t.account === fBank);
   // filtra combos por Operação + Cartão + Conta de anúncio (ID/Nome)
   const comboMatch = (c: Combo) =>
     (!fOp || c.operation === fOp) &&
@@ -137,8 +149,8 @@ export default function ChecagemPage() {
     .map(([cur, v]) => money(v, cur))
     .join("  ·  ") || "—";
 
-  const filtering = !!(fOp || card || acct);
-  const clearFilters = () => { setFOp(""); setFCard(""); setFAcct(""); };
+  const filtering = !!(fOp || card || acct || fBank);
+  const clearFilters = () => { setFOp(""); setFCard(""); setFAcct(""); setFBank(""); };
 
   return (
     <div className="flex flex-col gap-5 p-2">
@@ -185,6 +197,13 @@ export default function ChecagemPage() {
               <select className={input} value={fOp} onChange={(e) => setFOp(e.target.value)}>
                 <option value="">Todas</option>
                 {operations.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-500">
+              Empresa / Conta
+              <select className={input + " max-w-[220px]"} value={fBank} onChange={(e) => setFBank(e.target.value)}>
+                <option value="">Todas</option>
+                {banks.map(([acc, label]) => <option key={acc} value={acc}>{label}</option>)}
               </select>
             </label>
             <label className="flex flex-col gap-1 text-xs text-slate-500">
