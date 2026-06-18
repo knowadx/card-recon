@@ -33,7 +33,8 @@ export async function GET(request: Request) {
     // Global filters
     ...(accountId ? { accountId } : {}),
     ...(companyId ? { account: { companyId } } : {}),
-    ...(from || to ? { date: { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) } } : {}),
+    // `to` = fim do dia (senão new Date("YYYY-MM-DD") vira 00:00 e corta o próprio dia / datas iguais não filtram nada)
+    ...(from || to ? { date: { ...(from ? { gte: new Date(`${from}T00:00:00.000Z`) } : {}), ...(to ? { lte: new Date(`${to}T23:59:59.999Z`) } : {}) } } : {}),
     // Column filters
     ...(colAccount ? { accountId: colAccount } : {}),
     ...(colCompany ? { account: { companyId: colCompany } } : {}),
