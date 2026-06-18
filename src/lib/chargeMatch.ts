@@ -1,6 +1,9 @@
 import { prisma } from "./db";
 import { META_RE } from "./metaCheck";
 
+/** Piso de data da Checagem: só consideramos cobranças de maio/2026 em diante. */
+export const CHECK_FLOOR = new Date("2026-05-01T00:00:00.000Z");
+
 /**
  * Matching extrato × cobranças reais do Meta (MetaBillingCharge), por MOEDA + VALOR + DATA.
  * NÃO-exclusivo: uma cobrança do extrato é "ok" se EXISTE pelo menos uma cobrança Meta de uma
@@ -14,8 +17,9 @@ import { META_RE } from "./metaCheck";
  */
 export async function runChargeMatch(): Promise<{ metaTx: number; ok: number; leak: number; review: number }> {
   const [metaCharges, txs] = await Promise.all([
-    prisma.metaBillingCharge.findMany({ select: { amountUsd: true, currency: true, chargedAt: true, accountName: true, bmName: true } }),
+    prisma.metaBillingCharge.findMany({ where: { chargedAt: { gte: CHECK_FLOOR } }, select: { amountUsd: true, currency: true, chargedAt: true, accountName: true, bmName: true } }),
     prisma.transaction.findMany({
+      where: { date: { gte: CHECK_FLOOR } },
       select: { id: true, date: true, description: true, isMetaCharge: true, amount: true, currency: true, billAmount: true, billCurrency: true, metaCheck: true },
     }),
   ]);

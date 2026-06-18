@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { scopedCompanyIds } from "@/lib/auth";
+import { CHECK_FLOOR } from "@/lib/chargeMatch";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ export async function GET(request: Request) {
     : scope === "all"
       ? null
       : { companyId: { in: scope } };
-  const base = { isMetaCharge: true, ...(accountWhere ? { account: accountWhere } : {}) };
+  const base = { isMetaCharge: true, date: { gte: CHECK_FLOOR }, ...(accountWhere ? { account: accountWhere } : {}) };
 
   const [leak, review, okCount, metaAccts, metaCharges, metaChargeCount, ops, metaAcctCards, allMetaTx, companies] = await Promise.all([
     prisma.transaction.findMany({
@@ -31,8 +32,8 @@ export async function GET(request: Request) {
     }),
     prisma.transaction.count({ where: { ...base, metaCheck: "ok" } }),
     prisma.metaAdAccount.count(),
-    prisma.metaBillingCharge.findMany({ orderBy: { chargedAt: "desc" }, take: 2000 }),
-    prisma.metaBillingCharge.count(),
+    prisma.metaBillingCharge.findMany({ where: { chargedAt: { gte: CHECK_FLOOR } }, orderBy: { chargedAt: "desc" }, take: 2000 }),
+    prisma.metaBillingCharge.count({ where: { chargedAt: { gte: CHECK_FLOOR } } }),
     prisma.operation.findMany({ select: { id: true, name: true } }),
     prisma.metaAdAccount.findMany({ select: { accountId: true, fundingCardLast4: true } }),
     prisma.transaction.findMany({ where: base, select: { date: true, metaCheck: true, amount: true, currency: true } }),
