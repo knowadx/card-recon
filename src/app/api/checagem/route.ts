@@ -41,7 +41,7 @@ export async function GET(request: Request) {
     prisma.metaBillingCharge.count({ where: { chargedAt: { gte: CHECK_FLOOR } } }),
     prisma.operation.findMany({ select: { id: true, name: true } }),
     prisma.metaAdAccount.findMany({ select: { accountId: true, fundingCardLast4: true } }),
-    prisma.transaction.findMany({ where: base, select: { date: true, metaCheck: true, amount: true, currency: true, billAmount: true, billCurrency: true } }),
+    prisma.transaction.findMany({ where: base, select: { date: true, metaCheck: true, amount: true, currency: true, billAmount: true, billCurrency: true, cardLast4: true, cardLabel: true } }),
     prisma.company.findMany({ where: scope === "all" ? {} : { id: { in: scope } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.account.findMany({ where: scope === "all" ? {} : { companyId: { in: scope } }, select: { id: true, name: true, company: { select: { name: true } } }, orderBy: { name: "asc" } }),
     prisma.metaBillingCharge.findMany({ where: { chargedAt: { gte: CHECK_FLOOR } }, select: { amountUsd: true, currency: true, chargedAt: true } }),
@@ -74,6 +74,27 @@ export async function GET(request: Request) {
   const monthly = Array.from(monthlyMap.entries())
     .map(([month, v]) => ({ month, ok: v.ok, leak: v.leak, review: v.review, total: v.total, leakValue: v.leakValue, pending: v.leak + v.review, metaUsd: v.metaUsd, bankUsd: v.bankUsd, diffUsd: v.bankUsd - v.metaUsd }))
     .sort((a, b) => b.month.localeCompare(a.month));
+  // diferença por cartão: cobrado no cartão × casado com Meta (ok) × não explicado (leak+review)
+  const cardMap = new Map<string, { last4: string | null; label: string | null; total: number; ok: number; pending: number; chargedUsd: number; matchedUsd: number }>();
+  for (const t of allMetaTx) {
+    const last4 = t.cardLast4 ?? null;
+    const key = last4 ?? "—";
+    let row = cardMap.get(key);
+    if (!row) { row = { last4, label: t.cardLabel ?? null, total: 0, ok: 0, pending: 0, chargedUsd: 0, matchedUsd: 0 }; cardMap.set(key, row); }
+    if (!row.label && t.cardLabel) row.label = t.cardLabel;
+    row.total++;
+    const m = t.date.toISOString().slice(0, 7);
+    const amt = t.billAmount != null ? t.billAmount : Math.abs(t.amount);
+    const cur = (t.billAmount != null ? t.billCurrency : t.currency) || t.currency;
+    const usd = toUsd(amt, cur, m, rateMap);
+    row.chargedUsd += usd;
+    if (t.metaCheck === "ok") { row.ok++; row.matchedUsd += usd; }
+    else if (t.metaCheck === "leak" || t.metaCheck === "review") row.pending++;
+  }
+  const perCard = Array.from(cardMap.values())
+    .map((c) => ({ ...c, diffUsd: c.chargedUsd - c.matchedUsd }))
+    .sort((a, b) => b.diffUsd - a.diffUsd);
+
   const opName = new Map(ops.map((o) => [o.id, o.name]));
   const fundingByAcct = new Map(metaAcctCards.map((a) => [a.accountId, a.fundingCardLast4]));
 
@@ -96,6 +117,7 @@ export async function GET(request: Request) {
     companies,
     accounts: accounts.map((a) => ({ id: a.id, name: a.name, company: a.company?.name ?? null })),
     monthly,
+    perCard,
     leak: leak.map(map),
     review: review.map(map),
     metaAccounts: metaAccts,

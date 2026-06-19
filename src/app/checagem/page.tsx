@@ -28,6 +28,7 @@ type MetaCharge = {
   fundingCard: string | null;
 };
 type Monthly = { month: string; total: number; ok: number; leak: number; review: number; pending: number; leakValue: Record<string, number>; metaUsd: number; bankUsd: number; diffUsd: number };
+type CardRow = { last4: string | null; label: string | null; total: number; ok: number; pending: number; chargedUsd: number; matchedUsd: number; diffUsd: number };
 type Company = { id: string; name: string };
 type AccountOpt = { id: string; name: string; company: string | null };
 type Data = {
@@ -35,6 +36,7 @@ type Data = {
   companies?: Company[];
   accounts?: AccountOpt[];
   monthly?: Monthly[];
+  perCard?: CardRow[];
   leak: Tx[];
   review: Tx[];
   metaAccounts: number;
@@ -220,6 +222,42 @@ export default function ChecagemPage() {
                         </tr>
                       );
                     })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {/* Diferença por cartão — cobrado × casado com Meta × não explicado (vazamento) */}
+          {(data.perCard?.length ?? 0) > 0 && (
+            <section className="flex flex-col gap-2">
+              <h2 className="text-sm font-semibold text-slate-700">Diferença por cartão</h2>
+              <p className="text-xs text-slate-500">
+                &quot;Não explicado&quot; = cobrado no cartão que <strong>não</strong> casou com uma cobrança real do Meta (vazamento suspeito). O Meta não expõe o cartão por cobrança — a parte explicada vem do match.
+              </p>
+              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">Cartão</th>
+                      <th className="px-3 py-2 text-right">Cobranças</th>
+                      <th className="px-3 py-2 text-right" title="Total cobrado no cartão (USD)">Cobrado (US$)</th>
+                      <th className="px-3 py-2 text-right" title="Casou com cobrança real do Meta (USD)">Casado c/ Meta (US$)</th>
+                      <th className="px-3 py-2 text-right" title="Cobrado − Casado = vazamento suspeito (USD)">Não explicado (US$)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.perCard!.map((c) => (
+                      <tr key={c.last4 ?? "none"}>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {c.last4 ? <>•••• {c.last4}{c.label ? <span className="text-slate-400"> · {c.label}</span> : null}</> : <span className="text-slate-400">sem cartão</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">{c.total}{c.pending ? <span className="text-red-600"> ({c.pending}🔴)</span> : null}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">{money(c.chargedUsd, "USD")}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-emerald-700 whitespace-nowrap">{money(c.matchedUsd, "USD")}</td>
+                        <td className={`px-3 py-2 text-right tabular-nums whitespace-nowrap ${c.diffUsd < 1 ? "text-slate-400" : "text-red-600 font-semibold"}`}>{money(c.diffUsd, "USD")}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
