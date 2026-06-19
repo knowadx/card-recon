@@ -7,7 +7,7 @@ export const CHECK_FLOOR = new Date("2026-05-01T00:00:00.000Z");
 /**
  * Matching extrato × cobranças reais do Meta (MetaBillingCharge), por MOEDA + VALOR EXATO + DATA.
  * EXCLUSIVO: cada cobrança Meta é consumida 1×. Casa por moeda + valor exato (centavos) + data
- * mais próxima (±3 dias, p/ defasagem de liquidação). Assim, se o extrato cobrou MAIS vezes do que
+ * mais próxima (±24h — "no dia", absorvendo virada de meia-noite). Assim, se o extrato cobrou MAIS vezes do que
  * o Meta registrou (duplicata/fraude/sem cobertura), o excesso fica 🔴 — não é mascarado.
  *
  *   - ok     → casou com uma cobrança Meta livre (atribui a conta/BM)
@@ -37,7 +37,7 @@ export async function runChargeMatch(): Promise<{ metaTx: number; ok: number; le
   const leakIds: string[] = [];
   const reviewIds: string[] = [];
   const clearIds: string[] = [];
-  const WINDOW = 3 * 86400000; // ±3 dias (defasagem de liquidação)
+  const WINDOW = 24 * 3600000; // ±24h ("no dia", absorvendo virada de meia-noite/liquidação — sem corte de dia)
 
   // cobrança de CARTÃO Meta (exclui transferências/faturas "Meta Platforms Ireland")
   const isCardCharge = (t: { isMetaCharge: boolean; description: string }) =>
