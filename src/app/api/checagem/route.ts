@@ -131,6 +131,7 @@ export async function GET(request: Request) {
       account: m.accountName,
       accountId: m.accountId,
       bm: m.bmName,
+      bmId: m.bmId,
       operation: m.operationId ? opName.get(m.operationId) ?? null : null,
       fundingCard: fundingByAcct.get(m.accountId) ?? null, // cartão de funding primário (Meta) — referência
     })),
