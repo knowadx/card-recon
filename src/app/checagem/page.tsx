@@ -27,7 +27,7 @@ type MetaCharge = {
   operation: string | null;
   fundingCard: string | null;
 };
-type Monthly = { month: string; total: number; ok: number; leak: number; review: number; pending: number; leakValue: Record<string, number> };
+type Monthly = { month: string; total: number; ok: number; leak: number; review: number; pending: number; leakValue: Record<string, number>; metaUsd: number; bankUsd: number; diffUsd: number };
 type Company = { id: string; name: string };
 type AccountOpt = { id: string; name: string; company: string | null };
 type Data = {
@@ -193,6 +193,9 @@ export default function ChecagemPage() {
                       <th className="px-3 py-2 text-right">⚪ Revisar</th>
                       <th className="px-3 py-2 text-right">Pendentes</th>
                       <th className="px-3 py-2 text-right">Valor vazado</th>
+                      <th className="px-3 py-2 text-right" title="Soma das cobranças registradas no Meta (USD)">Meta (US$)</th>
+                      <th className="px-3 py-2 text-right" title="Soma cobrada no cartão de crédito (USD)">Cartão (US$)</th>
+                      <th className="px-3 py-2 text-right" title="Cartão − Meta (USD)">Diferença</th>
                       <th className="px-3 py-2 text-right">% identif.</th>
                     </tr>
                   </thead>
@@ -210,6 +213,9 @@ export default function ChecagemPage() {
                           <td className="px-3 py-2 text-right tabular-nums text-red-600 whitespace-nowrap">
                             {Object.entries(m.leakValue ?? {}).sort((a, b) => b[1] - a[1]).map(([cur, v]) => money(v, cur)).join(" · ") || "—"}
                           </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">{money(m.metaUsd, "USD")}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">{money(m.bankUsd, "USD")}</td>
+                          <td className={`px-3 py-2 text-right tabular-nums whitespace-nowrap ${Math.abs(m.diffUsd) < 1 ? "text-slate-400" : "text-red-600 font-semibold"}`}>{money(m.diffUsd, "USD")}</td>
                           <td className={`px-3 py-2 text-right tabular-nums ${pct >= 90 ? "text-emerald-700" : pct >= 50 ? "text-amber-600" : "text-red-600"}`}>{pct}%</td>
                         </tr>
                       );

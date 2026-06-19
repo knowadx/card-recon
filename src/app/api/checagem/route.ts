@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { scopedCompanyIds } from "@/lib/auth";
 import { CHECK_FLOOR } from "@/lib/chargeMatch";
+import { loadRateMap, toUsd } from "@/lib/exchangeRates";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ export async function GET(request: Request) {
         : { companyId: { in: scope } };
   const base = { isMetaCharge: true, date: { gte: CHECK_FLOOR }, ...(accountWhere ? { account: accountWhere } : {}) };
 
-  const [leak, review, okCount, metaAccts, metaCharges, metaChargeCount, ops, metaAcctCards, allMetaTx, companies, accounts] = await Promise.all([
+  const [leak, review, okCount, metaAccts, metaCharges, metaChargeCount, ops, metaAcctCards, allMetaTx, companies, accounts, allMetaCharges, rateMap] = await Promise.all([
     prisma.transaction.findMany({
       where: { ...base, metaCheck: "leak" },
       include: { account: { include: { company: true } }, operation: { select: { name: true } } },
@@ -40,23 +41,38 @@ export async function GET(request: Request) {
     prisma.metaBillingCharge.count({ where: { chargedAt: { gte: CHECK_FLOOR } } }),
     prisma.operation.findMany({ select: { id: true, name: true } }),
     prisma.metaAdAccount.findMany({ select: { accountId: true, fundingCardLast4: true } }),
-    prisma.transaction.findMany({ where: base, select: { date: true, metaCheck: true, amount: true, currency: true } }),
+    prisma.transaction.findMany({ where: base, select: { date: true, metaCheck: true, amount: true, currency: true, billAmount: true, billCurrency: true } }),
     prisma.company.findMany({ where: scope === "all" ? {} : { id: { in: scope } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.account.findMany({ where: scope === "all" ? {} : { companyId: { in: scope } }, select: { id: true, name: true, company: { select: { name: true } } }, orderBy: { name: "asc" } }),
+    prisma.metaBillingCharge.findMany({ where: { chargedAt: { gte: CHECK_FLOOR } }, select: { amountUsd: true, currency: true, chargedAt: true } }),
+    loadRateMap(),
   ]);
 
-  // controle mensal: total de cobranças, status e valor vazado (por moeda) por mês
-  const monthlyMap = new Map<string, { ok: number; leak: number; review: number; total: number; leakValue: Record<string, number> }>();
+  // controle mensal: total de cobranças, status, valor vazado (por moeda) + totais em USD
+  const monthlyMap = new Map<string, { ok: number; leak: number; review: number; total: number; leakValue: Record<string, number>; bankUsd: number; metaUsd: number }>();
+  const getRow = (m: string) => {
+    let row = monthlyMap.get(m);
+    if (!row) { row = { ok: 0, leak: 0, review: 0, total: 0, leakValue: {}, bankUsd: 0, metaUsd: 0 }; monthlyMap.set(m, row); }
+    return row;
+  };
+  // lado banco (cobrado no cartão): valor USD = billAmount (moeda original) quando há, senão converte
   for (const t of allMetaTx) {
     const m = t.date.toISOString().slice(0, 7);
-    const row = monthlyMap.get(m) ?? { ok: 0, leak: 0, review: 0, total: 0, leakValue: {} };
+    const row = getRow(m);
     row.total++;
     if (t.metaCheck === "ok" || t.metaCheck === "leak" || t.metaCheck === "review") row[t.metaCheck]++;
     if (t.metaCheck === "leak") row.leakValue[t.currency] = (row.leakValue[t.currency] ?? 0) + Math.abs(t.amount);
-    monthlyMap.set(m, row);
+    const amt = t.billAmount != null ? t.billAmount : Math.abs(t.amount);
+    const cur = (t.billAmount != null ? t.billCurrency : t.currency) || t.currency;
+    row.bankUsd += toUsd(amt, cur, m, rateMap);
+  }
+  // lado Meta (registrado nas cobranças do Meta) — em USD
+  for (const ch of allMetaCharges) {
+    const m = ch.chargedAt.toISOString().slice(0, 7);
+    getRow(m).metaUsd += toUsd(ch.amountUsd, ch.currency, m, rateMap);
   }
   const monthly = Array.from(monthlyMap.entries())
-    .map(([month, v]) => ({ month, ...v, pending: v.leak + v.review }))
+    .map(([month, v]) => ({ month, ok: v.ok, leak: v.leak, review: v.review, total: v.total, leakValue: v.leakValue, pending: v.leak + v.review, metaUsd: v.metaUsd, bankUsd: v.bankUsd, diffUsd: v.bankUsd - v.metaUsd }))
     .sort((a, b) => b.month.localeCompare(a.month));
   const opName = new Map(ops.map((o) => [o.id, o.name]));
   const fundingByAcct = new Map(metaAcctCards.map((a) => [a.accountId, a.fundingCardLast4]));
