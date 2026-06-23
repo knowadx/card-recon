@@ -2,19 +2,6 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-type Tx = {
-  id: string;
-  date: string;
-  description: string;
-  amount: number;
-  currency: string;
-  cardLast4: string | null;
-  cardLabel?: string | null;
-  account: string | null;
-  company: string | null;
-  operation?: string | null;
-  validatedBy?: string | null;
-};
 type MetaCharge = {
   id: string;
   transactionId: string;
@@ -28,23 +15,19 @@ type MetaCharge = {
   operation: string | null;
   fundingCard: string | null;
 };
-type Monthly = { month: string; total: number; ok: number; leak: number; review: number; pending: number; leakValue: Record<string, number>; metaUsd: number; bankUsd: number; diffUsd: number };
-type CardRow = { last4: string | null; label: string | null; total: number; ok: number; pending: number; chargedUsd: number; matchedUsd: number; diffUsd: number };
+type Monthly = { month: string; metaUsd: number; bankUsd: number; diffUsd: number; metaCount: number; bankCount: number };
 type BankAcct = { name: string; company: string | null; count: number; totalUsd: number; byMonth: Record<string, number> };
 type MetaAcct = { name: string; accountId: string; bm: string | null; bmId: string | null; count: number; totalUsd: number; byMonth: Record<string, number> };
 type Company = { id: string; name: string };
 type AccountOpt = { id: string; name: string; company: string | null };
 type Data = {
-  counts: { leak: number; review: number; ok: number };
   companies?: Company[];
   accounts?: AccountOpt[];
+  totals?: { metaUsd: number; bankUsd: number; diffUsd: number };
   monthly?: Monthly[];
-  perCard?: CardRow[];
   absMonths?: string[];
   bankByAccount?: BankAcct[];
   metaByAccount?: MetaAcct[];
-  leak: Tx[];
-  review: Tx[];
   metaAccounts: number;
   metaChargeCount?: number;
   metaCharges?: MetaCharge[];
@@ -61,12 +44,11 @@ export default function ChecagemPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
-  // filtros compartilhados
+  // filtros
   const [fOp, setFOp] = useState("");
-  const [fCard, setFCard] = useState("");
-  const [fBank, setFBank] = useState(""); // Empresa/Conta bancária da cobrança
+  const [fBank, setFBank] = useState(""); // conta bancária (server-side)
   const [fMeta, setFMeta] = useState(""); // busca na tabela de cobranças do Meta (conta/BM)
-  const [fCompany, setFCompany] = useState(""); // empresa (server-side, afeta o controle mensal)
+  const [fCompany, setFCompany] = useState(""); // empresa (server-side)
 
   // janela de datas do sync (vazio = últimos 30 dias)
   const [syncFrom, setSyncFrom] = useState("");
@@ -93,7 +75,7 @@ export default function ChecagemPage() {
       let j: Record<string, unknown> | null = null;
       try { j = JSON.parse(text); } catch { /* resposta não-JSON (timeout/erro de plataforma) */ }
       if (!j) {
-        setMsg(`⏱️ ${label}: a função excedeu o tempo (janela grande). O progresso foi salvo — use uma janela de datas menor e rode de novo, depois clique "Rodar match".`);
+        setMsg(`⏱️ ${label}: a função excedeu o tempo (janela grande). O progresso foi salvo — use uma janela de datas menor e rode de novo.`);
       } else {
         setMsg(j.ok === false ? `❌ ${j.error}` : `✅ ${label}: ${JSON.stringify(j.check ?? j.summary ?? j)}`);
       }
@@ -108,25 +90,14 @@ export default function ChecagemPage() {
   const btn = "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50";
   const input = "rounded-md border border-slate-300 px-2 py-1 text-sm";
 
-  const card = fCard.trim().toLowerCase();
-
-  // lista de operações p/ o dropdown
+  // lista de operações p/ o dropdown (das cobranças do Meta)
   const operations = useMemo(() => {
     const set = new Set<string>();
-    for (const t of data?.leak ?? []) if (t.operation) set.add(t.operation);
-    for (const t of data?.review ?? []) if (t.operation) set.add(t.operation);
+    for (const m of data?.metaCharges ?? []) if (m.operation) set.add(m.operation);
     return Array.from(set).sort();
   }, [data]);
 
-  // filtra cobranças do extrato por Operação + Cartão (Empresa/Conta é server-side)
-  const txMatch = (t: Tx) =>
-    (!fOp || t.operation === fOp) &&
-    (!card || (t.cardLast4 ?? "").toLowerCase().includes(card));
-
-  const leakF = (data?.leak ?? []).filter(txMatch);
-  const reviewF = (data?.review ?? []).filter(txMatch);
-
-  // cobranças dentro do Meta: filtra por Operação (compartilhado) + busca conta/BM
+  // cobranças dentro do Meta: filtra por Operação + busca conta/BM
   const metaQ = fMeta.trim().toLowerCase();
   const metaChargesF = (data?.metaCharges ?? []).filter(
     (m) =>
@@ -134,27 +105,16 @@ export default function ChecagemPage() {
       (!metaQ || [m.account, m.accountId, m.bm, m.bmId, m.transactionId].some((v) => v?.toLowerCase().includes(metaQ))),
   );
 
-  // Somatória do valor suspeito (🔴) sob o filtro atual, por moeda
-  const leakTotals = leakF.reduce<Record<string, number>>((acc, t) => {
-    acc[t.currency] = (acc[t.currency] ?? 0) + t.amount;
-    return acc;
-  }, {});
-  const leakTotalStr = Object.entries(leakTotals)
-    .sort((a, b) => b[1] - a[1])
-    .map(([cur, v]) => money(v, cur))
-    .join("  ·  ") || "—";
-
-  const filtering = !!(fOp || card || fBank || fMeta || fCompany);
-  const clearFilters = () => { setFOp(""); setFCard(""); setFBank(""); setFMeta(""); setFCompany(""); };
+  const filtering = !!(fOp || fBank || fMeta || fCompany);
+  const clearFilters = () => { setFOp(""); setFBank(""); setFMeta(""); setFCompany(""); };
 
   return (
     <div className="flex flex-col gap-5 p-2">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Checagem de cobranças Meta</h1>
+          <h1 className="text-xl font-semibold">Checagem de gasto Meta</h1>
           <p className="text-sm text-slate-500">
-            Cada cobrança Meta do extrato é casada com uma cobrança real de uma conta sua (por valor + data).
-            Sem par em conta sua → possível vazamento.
+            Compara o que o <strong>Meta diz</strong> que gastou com o que foi <strong>cobrado nas suas contas</strong>, mês a mês. Diferença grande = cobrança fora das contas que você controla.
           </p>
         </div>
         <div className="flex items-end gap-2">
@@ -169,9 +129,6 @@ export default function ChecagemPage() {
           <button className={btn} disabled={busy !== null} onClick={() => run("/api/meta/sync", "Sincronizar Meta", { from: syncFrom || undefined, to: syncTo || undefined })}>
             {busy === "Sincronizar Meta" ? "Sincronizando…" : "Sincronizar Meta"}
           </button>
-          <button className={btn} disabled={busy !== null} onClick={() => run("/api/check", "Rodar match")} title="Re-roda o match com os dados já no banco (instantâneo, não chama a API)">
-            {busy === "Rodar match" ? "Rodando…" : "Rodar match"}
-          </button>
         </div>
       </div>
 
@@ -180,10 +137,10 @@ export default function ChecagemPage() {
       {data && (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Kpi label="🔴 Vazamentos" value={data.counts.leak} warn={data.counts.leak > 0} />
-            <Kpi label="⚪ A revisar" value={data.counts.review} />
-            <Kpi label="🟢 OK" value={data.counts.ok} />
-            <Kpi label="Contas Meta" value={data.metaAccounts} />
+            <Kpi label="Meta diz (US$)" value={money(data.totals?.metaUsd ?? 0, "USD")} />
+            <Kpi label="Cobrado na conta (US$)" value={money(data.totals?.bankUsd ?? 0, "USD")} />
+            <Kpi label="Diferença (US$)" value={money(data.totals?.diffUsd ?? 0, "USD")} warn={Math.abs(data.totals?.diffUsd ?? 0) >= 1} />
+            <Kpi label="Contas Meta" value={String(data.metaAccounts)} />
           </div>
 
           {/* Barra de filtros */}
@@ -210,10 +167,6 @@ export default function ChecagemPage() {
               </select>
             </label>
             <label className="flex flex-col gap-1 text-xs text-slate-500">
-              Cartão (4 dígitos)
-              <input className={input} placeholder="ex.: 6830" value={fCard} onChange={(e) => setFCard(e.target.value)} />
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-slate-500">
               Conta/BM (Meta)
               <input className={input + " min-w-[160px]"} placeholder="nome ou ID da conta/BM" value={fMeta} onChange={(e) => setFMeta(e.target.value)} />
             </label>
@@ -222,55 +175,41 @@ export default function ChecagemPage() {
             )}
           </div>
 
-          {/* Controle mensal — cobranças por mês e quantas faltam identificar */}
+          {/* Comparação mensal — Meta diz × cobrado na conta × diferença */}
           {(data.monthly?.length ?? 0) > 0 && (
             <section className="flex flex-col gap-2">
-              <h2 className="text-sm font-semibold text-slate-700">Controle mensal</h2>
+              <h2 className="text-sm font-semibold text-slate-700">Comparação mensal</h2>
+              <p className="text-xs text-slate-500">Soma bruta em USD, sem casar nada. Gasto que o Meta reporta × gasto cobrado nas contas.</p>
               <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
                     <tr>
                       <th className="px-3 py-2">Mês</th>
-                      <th className="px-3 py-2 text-right">Cobranças</th>
-                      <th className="px-3 py-2 text-right">🟢 OK</th>
-                      <th className="px-3 py-2 text-right">🔴 Vazam.</th>
-                      <th className="px-3 py-2 text-right">⚪ Revisar</th>
-                      <th className="px-3 py-2 text-right">Pendentes</th>
-                      <th className="px-3 py-2 text-right">Valor vazado</th>
-                      <th className="px-3 py-2 text-right" title="Soma das cobranças registradas no Meta (USD)">Meta (US$)</th>
-                      <th className="px-3 py-2 text-right" title="Soma cobrada no cartão de crédito (USD)">Cartão (US$)</th>
-                      <th className="px-3 py-2 text-right" title="Cartão − Meta (USD)">Diferença</th>
-                      <th className="px-3 py-2 text-right">% identif.</th>
+                      <th className="px-3 py-2 text-right" title="Nº de cobranças que o Meta reporta">Cobr. Meta</th>
+                      <th className="px-3 py-2 text-right" title="Soma das cobranças do Meta (USD)">Meta diz (US$)</th>
+                      <th className="px-3 py-2 text-right" title="Nº de cobranças no extrato">Cobr. conta</th>
+                      <th className="px-3 py-2 text-right" title="Soma cobrada nas contas (USD)">Cobrado na conta (US$)</th>
+                      <th className="px-3 py-2 text-right" title="Conta − Meta (USD)">Diferença</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {data.monthly!.map((m) => {
-                      const pct = m.total ? Math.round((m.ok / m.total) * 100) : 0;
-                      return (
-                        <tr key={m.month}>
-                          <td className="px-3 py-2 tabular-nums">{m.month}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{m.total}</td>
-                          <td className="px-3 py-2 text-right tabular-nums text-emerald-700">{m.ok}</td>
-                          <td className="px-3 py-2 text-right tabular-nums text-red-600">{m.leak}</td>
-                          <td className="px-3 py-2 text-right tabular-nums text-slate-500">{m.review}</td>
-                          <td className="px-3 py-2 text-right tabular-nums font-semibold">{m.pending}</td>
-                          <td className="px-3 py-2 text-right tabular-nums text-red-600 whitespace-nowrap">
-                            {Object.entries(m.leakValue ?? {}).sort((a, b) => b[1] - a[1]).map(([cur, v]) => money(v, cur)).join(" · ") || "—"}
-                          </td>
-                          <td className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">{money(m.metaUsd, "USD")}</td>
-                          <td className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">{money(m.bankUsd, "USD")}</td>
-                          <td className={`px-3 py-2 text-right tabular-nums whitespace-nowrap ${Math.abs(m.diffUsd) < 1 ? "text-slate-400" : "text-red-600 font-semibold"}`}>{money(m.diffUsd, "USD")}</td>
-                          <td className={`px-3 py-2 text-right tabular-nums ${pct >= 90 ? "text-emerald-700" : pct >= 50 ? "text-amber-600" : "text-red-600"}`}>{pct}%</td>
-                        </tr>
-                      );
-                    })}
+                    {data.monthly!.map((m) => (
+                      <tr key={m.month}>
+                        <td className="px-3 py-2 tabular-nums">{m.month}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-slate-500">{m.metaCount}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">{money(m.metaUsd, "USD")}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-slate-500">{m.bankCount}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">{money(m.bankUsd, "USD")}</td>
+                        <td className={`px-3 py-2 text-right tabular-nums whitespace-nowrap ${Math.abs(m.diffUsd) < 1 ? "text-slate-400" : "text-red-600 font-semibold"}`}>{money(m.diffUsd, "USD")}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
             </section>
           )}
 
-          {/* VALOR ABSOLUTO (sem match) — diagnosticar divergência por mês */}
+          {/* Valor absoluto por conta — quebra dos dois lados */}
           {((data.bankByAccount?.length ?? 0) > 0 || (data.metaByAccount?.length ?? 0) > 0) && (() => {
             const months = data.absMonths ?? [];
             const bank = data.bankByAccount ?? [];
@@ -281,8 +220,7 @@ export default function ChecagemPage() {
             const metaTotal = meta.reduce((s, r) => s + r.totalUsd, 0);
             return (
               <section className="flex flex-col gap-2">
-                <h2 className="text-sm font-semibold text-slate-700">Valor absoluto por conta (sem match)</h2>
-                <p className="text-xs text-slate-500">Soma bruta em USD, sem casar nada. Compare o total cobrado no extrato com o total das cobranças do Meta, mês a mês.</p>
+                <h2 className="text-sm font-semibold text-slate-700">Detalhe por conta</h2>
 
                 {/* Lado banco */}
                 <h3 className="text-xs font-semibold text-slate-600 mt-1">Cobrado nas contas bancárias (extrato)</h3>
@@ -351,119 +289,10 @@ export default function ChecagemPage() {
             );
           })()}
 
-          {/* Diferença por cartão — cobrado × casado com Meta × não explicado (vazamento) */}
-          {(data.perCard?.length ?? 0) > 0 && (
-            <section className="flex flex-col gap-2">
-              <h2 className="text-sm font-semibold text-slate-700">Diferença por cartão</h2>
-              <p className="text-xs text-slate-500">
-                &quot;Não explicado&quot; = cobrado no cartão que <strong>não</strong> casou com uma cobrança real do Meta (vazamento suspeito). O Meta não expõe o cartão por cobrança — a parte explicada vem do match.
-              </p>
-              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-                    <tr>
-                      <th className="px-3 py-2">Cartão</th>
-                      <th className="px-3 py-2 text-right">Cobranças</th>
-                      <th className="px-3 py-2 text-right" title="Total cobrado no cartão (USD)">Cobrado (US$)</th>
-                      <th className="px-3 py-2 text-right" title="Casou com cobrança real do Meta (USD)">Casado c/ Meta (US$)</th>
-                      <th className="px-3 py-2 text-right" title="Cobrado − Casado = vazamento suspeito (USD)">Não explicado (US$)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {data.perCard!.map((c) => (
-                      <tr key={c.last4 ?? "none"}>
-                        <td className="px-3 py-2 whitespace-nowrap">
-                          {c.last4 ? <>•••• {c.last4}{c.label ? <span className="text-slate-400"> · {c.label}</span> : null}</> : <span className="text-slate-400">sem cartão</span>}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">{c.total}{c.pending ? <span className="text-red-600"> ({c.pending}🔴)</span> : null}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">{money(c.chargedUsd, "USD")}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-emerald-700 whitespace-nowrap">{money(c.matchedUsd, "USD")}</td>
-                        <td className={`px-3 py-2 text-right tabular-nums whitespace-nowrap ${c.diffUsd < 1 ? "text-slate-400" : "text-red-600 font-semibold"}`}>{money(c.diffUsd, "USD")}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
-
-
-          {/* Somatória do valor suspeito sob o filtro atual */}
-          <div className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-            <span className="text-sm font-medium text-red-700">
-              🔴 Valor suspeito{filtering ? " (filtro atual)" : ""} — {leakF.length} cobrança(s)
-            </span>
-            <span className="text-lg font-semibold tabular-nums text-red-700">{leakTotalStr}</span>
-          </div>
-
-          {/* Vazamentos */}
-          <PagedSection
-            title={`🔴 Cobranças suspeitas (${leakF.length}${filtering ? ` de ${data.leak.length}` : ""})`}
-            empty={data.leak.length === 0 ? "Nenhuma cobrança Meta fora das suas contas. 👍" : "Nenhum resultado para o filtro."}
-            rows={leakF}
-            border="border-red-200"
-            head={
-              <tr>
-                <th className="px-3 py-2">Data</th>
-                <th className="px-3 py-2">Operação</th>
-                <th className="px-3 py-2">Empresa / Conta</th>
-                <th className="px-3 py-2">Descrição</th>
-                <th className="px-3 py-2">Cartão</th>
-                <th className="px-3 py-2 text-right">Valor</th>
-              </tr>
-            }
-            headClass="bg-red-50 text-red-700"
-            row={(t) => (
-              <tr key={t.id}>
-                <td className="px-3 py-2 tabular-nums">{t.date}</td>
-                <td className="px-3 py-2 text-xs">{t.operation ?? "—"}</td>
-                <td className="px-3 py-2 text-xs">{t.company ?? "—"}<div className="text-slate-400">{t.account}</div></td>
-                <td className="px-3 py-2">{t.description}</td>
-                <td className="px-3 py-2 text-xs">
-                  {t.cardLast4 ? `•••• ${t.cardLast4}` : "—"}
-                  {t.cardLabel && <div className="text-[11px] text-slate-400">{t.cardLabel}</div>}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">{money(t.amount, t.currency)}</td>
-              </tr>
-            )}
-          />
-
-          {/* A revisar */}
-          {data.review.length > 0 && (
-            <PagedSection
-              title={`⚪ A revisar — cobrança Meta sem valor p/ casar (${reviewF.length}${filtering ? ` de ${data.review.length}` : ""})`}
-              note="Cobrança Meta sem valor utilizável p/ o match (raro)."
-              empty="Nenhum resultado para o filtro."
-              rows={reviewF}
-              border="border-slate-200"
-              head={
-                <tr>
-                  <th className="px-3 py-2">Data</th>
-                  <th className="px-3 py-2">Operação</th>
-                  <th className="px-3 py-2">Empresa / Conta</th>
-                  <th className="px-3 py-2">Descrição</th>
-                  <th className="px-3 py-2">Cartão</th>
-                  <th className="px-3 py-2 text-right">Valor</th>
-                </tr>
-              }
-              headClass="bg-slate-50 text-slate-500"
-              row={(t) => (
-                <tr key={t.id}>
-                  <td className="px-3 py-2 tabular-nums">{t.date}</td>
-                  <td className="px-3 py-2 text-xs">{t.operation ?? "—"}</td>
-                  <td className="px-3 py-2 text-xs">{t.company ?? "—"}<div className="text-slate-400">{t.account}</div></td>
-                  <td className="px-3 py-2">{t.description}</td>
-                  <td className="px-3 py-2 text-xs">{t.cardLast4 ? `•••• ${t.cardLast4}` : "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{money(t.amount, t.currency)}</td>
-                </tr>
-              )}
-            />
-          )}
-
-          {/* Cobranças reais DENTRO do Meta (act/activities) — o outro lado do cruzamento */}
+          {/* Cobranças reais DENTRO do Meta (act/activities) */}
           <PagedSection
             title={`🔵 Cobranças dentro do Meta (${metaChargesF.length}${filtering ? ` de ${data.metaChargeCount ?? data.metaCharges?.length ?? 0}` : ` — ${data.metaChargeCount ?? 0} no total`})`}
-            note="As cobranças que o Meta reporta por conta/BM. É contra estas que o extrato é casado (mesma moeda + valor + data). A cobrança em si NÃO traz cartão (a Meta não expõe); o 'Cartão (funding)' é o cartão primário da conta — referência, pode diferir do realmente cobrado."
+            note="As cobranças que o Meta reporta por conta/BM. A cobrança em si NÃO traz cartão (a Meta não expõe); o 'Cartão (funding)' é o cartão primário da conta — referência."
             empty={(data.metaCharges?.length ?? 0) === 0 ? "Nenhuma cobrança Meta ainda. Rode Sincronizar Meta." : "Nenhum resultado para o filtro."}
             rows={metaChargesF}
             border="border-sky-200"
@@ -548,7 +377,7 @@ function PagedSection<T>({
   );
 }
 
-function Kpi({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
+function Kpi({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
       <div className="text-xs text-slate-500">{label}</div>
