@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSession, isSuperadmin } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/admin/apply-indexes — aplica os índices de performance no banco (idempotente).
- * Só superadmin. Usa CREATE INDEX IF NOT EXISTS, então é seguro rodar quantas vezes quiser.
+ * Exige usuário logado (o app já está atrás de auth). Ação inofensiva: só CREATE INDEX
+ * IF NOT EXISTS, seguro rodar quantas vezes quiser.
  */
 export async function GET() {
-  const s = await getSession();
-  if (!s || !isSuperadmin(s.role)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const stmts = [
     'CREATE INDEX IF NOT EXISTS "TransactionSplit_managerialCategoryId_transactionId_idx" ON "TransactionSplit"("managerialCategoryId", "transactionId")',
