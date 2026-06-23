@@ -83,6 +83,7 @@ export async function POST(request: Request) {
     const falharam = r.failed.filter((f) => f.reason === "falhou");
     return NextResponse.json({
       ok: true,
+      periodo: { de: since, ate: until ?? "hoje" }, // janela desta rodada (charges é DESTE período, não "maio")
       accounts: seen.size,
       withFundingCard: withCard,
       bmAvailable: bmAvailableAny,
