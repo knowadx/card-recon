@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LayoutDashboard, Building2, Landmark, Tag, ArrowLeftRight, CheckSquare, BarChart2, Settings, X, Target, DollarSign, TrendingUp, ChevronLeft, ChevronRight, LineChart, ShieldCheck, Users, LogOut, KeyRound, Layers, Workflow } from "lucide-react";
 
 const mainNav = [
@@ -27,10 +27,15 @@ const settingsNav = [
   { href: "/exchange-rates", label: "Exchange Rates", icon: DollarSign },
 ];
 
-export function Sidebar({ isSuperadmin = false }: { isSuperadmin?: boolean }) {
+export function Sidebar() {
   const pathname = usePathname();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/me").then((r) => (r.ok ? r.json() : null)).then((me) => setIsSuperadmin(me?.role === "superadmin")).catch(() => {});
+  }, []);
 
   // Control é restrito a superadmin
   const nav = mainNav.filter(({ href }) => href !== "/control" || isSuperadmin);
