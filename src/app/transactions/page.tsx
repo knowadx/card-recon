@@ -464,22 +464,24 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
           <div className="w-px h-4 bg-[#b2e8e2]" />
           <div className="flex items-center gap-2">
             <span className="text-[#6b7280]">Managerial:</span>
-            <Select value="" onValueChange={(v) => { if (v) bulkCategorize("managerial", v); }}>
+            <Select value="" onValueChange={(v) => { if (v) bulkCategorize("managerial", v === "__clear__" ? "" : v); }}>
               <SelectTrigger className="h-7 text-[12px] bg-white border-[#b2e8e2] text-[#374151] rounded-lg px-2 min-w-[130px] focus:ring-0 focus:ring-offset-0">
                 <SelectValue placeholder="Select..." />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="__clear__">— Limpar</SelectItem>
                 {managerial.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[#6b7280]">Accounting:</span>
-            <Select value="" onValueChange={(v) => { if (v) bulkCategorize("accounting", v); }}>
+            <Select value="" onValueChange={(v) => { if (v) bulkCategorize("accounting", v === "__clear__" ? "" : v); }}>
               <SelectTrigger className="h-7 text-[12px] bg-white border-[#b2e8e2] text-[#374151] rounded-lg px-2 min-w-[130px] focus:ring-0 focus:ring-offset-0">
                 <SelectValue placeholder="Select..." />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="__clear__">— Limpar</SelectItem>
                 {accounting.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
               </SelectContent>
             </Select>
