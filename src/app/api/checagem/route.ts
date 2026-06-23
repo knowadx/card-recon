@@ -41,10 +41,10 @@ export async function GET(request: Request) {
     prisma.metaBillingCharge.count({ where: { chargedAt: { gte: CHECK_FLOOR } } }),
     prisma.operation.findMany({ select: { id: true, name: true } }),
     prisma.metaAdAccount.findMany({ select: { accountId: true, fundingCardLast4: true } }),
-    prisma.transaction.findMany({ where: base, select: { date: true, metaCheck: true, amount: true, currency: true, billAmount: true, billCurrency: true, cardLast4: true, cardLabel: true } }),
+    prisma.transaction.findMany({ where: base, select: { date: true, metaCheck: true, amount: true, currency: true, billAmount: true, billCurrency: true, cardLast4: true, cardLabel: true, accountId: true, account: { select: { name: true, company: { select: { name: true } } } } } }),
     prisma.company.findMany({ where: scope === "all" ? {} : { id: { in: scope } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.account.findMany({ where: scope === "all" ? {} : { companyId: { in: scope } }, select: { id: true, name: true, company: { select: { name: true } } }, orderBy: { name: "asc" } }),
-    prisma.metaBillingCharge.findMany({ where: { chargedAt: { gte: CHECK_FLOOR } }, select: { amountUsd: true, currency: true, chargedAt: true } }),
+    prisma.metaBillingCharge.findMany({ where: { chargedAt: { gte: CHECK_FLOOR } }, select: { amountUsd: true, currency: true, chargedAt: true, accountId: true, accountName: true, bmName: true, bmId: true } }),
     loadRateMap(),
   ]);
 
@@ -95,6 +95,34 @@ export async function GET(request: Request) {
     .map((c) => ({ ...c, diffUsd: c.chargedUsd - c.matchedUsd }))
     .sort((a, b) => b.diffUsd - a.diffUsd);
 
+  // VALOR ABSOLUTO (sem match) — para diagnosticar divergência por mês:
+  const months = new Set<string>();
+  // (1) cobrado por conta bancária (extrato)
+  const bankAcctMap = new Map<string, { name: string; company: string | null; count: number; totalUsd: number; byMonth: Record<string, number> }>();
+  for (const t of allMetaTx) {
+    const m = t.date.toISOString().slice(0, 7); months.add(m);
+    const key = t.accountId;
+    let row = bankAcctMap.get(key);
+    if (!row) { row = { name: t.account?.name ?? "?", company: t.account?.company?.name ?? null, count: 0, totalUsd: 0, byMonth: {} }; bankAcctMap.set(key, row); }
+    const amt = t.billAmount != null ? t.billAmount : Math.abs(t.amount);
+    const cur = (t.billAmount != null ? t.billCurrency : t.currency) || t.currency;
+    const usd = toUsd(amt, cur, m, rateMap);
+    row.count++; row.totalUsd += usd; row.byMonth[m] = (row.byMonth[m] ?? 0) + usd;
+  }
+  // (2) cobranças por conta de anúncio (Meta)
+  const metaAcctMap = new Map<string, { name: string; accountId: string; bm: string | null; bmId: string | null; count: number; totalUsd: number; byMonth: Record<string, number> }>();
+  for (const ch of allMetaCharges) {
+    const m = ch.chargedAt.toISOString().slice(0, 7); months.add(m);
+    const key = ch.accountId;
+    let row = metaAcctMap.get(key);
+    if (!row) { row = { name: ch.accountName ?? "?", accountId: ch.accountId, bm: ch.bmName, bmId: ch.bmId, count: 0, totalUsd: 0, byMonth: {} }; metaAcctMap.set(key, row); }
+    const usd = toUsd(ch.amountUsd, ch.currency, m, rateMap);
+    row.count++; row.totalUsd += usd; row.byMonth[m] = (row.byMonth[m] ?? 0) + usd;
+  }
+  const monthList = Array.from(months).sort((a, b) => b.localeCompare(a));
+  const bankByAccount = Array.from(bankAcctMap.values()).sort((a, b) => b.totalUsd - a.totalUsd);
+  const metaByAccount = Array.from(metaAcctMap.values()).sort((a, b) => b.totalUsd - a.totalUsd);
+
   const opName = new Map(ops.map((o) => [o.id, o.name]));
   const fundingByAcct = new Map(metaAcctCards.map((a) => [a.accountId, a.fundingCardLast4]));
 
@@ -118,6 +146,9 @@ export async function GET(request: Request) {
     accounts: accounts.map((a) => ({ id: a.id, name: a.name, company: a.company?.name ?? null })),
     monthly,
     perCard,
+    absMonths: monthList,
+    bankByAccount,
+    metaByAccount,
     leak: leak.map(map),
     review: review.map(map),
     metaAccounts: metaAccts,

@@ -30,6 +30,8 @@ type MetaCharge = {
 };
 type Monthly = { month: string; total: number; ok: number; leak: number; review: number; pending: number; leakValue: Record<string, number>; metaUsd: number; bankUsd: number; diffUsd: number };
 type CardRow = { last4: string | null; label: string | null; total: number; ok: number; pending: number; chargedUsd: number; matchedUsd: number; diffUsd: number };
+type BankAcct = { name: string; company: string | null; count: number; totalUsd: number; byMonth: Record<string, number> };
+type MetaAcct = { name: string; accountId: string; bm: string | null; bmId: string | null; count: number; totalUsd: number; byMonth: Record<string, number> };
 type Company = { id: string; name: string };
 type AccountOpt = { id: string; name: string; company: string | null };
 type Data = {
@@ -38,6 +40,9 @@ type Data = {
   accounts?: AccountOpt[];
   monthly?: Monthly[];
   perCard?: CardRow[];
+  absMonths?: string[];
+  bankByAccount?: BankAcct[];
+  metaByAccount?: MetaAcct[];
   leak: Tx[];
   review: Tx[];
   metaAccounts: number;
@@ -228,6 +233,87 @@ export default function ChecagemPage() {
               </div>
             </section>
           )}
+
+          {/* VALOR ABSOLUTO (sem match) — diagnosticar divergência por mês */}
+          {((data.bankByAccount?.length ?? 0) > 0 || (data.metaByAccount?.length ?? 0) > 0) && (() => {
+            const months = data.absMonths ?? [];
+            const bank = data.bankByAccount ?? [];
+            const meta = data.metaByAccount ?? [];
+            const bankTotByMonth = (m: string) => bank.reduce((s, r) => s + (r.byMonth[m] ?? 0), 0);
+            const metaTotByMonth = (m: string) => meta.reduce((s, r) => s + (r.byMonth[m] ?? 0), 0);
+            const bankTotal = bank.reduce((s, r) => s + r.totalUsd, 0);
+            const metaTotal = meta.reduce((s, r) => s + r.totalUsd, 0);
+            return (
+              <section className="flex flex-col gap-2">
+                <h2 className="text-sm font-semibold text-slate-700">Valor absoluto por conta (sem match)</h2>
+                <p className="text-xs text-slate-500">Soma bruta em USD, sem casar nada. Compare o total cobrado no extrato com o total das cobranças do Meta, mês a mês.</p>
+
+                {/* Lado banco */}
+                <h3 className="text-xs font-semibold text-slate-600 mt-1">Cobrado nas contas bancárias (extrato)</h3>
+                <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2">Conta</th>
+                        <th className="px-3 py-2 text-right">Cobranças</th>
+                        {months.map((m) => <th key={m} className="px-3 py-2 text-right whitespace-nowrap">{m} (US$)</th>)}
+                        <th className="px-3 py-2 text-right">Total (US$)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {bank.map((r) => (
+                        <tr key={r.name + (r.company ?? "")}>
+                          <td className="px-3 py-2 whitespace-nowrap">{r.name}{r.company ? <span className="text-slate-400"> · {r.company}</span> : null}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{r.count}</td>
+                          {months.map((m) => <td key={m} className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">{r.byMonth[m] ? money(r.byMonth[m], "USD") : "—"}</td>)}
+                          <td className="px-3 py-2 text-right tabular-nums font-semibold whitespace-nowrap">{money(r.totalUsd, "USD")}</td>
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-50 font-semibold">
+                        <td className="px-3 py-2">Total</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{bank.reduce((s, r) => s + r.count, 0)}</td>
+                        {months.map((m) => <td key={m} className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{money(bankTotByMonth(m), "USD")}</td>)}
+                        <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{money(bankTotal, "USD")}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Lado Meta */}
+                <h3 className="text-xs font-semibold text-slate-600 mt-2">Cobranças por conta de anúncio (Meta)</h3>
+                <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2">Conta de anúncio</th>
+                        <th className="px-3 py-2">BM</th>
+                        <th className="px-3 py-2 text-right">Cobranças</th>
+                        {months.map((m) => <th key={m} className="px-3 py-2 text-right whitespace-nowrap">{m} (US$)</th>)}
+                        <th className="px-3 py-2 text-right">Total (US$)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {meta.map((r) => (
+                        <tr key={r.accountId}>
+                          <td className="px-3 py-2 whitespace-nowrap">{r.name}<span className="text-slate-400 text-xs tabular-nums"> · {r.accountId}</span></td>
+                          <td className="px-3 py-2 text-xs whitespace-nowrap">{r.bm ?? "—"}{r.bmId ? <span className="text-slate-400"> · {r.bmId}</span> : null}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{r.count}</td>
+                          {months.map((m) => <td key={m} className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">{r.byMonth[m] ? money(r.byMonth[m], "USD") : "—"}</td>)}
+                          <td className="px-3 py-2 text-right tabular-nums font-semibold whitespace-nowrap">{money(r.totalUsd, "USD")}</td>
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-50 font-semibold">
+                        <td className="px-3 py-2" colSpan={2}>Total</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{meta.reduce((s, r) => s + r.count, 0)}</td>
+                        {months.map((m) => <td key={m} className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{money(metaTotByMonth(m), "USD")}</td>)}
+                        <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{money(metaTotal, "USD")}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            );
+          })()}
 
           {/* Diferença por cartão — cobrado × casado com Meta × não explicado (vazamento) */}
           {(data.perCard?.length ?? 0) > 0 && (
