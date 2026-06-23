@@ -171,6 +171,9 @@ model TransactionSplit {
   @@index([managerialCategoryId])
   @@index([accountingCategoryId])
   @@index([operationId])
+  // compostos: aceleram o EXISTS correlacionado (splits.some por categoria) usado nos filtros/contagem da lista
+  @@index([managerialCategoryId, transactionId])
+  @@index([accountingCategoryId, transactionId])
 }
 
 model DashboardChart {

@@ -79,23 +79,32 @@ export async function GET(request: Request) {
     where.AND = [...(where.AND ?? []), { OR: or.length ? or : [{ id: "__none__" }] }];
   }
 
-  const [transactions, total] = await Promise.all([
-    prisma.transaction.findMany({
-      where,
-      include: {
-        account: { include: { company: true } },
-        splits: { include: { managerialCategory: true, accountingCategory: true, operation: { select: { id: true, name: true } } } },
-        accountingSplits: { include: { accountingCategory: true } },
-        documents: true,
-      },
-      orderBy: { date: "desc" },
-      take,
-      skip,
-    }),
-    prisma.transaction.count({ where }),
-  ]);
+  const findManyArgs = {
+    where,
+    include: {
+      account: { include: { company: true } },
+      splits: { include: { managerialCategory: true, accountingCategory: true, operation: { select: { id: true, name: true } } } },
+      accountingSplits: { include: { accountingCategory: true } },
+      documents: true,
+    },
+    orderBy: { date: "desc" as const },
+    take: take + 1, // +1 sentinela p/ saber hasMore sem precisar do count
+    skip,
+  };
 
-  return Response.json({ data: transactions, total, hasMore: skip + take < total });
+  // count (caro) só na 1ª página; nas demais o hasMore vem do +1 e o client mantém o total anterior
+  let rows;
+  let total: number | null = null;
+  if (skip === 0) {
+    const [r, t] = await Promise.all([prisma.transaction.findMany(findManyArgs), prisma.transaction.count({ where })]);
+    rows = r; total = t;
+  } else {
+    rows = await prisma.transaction.findMany(findManyArgs);
+  }
+  const hasMore = rows.length > take;
+  const data = hasMore ? rows.slice(0, take) : rows;
+
+  return Response.json({ data, total, hasMore });
 }
 
 export async function POST(request: Request) {
