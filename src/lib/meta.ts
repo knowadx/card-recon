@@ -65,7 +65,39 @@ export async function fetchMetaUser(token: string): Promise<{ id: string; name: 
   }
 }
 
-/** GET genérico na Graph API, com paginação automática (segue paging.next). */
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Códigos de erro transitórios da Graph API (rate limit / temporário) → vale retry.
+const TRANSIENT_CODES = new Set([1, 2, 4, 17, 32, 341, 368, 613, 80000, 80001, 80002, 80003, 80004, 80005, 80006, 80008, 80014]);
+
+/**
+ * Busca UMA página com retry/backoff exponencial em erro transitório (HTTP 429/5xx,
+ * códigos de rate limit, ou falha de rede). Só lança depois de esgotar as tentativas —
+ * assim um soluço da API não derruba a conta inteira (e a página não se perde).
+ */
+async function graphFetchPage(url: string): Promise<Record<string, unknown>> {
+  const MAX = 5;
+  let delay = 600;
+  for (let attempt = 1; ; attempt++) {
+    let res: Response;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let json: any;
+    try {
+      res = await fetch(url);
+      json = await res.json();
+    } catch (e) {
+      if (attempt >= MAX) throw e; // erro de rede → retry
+      await sleep(delay + Math.random() * 300); delay *= 2; continue;
+    }
+    if (res.ok) return json;
+    const code = json?.error?.code;
+    const transient = res.status === 429 || res.status >= 500 || (typeof code === "number" && TRANSIENT_CODES.has(code));
+    if (transient && attempt < MAX) { await sleep(delay + Math.random() * 300); delay *= 2; continue; }
+    throw new Error(`Meta API ${res.status}: ${json?.error?.message || res.statusText}`);
+  }
+}
+
+/** GET genérico na Graph API, com paginação automática (segue paging.next) e retry por página. */
 async function graphGetAll<T = Record<string, unknown>>(
   token: string,
   path: string,
@@ -77,15 +109,10 @@ async function graphGetAll<T = Record<string, unknown>>(
     new URLSearchParams({ ...params, access_token: token, limit: "100" }).toString();
 
   while (url) {
-    const res: Response = await fetch(url);
-    const json = await res.json();
-    if (!res.ok) {
-      const msg = json?.error?.message || res.statusText;
-      throw new Error(`Meta API ${res.status}: ${msg}`);
-    }
-    if (Array.isArray(json.data)) out.push(...json.data);
-    else out.push(json);
-    url = json.paging?.next ?? null;
+    const json = await graphFetchPage(url);
+    if (Array.isArray(json.data)) out.push(...(json.data as T[]));
+    else out.push(json as T);
+    url = (json.paging as { next?: string } | undefined)?.next ?? null;
   }
   return out;
 }
@@ -218,22 +245,6 @@ export async function fetchBillingCharges(token: string, accountId: string, sinc
 
 function safeJson(s: string): Record<string, unknown> {
   try { return JSON.parse(s); } catch { return {}; }
-}
-
-/** Spend de uma conta num intervalo (YYYY-MM-DD). Retorna em moeda da conta. */
-export async function fetchSpend(
-  token: string,
-  accountId: string, // "act_123" ou "123"
-  since: string,
-  until: string,
-): Promise<number> {
-  const act = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
-  const rows = await graphGetAll<{ spend?: string }>(token, `${act}/insights`, {
-    fields: "spend",
-    level: "account",
-    time_range: JSON.stringify({ since, until }),
-  });
-  return rows.reduce((sum, r) => sum + (r.spend ? parseFloat(r.spend) : 0), 0);
 }
 
 /**

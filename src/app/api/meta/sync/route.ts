@@ -3,16 +3,14 @@ import { prisma } from "@/lib/db";
 import { fetchControlledAccounts, parseFundingDisplay } from "@/lib/meta";
 import { getCurrentUser, isSuperadmin, accessibleHoldingIds } from "@/lib/auth";
 import { syncBillingCharges } from "@/lib/metaCharges";
-import { runChargeMatch } from "@/lib/chargeMatch";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * POST /api/meta/sync — "Sincronizar Meta" (tudo numa ordem só):
+ * POST /api/meta/sync — "Sincronizar Meta" (numa ordem só):
  *   1) contas controladas + cartão de funding + gasto (MetaAdAccount)
- *   2) cobranças reais por conta (MetaBillingCharge, via activities)
- *   3) matching extrato × cobranças (runChargeMatch)
+ *   2) cobranças reais de TODAS as contas (MetaBillingCharge, via activities)
  * Cada credencial Meta é POR OPERAÇÃO. Superadmin = todas; admin/member = escopo dele.
  */
 export async function POST(request: Request) {
@@ -80,18 +78,23 @@ export async function POST(request: Request) {
       }
     }
 
-    // 2) cobranças reais por conta + 3) matching extrato × cobranças
-    const charges = await syncBillingCharges(creds.map((c) => ({ token: c.token, operationId: c.operationId })), since, until);
-    const check = await runChargeMatch();
+    // 2) cobranças reais de TODAS as contas
+    const r = await syncBillingCharges(creds.map((c) => ({ token: c.token, operationId: c.operationId })), since, until);
+    const semAcesso = r.failed.filter((f) => f.reason === "sem_acesso");
+    const falharam = r.failed.filter((f) => f.reason === "falhou");
     return NextResponse.json({
       ok: true,
       accounts: accountsCount,
       withFundingCard: withCard,
       bmAvailable: bmAvailableAny,
       accessGap: accessGap.map((b) => b.name), // BMs sem conta visível → precisam de acesso no Meta
-      charges: charges.charges,
-      accountsSemAcesso: charges.accountsErr,
-      check,
+      charges: r.charges,
+      // completude: se contasOK < total, o "Meta diz" está INCOMPLETO p/ este período
+      contasOk: r.accountsOk,
+      contasTotal: r.accountsTotal,
+      completo: r.failed.length === 0,
+      semAcesso: semAcesso.map((f) => f.name ?? f.accountId), // permissão (não resolve com re-sync)
+      falharam: falharam.map((f) => f.name ?? f.accountId), // transitório/erro → re-sincronize p/ completar
     });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
