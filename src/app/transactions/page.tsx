@@ -304,6 +304,7 @@ export default function TransactionsPage() {
 
 const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions.every(t => selectedIds.has(t.id));
   const [selectingAll, setSelectingAll] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState<string | null>(null); // rótulo da ação de batch em curso
 
   const toggleSelectAll = () => {
     if (allVisibleSelected) {
@@ -333,37 +334,49 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
   };
 
   const bulkIgnore = async (ignored: boolean) => {
-    await fetch("/api/transactions/bulk", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: [...selectedIds], ignored }),
-    });
-    setSelectedIds(new Set());
-    load();
+    const n = selectedIds.size;
+    setBulkBusy(ignored ? `Ignorando ${n}…` : `Restaurando ${n}…`);
+    try {
+      await fetch("/api/transactions/bulk", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [...selectedIds], ignored }),
+      });
+      setSelectedIds(new Set());
+      await load();
+    } finally { setBulkBusy(null); }
   };
 
   const bulkDelete = async () => {
     if (!confirm(`Delete ${selectedIds.size} transaction(s)?`)) return;
-    await fetch("/api/transactions/bulk", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: [...selectedIds] }),
-    });
-    setSelectedIds(new Set());
-    load();
+    const n = selectedIds.size;
+    setBulkBusy(`Apagando ${n}…`);
+    try {
+      await fetch("/api/transactions/bulk", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [...selectedIds] }),
+      });
+      setSelectedIds(new Set());
+      await load();
+    } finally { setBulkBusy(null); }
   };
 
   const bulkCategorize = async (type: "managerial" | "accounting", categoryId: string) => {
-    await fetch("/api/transactions/bulk", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ids: [...selectedIds],
-        ...(type === "managerial" ? { managerialCategoryId: categoryId } : { accountingCategoryId: categoryId }),
-      }),
-    });
-    setSelectedIds(new Set());
-    load();
+    const n = selectedIds.size;
+    setBulkBusy(`${categoryId ? "Classificando" : "Limpando"} ${n}…`);
+    try {
+      await fetch("/api/transactions/bulk", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ids: [...selectedIds],
+          ...(type === "managerial" ? { managerialCategoryId: categoryId } : { accountingCategoryId: categoryId }),
+        }),
+      });
+      setSelectedIds(new Set());
+      await load();
+    } finally { setBulkBusy(null); }
   };
 
   return (
@@ -447,7 +460,13 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
 
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 px-8 py-3 bg-[#e6f7f5] border-b border-[#b2e8e2] text-[#1a202c] text-[13px] z-20">
+        <div className={`flex items-center gap-3 px-8 py-3 border-b text-[#1a202c] text-[13px] z-20 transition-colors ${bulkBusy ? "bg-[#fff7ed] border-[#fed7aa]" : "bg-[#e6f7f5] border-[#b2e8e2]"}`}>
+          {bulkBusy && (
+            <span className="flex items-center gap-2 font-semibold text-[#b45309]">
+              <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#f59e0b] border-t-transparent" />
+              {bulkBusy}
+            </span>
+          )}
           <span className="font-semibold text-[#00907e]">{selectedIds.size} selected</span>
           {allVisibleSelected && total > transactions.length && selectedIds.size < total && (
             <button
@@ -464,7 +483,7 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
           <div className="w-px h-4 bg-[#b2e8e2]" />
           <div className="flex items-center gap-2">
             <span className="text-[#6b7280]">Managerial:</span>
-            <Select value="" onValueChange={(v) => { if (v) bulkCategorize("managerial", v === "__clear__" ? "" : v); }}>
+            <Select value="" disabled={bulkBusy !== null} onValueChange={(v) => { if (v) bulkCategorize("managerial", v === "__clear__" ? "" : v); }}>
               <SelectTrigger className="h-7 text-[12px] bg-white border-[#b2e8e2] text-[#374151] rounded-lg px-2 min-w-[130px] focus:ring-0 focus:ring-offset-0">
                 <SelectValue placeholder="Select..." />
               </SelectTrigger>
@@ -476,7 +495,7 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[#6b7280]">Accounting:</span>
-            <Select value="" onValueChange={(v) => { if (v) bulkCategorize("accounting", v === "__clear__" ? "" : v); }}>
+            <Select value="" disabled={bulkBusy !== null} onValueChange={(v) => { if (v) bulkCategorize("accounting", v === "__clear__" ? "" : v); }}>
               <SelectTrigger className="h-7 text-[12px] bg-white border-[#b2e8e2] text-[#374151] rounded-lg px-2 min-w-[130px] focus:ring-0 focus:ring-offset-0">
                 <SelectValue placeholder="Select..." />
               </SelectTrigger>
@@ -488,13 +507,14 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
           </div>
           <div className="flex-1" />
           {transactions.filter(t => selectedIds.has(t.id)).some(t => t.ignored)
-            ? <button onClick={() => bulkIgnore(false)} className="text-[12px] text-emerald-600 hover:text-emerald-800 font-medium transition-colors">Restore</button>
-            : <button onClick={() => bulkIgnore(true)} className="text-[12px] text-amber-600 hover:text-amber-800 font-medium transition-colors">Ignore</button>
+            ? <button onClick={() => bulkIgnore(false)} disabled={bulkBusy !== null} className="text-[12px] text-emerald-600 hover:text-emerald-800 font-medium transition-colors disabled:opacity-50">Restore</button>
+            : <button onClick={() => bulkIgnore(true)} disabled={bulkBusy !== null} className="text-[12px] text-amber-600 hover:text-amber-800 font-medium transition-colors disabled:opacity-50">Ignore</button>
           }
           <div className="w-px h-4 bg-[#b2e8e2]" />
           <button
             onClick={bulkDelete}
-            className="text-[12px] text-rose-500 hover:text-rose-700 font-medium transition-colors"
+            disabled={bulkBusy !== null}
+            className="text-[12px] text-rose-500 hover:text-rose-700 font-medium transition-colors disabled:opacity-50"
           >
             Delete
           </button>
