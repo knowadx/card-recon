@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/revolut/callback", "/api/meta/callback"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/recover", "/api/revolut/callback", "/api/meta/callback"];
 const COOKIE = "cr_session";
 
 function secret(): string {
