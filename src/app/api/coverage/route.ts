@@ -1,6 +1,12 @@
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getSession, isSuperadmin } from "@/lib/auth";
 
 export async function GET() {
+  const session = await getSession();
+  if (!session || !isSuperadmin(session.role)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
   try {
   const companies = await prisma.company.findMany({
     include: {

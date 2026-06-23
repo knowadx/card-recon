@@ -27,10 +27,13 @@ const settingsNav = [
   { href: "/exchange-rates", label: "Exchange Rates", icon: DollarSign },
 ];
 
-export function Sidebar() {
+export function Sidebar({ isSuperadmin = false }: { isSuperadmin?: boolean }) {
   const pathname = usePathname();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+
+  // Control é restrito a superadmin
+  const nav = mainNav.filter(({ href }) => href !== "/control" || isSuperadmin);
 
   const isSettingsActive = settingsNav.some(({ href }) => pathname === href || pathname.startsWith(href + "/"));
 
@@ -59,7 +62,7 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 px-2 py-4 space-y-0.5">
-        {mainNav.map(({ href, label, icon: Icon }) => {
+        {nav.map(({ href, label, icon: Icon }) => {
           const active = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
           return (
             <Link
