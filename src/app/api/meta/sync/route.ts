@@ -44,7 +44,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "Nenhum perfil Meta conectado (conecte em Operações)" }, { status: 400 });
     }
 
-    let accountsCount = 0;
+    const seen = new Set<string>(); // contas distintas (mesma conta pode aparecer em vários perfis)
     let withCard = 0;
     let bmAvailableAny = false;
     const accessGap: { id: string; name: string }[] = []; // BMs onde o perfil não vê nenhuma conta
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
       accessGap.push(...emptyBusinesses);
       for (const a of accounts) {
         const { brand, last4 } = parseFundingDisplay(a.funding_source_details?.display_string);
-        if (last4) withCard++;
+        if (!seen.has(a.account_id)) { seen.add(a.account_id); if (last4) withCard++; }
         const data = {
           name: a.name,
           currency: a.currency,
@@ -74,7 +74,6 @@ export async function POST(request: Request) {
           update: data,
           create: { accountId: a.account_id, ...data },
         });
-        accountsCount++;
       }
     }
 
@@ -84,7 +83,7 @@ export async function POST(request: Request) {
     const falharam = r.failed.filter((f) => f.reason === "falhou");
     return NextResponse.json({
       ok: true,
-      accounts: accountsCount,
+      accounts: seen.size,
       withFundingCard: withCard,
       bmAvailable: bmAvailableAny,
       accessGap: accessGap.map((b) => b.name), // BMs sem conta visível → precisam de acesso no Meta

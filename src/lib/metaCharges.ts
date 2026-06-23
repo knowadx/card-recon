@@ -44,36 +44,47 @@ export async function syncBillingCharges(
 ): Promise<SyncResult> {
   let charges = 0;
   let accountsOk = 0;
-  let accountsTotal = 0;
   const failed: SyncFailure[] = [];
 
-  for (const cred of creds) {
-    const accounts = await prisma.metaAdAccount.findMany({
-      where: cred.operationId ? { operationId: cred.operationId } : {},
-      select: { accountId: true, name: true, bmId: true, bmName: true, operationId: true },
-    });
-    accountsTotal += accounts.length;
-    await mapLimit(accounts, 6, async (a) => {
-      try {
-        const list = await fetchBillingCharges(cred.token, a.accountId, since, until);
-        for (const ch of list) {
-          await prisma.metaBillingCharge.upsert({
-            where: { transactionId: ch.transactionId },
-            update: { amountUsd: ch.amountUsd, currency: ch.currency, chargedAt: ch.chargedAt, accountName: a.name, bmId: a.bmId, bmName: a.bmName, operationId: a.operationId },
-            create: {
-              transactionId: ch.transactionId, accountId: a.accountId, accountName: a.name,
-              bmId: a.bmId, bmName: a.bmName, operationId: a.operationId,
-              amountUsd: ch.amountUsd, currency: ch.currency, chargedAt: ch.chargedAt,
-            },
-          });
-          charges++;
-        }
-        accountsOk++;
-      } catch (e) {
-        const error = (e as Error).message;
-        failed.push({ accountId: a.accountId, name: a.name, reason: PERMISSION_RE.test(error) ? "sem_acesso" : "falhou", error });
-      }
-    });
+  // token por operação; cred sem operationId = escopo amplo (todas as contas)
+  const tokenByOp = new Map<string, string>();
+  let broadToken: string | null = null;
+  for (const c of creds) {
+    if (c.operationId) tokenByOp.set(c.operationId, c.token);
+    else broadToken = c.token;
   }
+
+  // contas DISTINTAS no escopo (sem repetir conta que aparece em vários perfis)
+  const where = broadToken ? {} : { operationId: { in: [...tokenByOp.keys()] } };
+  const accounts = await prisma.metaAdAccount.findMany({
+    where,
+    select: { accountId: true, name: true, bmId: true, bmName: true, operationId: true },
+  });
+  const accountsTotal = accounts.length;
+
+  await mapLimit(accounts, 6, async (a) => {
+    const token = (a.operationId && tokenByOp.get(a.operationId)) || broadToken || creds[0]?.token;
+    if (!token) { failed.push({ accountId: a.accountId, name: a.name, reason: "falhou", error: "sem token p/ a conta" }); return; }
+    try {
+      const list = await fetchBillingCharges(token, a.accountId, since, until);
+      for (const ch of list) {
+        await prisma.metaBillingCharge.upsert({
+          where: { transactionId: ch.transactionId },
+          update: { amountUsd: ch.amountUsd, currency: ch.currency, chargedAt: ch.chargedAt, accountName: a.name, bmId: a.bmId, bmName: a.bmName, operationId: a.operationId },
+          create: {
+            transactionId: ch.transactionId, accountId: a.accountId, accountName: a.name,
+            bmId: a.bmId, bmName: a.bmName, operationId: a.operationId,
+            amountUsd: ch.amountUsd, currency: ch.currency, chargedAt: ch.chargedAt,
+          },
+        });
+        charges++;
+      }
+      accountsOk++;
+    } catch (e) {
+      const error = (e as Error).message;
+      failed.push({ accountId: a.accountId, name: a.name, reason: PERMISSION_RE.test(error) ? "sem_acesso" : "falhou", error });
+    }
+  });
+
   return { charges, accountsOk, accountsTotal, failed };
 }
