@@ -186,6 +186,42 @@ export default function ChecagemPage() {
             <Kpi label="Contas Meta" value={data.metaAccounts} />
           </div>
 
+          {/* Barra de filtros */}
+          <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3">
+            <label className="flex flex-col gap-1 text-xs text-slate-500">
+              Empresa
+              <select className={input + " max-w-[200px]"} value={fCompany} onChange={(e) => setFCompany(e.target.value)}>
+                <option value="">Todas</option>
+                {(data.companies ?? []).map((co) => <option key={co.id} value={co.id}>{co.name}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-500">
+              Operação
+              <select className={input} value={fOp} onChange={(e) => setFOp(e.target.value)}>
+                <option value="">Todas</option>
+                {operations.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-500">
+              Conta
+              <select className={input + " max-w-[220px]"} value={fBank} onChange={(e) => setFBank(e.target.value)}>
+                <option value="">Todas</option>
+                {(data.accounts ?? []).map((a) => <option key={a.id} value={a.id}>{a.company ? `${a.company} · ` : ""}{a.name}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-500">
+              Cartão (4 dígitos)
+              <input className={input} placeholder="ex.: 6830" value={fCard} onChange={(e) => setFCard(e.target.value)} />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-500">
+              Conta/BM (Meta)
+              <input className={input + " min-w-[160px]"} placeholder="nome ou ID da conta/BM" value={fMeta} onChange={(e) => setFMeta(e.target.value)} />
+            </label>
+            {filtering && (
+              <button className="text-xs text-indigo-600 hover:underline pb-1.5" onClick={clearFilters}>limpar filtros</button>
+            )}
+          </div>
+
           {/* Controle mensal — cobranças por mês e quantas faltam identificar */}
           {(data.monthly?.length ?? 0) > 0 && (
             <section className="flex flex-col gap-2">
@@ -351,41 +387,6 @@ export default function ChecagemPage() {
             </section>
           )}
 
-          {/* Barra de filtros */}
-          <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3">
-            <label className="flex flex-col gap-1 text-xs text-slate-500">
-              Empresa
-              <select className={input + " max-w-[200px]"} value={fCompany} onChange={(e) => setFCompany(e.target.value)}>
-                <option value="">Todas</option>
-                {(data.companies ?? []).map((co) => <option key={co.id} value={co.id}>{co.name}</option>)}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-slate-500">
-              Operação
-              <select className={input} value={fOp} onChange={(e) => setFOp(e.target.value)}>
-                <option value="">Todas</option>
-                {operations.map((o) => <option key={o} value={o}>{o}</option>)}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-slate-500">
-              Conta
-              <select className={input + " max-w-[220px]"} value={fBank} onChange={(e) => setFBank(e.target.value)}>
-                <option value="">Todas</option>
-                {(data.accounts ?? []).map((a) => <option key={a.id} value={a.id}>{a.company ? `${a.company} · ` : ""}{a.name}</option>)}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-slate-500">
-              Cartão (4 dígitos)
-              <input className={input} placeholder="ex.: 6830" value={fCard} onChange={(e) => setFCard(e.target.value)} />
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-slate-500">
-              Conta/BM (Meta)
-              <input className={input + " min-w-[160px]"} placeholder="nome ou ID da conta/BM" value={fMeta} onChange={(e) => setFMeta(e.target.value)} />
-            </label>
-            {filtering && (
-              <button className="text-xs text-indigo-600 hover:underline pb-1.5" onClick={clearFilters}>limpar filtros</button>
-            )}
-          </div>
 
           {/* Somatória do valor suspeito sob o filtro atual */}
           <div className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
