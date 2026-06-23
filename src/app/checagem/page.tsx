@@ -313,7 +313,13 @@ export default function ChecagemPage() {
             row={(m) => (
               <tr key={m.id}>
                 <td className="px-3 py-2 tabular-nums">{m.date}</td>
-                <td className="px-3 py-2 text-[11px] tabular-nums text-slate-500" title={m.transactionId}>{m.transactionId}</td>
+                <td className="px-3 py-2 text-[11px] tabular-nums text-slate-500" title={m.transactionId}>
+                  {m.transactionId.includes("-")
+                    ? m.transactionId.split("-").map((part, i) => (
+                        <div key={i}><span className="text-slate-300">{i === 0 ? "A" : "B"}:</span> {part}</div>
+                      ))
+                    : m.transactionId}
+                </td>
                 <td className="px-3 py-2 text-xs">{m.account ?? "—"}</td>
                 <td className="px-3 py-2 text-xs tabular-nums text-slate-500">{m.accountId}</td>
                 <td className="px-3 py-2 text-xs">{m.bm ?? "—"}</td>
