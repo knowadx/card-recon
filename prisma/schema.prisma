@@ -118,8 +118,9 @@ model Transaction {
   cardLast4        String? // últimos 4 do cartão usado (extraído no import)
   cardLabel        String? // nome do cartão no banco (ex.: Revolut "BM 14 Snapnork") — só p/ exibição
   isMetaCharge     Boolean            @default(false) // cobrança classificada como Meta/Facebook
-  metaCheck        String? // "ok" | "leak" | "review" | null (não-Meta)
-  metaCheckNote    String?
+  metaRef          String? // código do descritor "Facebk *XXXX" extraído do extrato (= [transação][conta][cartão])
+  metaCheck        String? // [legado] resíduo do match antigo — não usado
+  metaCheckNote    String? // [legado] resíduo do match antigo — não usado
   // Valor ORIGINAL cobrado (antes do câmbio) — Meta cobra em USD; base da reconciliação gasto×cobrança
   billAmount       Float?
   billCurrency     String?

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { KEY_MAP } from "@/lib/mercury";
-import { isMetaMerchant } from "@/lib/metaCheck";
+import { isMetaMerchant, extractMetaRef } from "@/lib/metaCheck";
 import { getCredentialToken } from "@/lib/credentials";
 
 export const dynamic = "force-dynamic";
@@ -143,6 +143,7 @@ export async function POST(request: Request) {
         reference: tx.id,
         cardLast4: cardId ? cardMap.get(cardId) ?? null : null,
         isMetaCharge: isMetaMerchant(tx.merchantName, tx.counterpartyName, tx.bankDescription),
+        metaRef: extractMetaRef(tx.merchantName, tx.counterpartyName, tx.bankDescription),
         operationId: account.operationId,
       };
     }),

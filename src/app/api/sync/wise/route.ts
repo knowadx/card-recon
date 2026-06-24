@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { isMetaMerchant } from "@/lib/metaCheck";
+import { isMetaMerchant, extractMetaRef } from "@/lib/metaCheck";
 import { getCredentialToken } from "@/lib/credentials";
 
 export const dynamic = "force-dynamic";
@@ -268,6 +268,7 @@ export async function POST(request: Request) {
       reference: string;
       cardLast4: string | null;
       isMetaCharge: boolean;
+      metaRef: string | null;
       operationId: string | null;
     }> = [];
 
@@ -318,6 +319,7 @@ export async function POST(request: Request) {
         reference: `wise-activity:${a.id}`,
         cardLast4,
         isMetaCharge: isMetaMerchant(metaName, description),
+        metaRef: extractMetaRef(metaName, description),
         operationId: account.operationId,
       };
     });
