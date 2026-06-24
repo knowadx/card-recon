@@ -330,6 +330,22 @@ model Credential {
   @@index([operationId])
 }
 
+// ===== Recibos do Meta (PDF) — elo metaRef(extrato) ↔ transactionId(Meta) ↔ conta =====
+model MetaReceipt {
+  id              String    @id @default(cuid())
+  transactionId   String    @unique // id numérico composto (= MetaBillingCharge.transactionId)
+  referenceNumber String? // código alfanumérico do recibo (= Transaction.metaRef, case-insensitive)
+  accountId       String? // conta de anúncio cobrada
+  accountName     String?
+  cardLast4       String?
+  amountUsd       Float?
+  date            DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([referenceNumber])
+  @@index([accountId])
+}
+
 // ===== Universo Meta controlado (contas + cartão de funding) =====
 model MetaAdAccount {
   id               String   @id @default(cuid())

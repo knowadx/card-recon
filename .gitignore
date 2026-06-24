@@ -49,3 +49,11 @@ dev.db-journal
 wise_private.pem
 revolut_private.pem
 *.pem
+
+# recibos do Meta (PDFs) — dados sensíveis, nunca commitar
+/receipts/
+*.pdf
+
+# recibos (PDFs e parse) — dados, não versionar
+receipts/
+receipts-parsed.json
