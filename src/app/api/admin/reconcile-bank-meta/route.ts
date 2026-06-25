@@ -26,7 +26,7 @@ export async function GET(request: Request) {
       where: { isMetaCharge: true, date: ignoreFloor ? undefined : { gte: floor } },
       select: { metaRef: true, amount: true, currency: true, billAmount: true, billCurrency: true, date: true, cardLast4: true, account: { select: { name: true, bank: true } } },
     }),
-    prisma.metaReceipt.findMany({ where: { referenceNumber: { not: null } }, select: { referenceNumber: true, transactionId: true } }),
+    prisma.metaReceipt.findMany({ where: { referenceNumber: { not: null } }, select: { referenceNumber: true, transactionId: true, accountId: true, accountName: true } }),
     prisma.metaBillingCharge.findMany({ where: { chargedAt: dateFilter }, select: { transactionId: true, amountUsd: true, chargedAt: true, accountName: true, accountId: true } }),
     loadRateMap(),
   ]);
@@ -43,9 +43,11 @@ export async function GET(request: Request) {
   const metaByTx = new Map(metaCharges.map((c) => [c.transactionId, c]));
   const metaByRef = new Map<string, typeof metaCharges[number]>();
   const allReceiptRefs = new Set<string>();
+  const acctByRef = new Map<string, { accountId: string | null; accountName: string | null }>(); // conta de anúncio que o recibo aponta
   for (const r of receipts) {
     const ref = r.referenceNumber!.toLowerCase();
     allReceiptRefs.add(ref);
+    acctByRef.set(ref, { accountId: r.accountId, accountName: r.accountName });
     const mc = metaByTx.get(r.transactionId);
     if (mc) metaByRef.set(ref, mc);
   }
@@ -61,6 +63,8 @@ export async function GET(request: Request) {
     semCodigo: { qtde: 0, usd: 0 },
   };
   const matchedRefs = new Set<string>();
+  // vazamento agrupado pela CONTA DE ANÚNCIO do recibo (não controlada)
+  const vazPorConta = new Map<string, { accountId: string | null; name: string | null; qtde: number; usd: number; cards: Set<string> }>();
 
   for (const t of bank) {
     const usd = bankUsdOf(t);
@@ -73,7 +77,11 @@ export async function GET(request: Request) {
       if (mc.chargedAt.toISOString().slice(0, 7) !== t.date.toISOString().slice(0, 7)) B.casado.mesDiferente++;
     } else if (allReceiptRefs.has(ref)) {
       B.bancoSemMetaControlada.qtde++; B.bancoSemMetaControlada.usd += usd;
-      if (B.bancoSemMetaControlada.amostra.length < 15) B.bancoSemMetaControlada.amostra.push({ data: t.date.toISOString().slice(0, 10), usd: round2(usd), code: ref, card: t.cardLast4, conta: t.account?.name, bank: t.account?.bank });
+      const acct = acctByRef.get(ref) ?? { accountId: null, accountName: null };
+      const key = acct.accountId ?? "?";
+      const row = vazPorConta.get(key) ?? { accountId: acct.accountId, name: acct.accountName, qtde: 0, usd: 0, cards: new Set<string>() };
+      row.qtde++; row.usd += usd; if (t.cardLast4) row.cards.add(t.cardLast4); vazPorConta.set(key, row);
+      if (B.bancoSemMetaControlada.amostra.length < 15) B.bancoSemMetaControlada.amostra.push({ data: t.date.toISOString().slice(0, 10), usd: round2(usd), code: ref, card: t.cardLast4, contaRecibo: acct.accountName, accountId: acct.accountId, bank: t.account?.bank });
     } else {
       B.codigoSemRecibo.qtde++; B.codigoSemRecibo.usd += usd;
     }
@@ -97,7 +105,14 @@ export async function GET(request: Request) {
     bankTotalUsd: round2(bankTotal),
     diferencaUsd: round2(bankTotal - metaTotal),
     casado: { qtde: B.casado.qtde, bankUsd: round2(B.casado.bankUsd), metaUsd: round2(B.casado.metaUsd), deltaUsd_fxFee: round2(B.casado.bankUsd - B.casado.metaUsd), cobrancasEmMesDiferente: B.casado.mesDiferente },
-    bancoSemMetaControlada_VAZAMENTO: { qtde: B.bancoSemMetaControlada.qtde, usd: round2(B.bancoSemMetaControlada.usd), amostra: B.bancoSemMetaControlada.amostra },
+    bancoSemMetaControlada_VAZAMENTO: {
+      qtde: B.bancoSemMetaControlada.qtde,
+      usd: round2(B.bancoSemMetaControlada.usd),
+      porContaDoRecibo: [...vazPorConta.values()]
+        .map((r) => ({ accountId: r.accountId, conta: r.name, qtde: r.qtde, usd: round2(r.usd), cartoes: [...r.cards] }))
+        .sort((a, b) => b.usd - a.usd),
+      amostra: B.bancoSemMetaControlada.amostra,
+    },
     bancoCodigoSemRecibo: { qtde: B.codigoSemRecibo.qtde, usd: round2(B.codigoSemRecibo.usd) },
     bancoSemCodigo: { qtde: B.semCodigo.qtde, usd: round2(B.semCodigo.usd) },
     metaControladaSemDebitoNoBanco: { qtde: metaSemBanco.qtde, usd: round2(metaSemBanco.usd), cobrancasMetaSemRecibo: metaSemBanco.semRecibo, amostra: metaSemBanco.amostra },
