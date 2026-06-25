@@ -22,7 +22,7 @@ export async function GET(request: Request) {
         : { companyId: { in: scope } };
   const base = { isMetaCharge: true, date: { gte: CHECK_FLOOR }, ...(accountWhere ? { account: accountWhere } : {}) };
 
-  const [metaAccts, metaCharges, metaChargeCount, ops, metaAcctCards, allMetaTx, companies, accounts, allMetaCharges, rateMap] = await Promise.all([
+  const [metaAccts, metaCharges, metaChargeCount, ops, metaAcctCards, allMetaTx, companies, accounts, allMetaCharges, receiptRefs, rateMap] = await Promise.all([
     prisma.metaAdAccount.count(),
     prisma.metaBillingCharge.findMany({ where: { chargedAt: { gte: CHECK_FLOOR } }, orderBy: { chargedAt: "desc" }, take: 2000 }),
     prisma.metaBillingCharge.count({ where: { chargedAt: { gte: CHECK_FLOOR } } }),
@@ -32,8 +32,11 @@ export async function GET(request: Request) {
     prisma.company.findMany({ where: scope === "all" ? {} : { id: { in: scope } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.account.findMany({ where: scope === "all" ? {} : { companyId: { in: scope } }, select: { id: true, name: true, company: { select: { name: true } } }, orderBy: { name: "asc" } }),
     prisma.metaBillingCharge.findMany({ where: { chargedAt: { gte: CHECK_FLOOR } }, select: { amountUsd: true, currency: true, chargedAt: true, accountId: true, accountName: true, bmName: true, bmId: true } }),
+    prisma.metaReceipt.findMany({ where: { referenceNumber: { not: null } }, select: { transactionId: true, referenceNumber: true } }),
     loadRateMap(),
   ]);
+  // código do recibo (referenceNumber) por transactionId — pra exibir na tabela de cobranças do Meta
+  const refByTx = new Map(receiptRefs.map((r) => [r.transactionId, r.referenceNumber]));
 
   // comparação por mês: gasto que o Meta diz × gasto cobrado na conta (USD, sem match)
   const months = new Set<string>();
@@ -90,6 +93,7 @@ export async function GET(request: Request) {
     metaCharges: metaCharges.map((m) => ({
       id: m.id,
       transactionId: m.transactionId,
+      referenceNumber: refByTx.get(m.transactionId) ?? null, // código do recibo (= metaRef do extrato)
       date: m.chargedAt.toISOString().slice(0, 10),
       amount: m.amountUsd,
       currency: m.currency,

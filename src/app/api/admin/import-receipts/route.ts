@@ -63,5 +63,14 @@ export async function POST(request: Request) {
     const res = await prisma.metaReceipt.createMany({ data: data.slice(i, i + 200) });
     inserted += res.count;
   }
-  return NextResponse.json({ ok: true, recebidos: rows.length, inseridos: inserted });
+
+  // escreve o código (referenceNumber) descoberto nos recibos em cada cobrança do Meta correspondente
+  try { await prisma.$executeRawUnsafe(`ALTER TABLE "MetaBillingCharge" ADD COLUMN "referenceNumber" TEXT`); } catch { /* coluna já existe */ }
+  const upd = await prisma.$executeRawUnsafe(`
+    UPDATE "MetaBillingCharge"
+    SET "referenceNumber" = (SELECT r."referenceNumber" FROM "MetaReceipt" r WHERE r."transactionId" = "MetaBillingCharge"."transactionId")
+    WHERE "transactionId" IN (SELECT "transactionId" FROM "MetaReceipt" WHERE "referenceNumber" IS NOT NULL)
+  `);
+
+  return NextResponse.json({ ok: true, recebidos: rows.length, inseridos: inserted, cobrancasMetaComCodigo: upd });
 }

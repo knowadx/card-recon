@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 type MetaCharge = {
   id: string;
   transactionId: string;
+  referenceNumber: string | null;
   date: string;
   amount: number;
   currency: string;
@@ -102,7 +103,7 @@ export default function ChecagemPage() {
   const metaChargesF = (data?.metaCharges ?? []).filter(
     (m) =>
       (!fOp || m.operation === fOp) &&
-      (!metaQ || [m.account, m.accountId, m.bm, m.bmId, m.transactionId].some((v) => v?.toLowerCase().includes(metaQ))),
+      (!metaQ || [m.account, m.accountId, m.bm, m.bmId, m.transactionId, m.referenceNumber].some((v) => v?.toLowerCase().includes(metaQ))),
   );
 
   const filtering = !!(fOp || fBank || fMeta || fCompany);
@@ -299,6 +300,7 @@ export default function ChecagemPage() {
             head={
               <tr>
                 <th className="px-3 py-2">Data</th>
+                <th className="px-3 py-2" title="Código do recibo = o 'Facebk *XXXX' que aparece no extrato">Código</th>
                 <th className="px-3 py-2">ID da cobrança</th>
                 <th className="px-3 py-2">Conta de anúncio</th>
                 <th className="px-3 py-2">Account ID</th>
@@ -313,6 +315,7 @@ export default function ChecagemPage() {
             row={(m) => (
               <tr key={m.id}>
                 <td className="px-3 py-2 tabular-nums">{m.date}</td>
+                <td className="px-3 py-2 text-xs font-mono tabular-nums">{m.referenceNumber ?? <span className="text-slate-300">—</span>}</td>
                 <td className="px-3 py-2 text-[11px] tabular-nums text-slate-500" title={m.transactionId}>
                   {m.transactionId.includes("-")
                     ? m.transactionId.split("-").map((part, i) => (
