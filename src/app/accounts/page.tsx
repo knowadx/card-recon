@@ -18,11 +18,9 @@ const BANKS = ["Revolut", "Husky", "Wise", "Mercury", "Dolafy"];
 const CURRENCIES = ["USD", "BRL", "EUR", "GBP", "ARS", "CLP", "MXN", "COP"];
 const EMPTY = { name: "", bank: "Mercury", currency: "USD", companyId: "", apiToken: "" };
 
-const defaultSyncFrom = () => {
-  const d = new Date();
-  d.setMonth(d.getMonth() - 3);
-  return d.toISOString().slice(0, 10);
-};
+// Sem janela hardcoded: o "de" vem do período persistido (Setting), carregado no mount.
+// Fica vazio só até o fetch resolver; o backend também cai no período se vier vazio.
+const defaultSyncFrom = () => "";
 
 const BANK_COLORS: Record<string, string> = {
   Mercury: "bg-blue-50 text-blue-700",
@@ -103,6 +101,10 @@ export default function AccountsPage() {
     loadStatus();
     fetch("/api/revolut/status").then(r => r.json()).then(d => { setRevolutConnected(d.connected); setRevConnectedCompanies(d.companies ?? []); });
     fetch("/api/wise/status").then(r => r.json()).then(d => setWiseConnected(d.connected));
+    // período de sync persistido (fonte única) — preenche os "de" de todas as integrações
+    fetch("/api/settings/sync-period").then(r => r.json()).then(p => {
+      if (p?.from) { setMercurySyncFrom(p.from); setWiseSyncFrom(p.from); setRevolutSyncFrom(p.from); }
+    }).catch(() => {});
   }, []);
 
 const save = async () => {

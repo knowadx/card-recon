@@ -51,9 +51,37 @@ export default function ChecagemPage() {
   const [fMeta, setFMeta] = useState(""); // busca na tabela de cobranças do Meta (conta/BM)
   const [fCompany, setFCompany] = useState(""); // empresa (server-side)
 
-  // janela de datas do sync (vazio = últimos 30 dias)
+  // PERÍODO DE SYNC — fonte única, persistida (Setting). Todos os syncs e o piso da Checagem leem dela.
   const [syncFrom, setSyncFrom] = useState("");
   const [syncTo, setSyncTo] = useState("");
+
+  // carrega o período persistido ao montar
+  useEffect(() => {
+    fetch("/api/settings/sync-period")
+      .then((r) => r.json())
+      .then((p) => { setSyncFrom(p.from ?? ""); setSyncTo(p.to ?? ""); })
+      .catch(() => {});
+  }, []);
+
+  async function savePeriod() {
+    setBusy("Salvar período");
+    setMsg(null);
+    try {
+      const r = await fetch("/api/settings/sync-period", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from: syncFrom, to: syncTo || undefined }),
+      });
+      const j = await r.json();
+      if (!r.ok) { setMsg(`❌ ${j.error}`); return; }
+      setSyncFrom(j.from ?? ""); setSyncTo(j.to ?? "");
+      setMsg(`✅ Período salvo: ${j.from} → ${j.to || "hoje"}. Vale pra todos os syncs e pra Checagem.`);
+      await load();
+    } catch (e) {
+      setMsg(`❌ ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function load() {
     const qs = new URLSearchParams();
@@ -118,18 +146,24 @@ export default function ChecagemPage() {
             Compara o que o <strong>Meta diz</strong> que gastou com o que foi <strong>cobrado nas suas contas</strong>, mês a mês. Diferença grande = cobrança fora das contas que você controla.
           </p>
         </div>
-        <div className="flex items-end gap-2">
-          <label className="flex flex-col gap-1 text-xs text-slate-500">
-            de
-            <input type="date" className={input} value={syncFrom} onChange={(e) => setSyncFrom(e.target.value)} />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-slate-500">
-            até
-            <input type="date" className={input} value={syncTo} onChange={(e) => setSyncTo(e.target.value)} />
-          </label>
-          <button className={btn} disabled={busy !== null} onClick={() => run("/api/meta/sync", "Sincronizar Meta", { from: syncFrom || undefined, to: syncTo || undefined })}>
-            {busy === "Sincronizar Meta" ? "Sincronizando…" : "Sincronizar Meta"}
-          </button>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-end gap-2 rounded-lg border border-slate-200 bg-white p-2">
+            <label className="flex flex-col gap-1 text-xs text-slate-500">
+              de
+              <input type="date" className={input} value={syncFrom} onChange={(e) => setSyncFrom(e.target.value)} />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-500">
+              até (vazio = hoje)
+              <input type="date" className={input} value={syncTo} onChange={(e) => setSyncTo(e.target.value)} />
+            </label>
+            <button className={btn} disabled={busy !== null || !syncFrom} onClick={savePeriod}>
+              {busy === "Salvar período" ? "Salvando…" : "Salvar período"}
+            </button>
+            <button className={btn} disabled={busy !== null} onClick={() => run("/api/meta/sync", "Sincronizar Meta", { from: syncFrom || undefined, to: syncTo || undefined })}>
+              {busy === "Sincronizar Meta" ? "Sincronizando…" : "Sincronizar Meta"}
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-400">Período único — vale pra todos os syncs (Meta/Revolut/Wise/Mercury) e pro piso da Checagem.</p>
         </div>
       </div>
 

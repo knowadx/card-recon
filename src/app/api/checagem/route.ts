@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { scopedCompanyIds } from "@/lib/auth";
-import { CHECK_FLOOR } from "@/lib/metaCharges";
+import { getCheckFloor } from "@/lib/settings";
 import { loadRateMap, toUsd } from "@/lib/exchangeRates";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +20,7 @@ export async function GET(request: Request) {
       : scope === "all"
         ? null
         : { companyId: { in: scope } };
+  const CHECK_FLOOR = await getCheckFloor();
   const base = { isMetaCharge: true, date: { gte: CHECK_FLOOR }, ...(accountWhere ? { account: accountWhere } : {}) };
 
   const [metaAccts, metaCharges, metaChargeCount, ops, metaAcctCards, allMetaTx, companies, accounts, allMetaCharges, receiptRefs, rateMap] = await Promise.all([

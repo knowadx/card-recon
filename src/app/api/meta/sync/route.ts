@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { fetchControlledAccounts, parseFundingDisplay } from "@/lib/meta";
 import { getCurrentUser, isSuperadmin, accessibleHoldingIds } from "@/lib/auth";
 import { syncBillingCharges } from "@/lib/metaCharges";
+import { getSyncPeriod } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -34,8 +35,9 @@ export async function POST(request: Request) {
       };
     }
     const { from, to } = await request.json().catch(() => ({}));
-    const since = from || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const until = to || undefined;
+    const period = await getSyncPeriod();
+    const since = from || period.from;
+    const until = to || period.to || undefined;
     const creds = await prisma.credential.findMany({
       where,
       select: { token: true, company: true, operationId: true },

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { KEY_MAP } from "@/lib/mercury";
 import { getValidAccessToken, REVOLUT_BASE } from "@/lib/revolut";
+import { getSyncPeriod } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -217,7 +218,8 @@ async function syncRevolut(accountId: string, companyName: string, revolutAccoun
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
-  const from: string = body.from ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const period = await getSyncPeriod();
+  const from: string = body.from || period.from;
 
   const accounts = await prisma.account.findMany({
     where: { syncConfig: { not: null } },

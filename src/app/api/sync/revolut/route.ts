@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getValidAccessToken, REVOLUT_BASE } from "@/lib/revolut";
 import { isMetaMerchant, last4Of, extractMetaRef } from "@/lib/metaCheck";
+import { getSyncPeriod } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -60,8 +61,9 @@ export async function POST(request: Request) {
     console.error(e); return Response.json({ error: `Revolut da empresa "${account.company.name}" não conectado`, needsAuth: true }, { status: 401 });
   }
 
-  const fromDate = from ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const toDate = new Date().toISOString();
+  const period = await getSyncPeriod();
+  const fromDate = from || period.from;
+  const toDate = period.to ? `${period.to}T23:59:59.999Z` : new Date().toISOString();
 
   const headers = { Authorization: `Bearer ${accessToken}` };
 

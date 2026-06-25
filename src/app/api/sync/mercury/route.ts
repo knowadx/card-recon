@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { KEY_MAP } from "@/lib/mercury";
 import { isMetaMerchant, extractMetaRef } from "@/lib/metaCheck";
 import { getCredentialToken } from "@/lib/credentials";
+import { getSyncPeriod } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -109,8 +110,9 @@ export async function POST(request: Request) {
     process.env.MERCURY_API_KEY;
   if (!key) return Response.json({ error: "Token Mercury não cadastrado nesta conta" }, { status: 400 });
 
-  const end = to ?? new Date().toISOString().slice(0, 10);
-  const start = from ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const period = await getSyncPeriod();
+  const end = to || period.to || new Date().toISOString().slice(0, 10);
+  const start = from || period.from;
 
   const [transactions, cardMap] = await Promise.all([
     fetchAllTransactions(key, mercuryAccountId, start, end),

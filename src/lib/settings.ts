@@ -24,6 +24,33 @@ export async function getAllSettings(): Promise<Record<string, string>> {
   return Object.fromEntries(rows.map((r) => [r.key, r.value]));
 }
 
+/**
+ * Período de sincronização — ÚNICA fonte de verdade, configurada na UI (/checagem).
+ * Todos os syncs (Meta/Revolut/Wise/Mercury/all) e o piso da Checagem leem daqui.
+ * Nada de janela hardcoded (30/90 dias, 3 meses). Default inicial só até o usuário setar.
+ */
+export const SYNC_FROM_KEY = "sync.from";
+export const SYNC_TO_KEY = "sync.to";
+const SYNC_FROM_DEFAULT = "2026-05-01"; // valor inicial; usuário troca na UI
+
+/** { from: "YYYY-MM-DD", to: "YYYY-MM-DD" | null }. `to` null = até hoje. */
+export async function getSyncPeriod(): Promise<{ from: string; to: string | null }> {
+  const [from, to] = await Promise.all([getSetting(SYNC_FROM_KEY), getSetting(SYNC_TO_KEY)]);
+  return { from: from || SYNC_FROM_DEFAULT, to: to || null };
+}
+
+export async function setSyncPeriod(from: string, to: string | null): Promise<void> {
+  if (from) await setSetting(SYNC_FROM_KEY, from);
+  await setSetting(SYNC_TO_KEY, to || "");
+}
+
+/** Piso de data da Checagem = início do período de sync. */
+export async function getCheckFloor(): Promise<Date> {
+  const { from } = await getSyncPeriod();
+  const d = new Date(`${from}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) ? new Date(`${SYNC_FROM_DEFAULT}T00:00:00.000Z`) : d;
+}
+
 /** Tolerância de divergência (fração, ex 0.02 = 2%). Default 2%. */
 export async function getTolerance(): Promise<number> {
   const v = await getSetting("recon.tolerancePct");
