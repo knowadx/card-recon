@@ -17,9 +17,20 @@ export default function RevolutCsvImportPage() {
         body: text,
       });
       const j = await res.json();
-      setMsg(res.ok
-        ? `✅ ${j.metaRefGravados} código(s) gravado(s)\n· linhas no CSV: ${j.linhasCsv}\n· linhas com Facebk no CSV: ${j.linhasComCodigoNoCsv}\n· transações Revolut no banco: ${j.transacoesRevolutNoBanco}\n· já tinham o código: ${j.jaTinhamOMesmoCodigo}`
-        : `❌ ${j.error ?? "erro"}`);
+      if (!res.ok) { setMsg(`❌ ${j.error ?? "erro"}`); return; }
+      const linhas = [
+        `✅ ${j.metaRefGravados} código(s) gravado(s) agora`,
+        `· linhas no CSV: ${j.linhasCsv}`,
+        `· linhas com Facebk no CSV: ${j.linhasComCodigoNoCsv}`,
+        `· transações Revolut no banco: ${j.transacoesRevolutNoBanco}`,
+        `· já tinham o código: ${j.jaTinhamOMesmoCodigo}`,
+        ``,
+        `⚠️ SEM transação no banco (gap de sync): ${j.semTransacaoNoBanco}`,
+        j.gapPeriodo ? `· período do gap: ${j.gapPeriodo.de} → ${j.gapPeriodo.ate}` : `· período do gap: —`,
+        `· por cartão:`,
+        ...(j.gapPorCartao ?? []).map((g: { cartao: string; qtde: number }) => `   ${g.cartao}: ${g.qtde}`),
+      ];
+      setMsg(linhas.join("\n"));
     } catch (e) {
       setMsg(`❌ ${(e as Error).message}`);
     } finally {
