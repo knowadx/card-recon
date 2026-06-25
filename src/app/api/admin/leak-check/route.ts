@@ -72,8 +72,8 @@ export async function GET(request: Request) {
     [...m.entries()].map(([cartao, v]) => ({ cartao, bank: v.bank, qtde: v.qtde, usd: round2(v.usd) })).sort((a, b) => b.usd - a.usd);
   const fmtMes = (r: MonthRow) => ({
     ok: { qtde: r.ok.qtde, usd: round2(r.ok.usd) },
-    codigoSemPdf_🔴: { qtde: r.codigoSemPdf.qtde, usd: round2(r.codigoSemPdf.usd) },
-    semCodigo_🔴: { qtde: r.semCodigo.qtde, usd: round2(r.semCodigo.usd) },
+    codigoSemPdf_LEAK: { qtde: r.codigoSemPdf.qtde, usd: round2(r.codigoSemPdf.usd) },
+    semCodigo_LEAK: { qtde: r.semCodigo.qtde, usd: round2(r.semCodigo.usd) },
   });
 
   return NextResponse.json({
@@ -84,8 +84,8 @@ export async function GET(request: Request) {
     leak_codigoSemPdf_porCartao: fmtCard(codigoSemPdfPorCartao),
     legenda: {
       ok: "extrato Meta com código facebk E PDF salvo → conta de origem sob seu controle ✅",
-      "codigoSemPdf_🔴": "tem código mas nenhum PDF salvo → conta Meta de origem fora do seu controle (ou PDF do mês ainda não salvo)",
-      "semCodigo_🔴": "cobrança Meta no extrato SEM código facebk → risco certo de vazamento (ou Revolut sem CSV importado)",
+      codigoSemPdf_LEAK: "🔴 tem código mas nenhum PDF salvo → conta Meta de origem fora do seu controle (ou PDF do mês ainda não salvo)",
+      semCodigo_LEAK: "🔴 cobrança Meta no extrato SEM código facebk → risco certo de vazamento (ou Revolut sem CSV importado)",
     },
   });
 }
