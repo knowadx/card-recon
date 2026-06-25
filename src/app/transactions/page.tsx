@@ -716,6 +716,9 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
                 <td className="px-4 py-4 cursor-pointer overflow-hidden" style={{ width: 280, maxWidth: 280 }} onClick={() => openTx(tx)}>
                   <div className="flex items-center gap-2">
                     <span className="truncate text-[14px] font-medium text-[#1a202c]">{tx.description}</span>
+                    {tx.metaRef && (
+                      <span className="shrink-0 text-[11px] font-mono text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full" title="Código facebk do extrato (metaRef)">Facebk *{tx.metaRef}</span>
+                    )}
                     {tx.splits.length > 0 && (
                       <span className="shrink-0 text-[11px] text-[#00b9a5] bg-[#e6f7f5] px-2 py-0.5 rounded-full font-medium">
                         {tx.splits.length} splits
