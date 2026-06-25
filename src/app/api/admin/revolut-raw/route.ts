@@ -19,10 +19,35 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const term = (url.searchParams.get("find") || "").toLowerCase();
   const days = Number(url.searchParams.get("days") || "90");
+  const idsParam = (url.searchParams.get("ids") || "").split(",").map((s) => s.trim()).filter(Boolean);
   const META_RE = /meta|facebook|facebk|fb\b/i;
 
   const creds = await prisma.credential.findMany({ where: { issuer: "revolut", isActive: true, NOT: { token: "" } }, select: { company: true } });
   if (creds.length === 0) return NextResponse.json({ error: "nenhuma credencial Revolut consentida" }, { status: 400 });
+
+  // MODO ALVO: buscar IDs específicos (ex.: os UUIDs que no CSV têm "Facebk *XXXX") via /transaction/{id}
+  // em cada credencial, e dumpar o raw inteiro. Teste definitivo: a MESMA transação tem o código na API?
+  if (idsParam.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const achados: any[] = [];
+    for (const cred of creds) {
+      let token: string;
+      try { token = await getValidAccessToken(cred.company); } catch { continue; }
+      for (const id of idsParam) {
+        try {
+          const r = await fetch(`${REVOLUT_BASE}/transaction/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+          const body = await r.text();
+          if (r.ok) {
+            const raw = JSON.parse(body);
+            achados.push({ company: cred.company, id, status: r.status, contemFacebk: /facebk/i.test(body), raw });
+          } else if (r.status !== 404) {
+            achados.push({ company: cred.company, id, status: r.status, corpo: body.slice(0, 200) });
+          }
+        } catch (e) { achados.push({ company: cred.company, id, erro: String(e).slice(0, 150) }); }
+      }
+    }
+    return NextResponse.json({ modo: "ids", buscou: idsParam, resultados: achados });
+  }
 
   const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
