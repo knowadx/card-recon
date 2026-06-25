@@ -31,14 +31,16 @@ export async function GET(request: Request) {
     prisma.transaction.findMany({ where: base, select: { date: true, amount: true, currency: true, billAmount: true, billCurrency: true, accountId: true, metaRef: true, account: { select: { name: true, company: { select: { name: true } } } } } }),
     prisma.company.findMany({ where: scope === "all" ? {} : { id: { in: scope } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.account.findMany({ where: scope === "all" ? {} : { companyId: { in: scope } }, select: { id: true, name: true, company: { select: { name: true } } }, orderBy: { name: "asc" } }),
-    prisma.metaBillingCharge.findMany({ where: { chargedAt: { gte: CHECK_FLOOR } }, select: { amountUsd: true, currency: true, chargedAt: true, accountId: true, accountName: true, bmName: true, bmId: true } }),
+    prisma.metaBillingCharge.findMany({ where: { chargedAt: { gte: CHECK_FLOOR } }, select: { transactionId: true, amountUsd: true, currency: true, chargedAt: true, accountId: true, accountName: true, bmName: true, bmId: true } }),
     prisma.metaReceipt.findMany({ where: { referenceNumber: { not: null } }, select: { transactionId: true, referenceNumber: true } }),
     loadRateMap(),
   ]);
   // código do recibo (referenceNumber) por transactionId — pra exibir na tabela de cobranças do Meta
   const refByTx = new Map(receiptRefs.map((r) => [r.transactionId, r.referenceNumber]));
-  // conjunto de códigos de recibo (lowercase) — uma cobrança do extrato é "identificada" quando seu metaRef tem recibo
-  const refSet = new Set(receiptRefs.map((r) => r.referenceNumber!.toLowerCase()));
+  // "identificada" = metaRef do extrato casa com o referenceNumber de uma COBRANÇA do Meta (não só recibo solto).
+  // refSet = códigos de recibo cujo transactionId existe numa MetaBillingCharge.
+  const metaTxIds = new Set(allMetaCharges.map((c) => c.transactionId));
+  const refSet = new Set(receiptRefs.filter((r) => metaTxIds.has(r.transactionId)).map((r) => r.referenceNumber!.toLowerCase()));
 
   // comparação por mês: gasto que o Meta diz × gasto cobrado na conta (USD, sem match)
   const months = new Set<string>();
