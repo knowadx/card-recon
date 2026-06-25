@@ -21,15 +21,17 @@ export async function GET(request: Request) {
   const floor = await getCheckFloor();
   const dateFilter = ignoreFloor ? {} : { gte: floor };
 
-  const [bank, receipts, metaCharges, rateMap] = await Promise.all([
+  const [bank, receipts, metaCharges, controlled, rateMap] = await Promise.all([
     prisma.transaction.findMany({
       where: { isMetaCharge: true, date: ignoreFloor ? undefined : { gte: floor } },
       select: { metaRef: true, amount: true, currency: true, billAmount: true, billCurrency: true, date: true, cardLast4: true, account: { select: { name: true, bank: true } } },
     }),
     prisma.metaReceipt.findMany({ where: { referenceNumber: { not: null } }, select: { referenceNumber: true, transactionId: true, accountId: true, accountName: true } }),
     prisma.metaBillingCharge.findMany({ where: { chargedAt: dateFilter }, select: { transactionId: true, amountUsd: true, chargedAt: true, accountName: true, accountId: true } }),
+    prisma.metaAdAccount.findMany({ select: { accountId: true } }),
     loadRateMap(),
   ]);
+  const controlledAccts = new Set(controlled.map((a) => a.accountId)); // contas de anúncio que VOCÊ controla (no token)
 
   const round2 = (n: number) => Math.round(n * 100) / 100;
   const bankUsdOf = (t: { billAmount: number | null; billCurrency: string | null; amount: number; currency: string; date: Date }) => {
@@ -58,12 +60,14 @@ export async function GET(request: Request) {
   // baldes do lado BANCO
   const B = {
     casado: { qtde: 0, bankUsd: 0, metaUsd: 0, mesDiferente: 0 },
-    bancoSemMetaControlada: { qtde: 0, usd: 0, amostra: [] as unknown[] }, // tem código+recibo, mas recibo NÃO é de cobrança Meta controlada → 🔴 candidato a vazamento
+    contaSuaSyncGap: { qtde: 0, usd: 0 },        // recibo aponta p/ conta SUA (em MetaAdAccount), mas o Meta-sync não trouxe essa cobrança
+    vazamento: { qtde: 0, usd: 0, amostra: [] as unknown[] }, // recibo aponta p/ conta que você NÃO controla → 🔴 vazamento real
     codigoSemRecibo: { qtde: 0, usd: 0 },
     semCodigo: { qtde: 0, usd: 0 },
   };
   const matchedRefs = new Set<string>();
-  // vazamento agrupado pela CONTA DE ANÚNCIO do recibo (não controlada)
+  // agrupado pela CONTA DE ANÚNCIO do recibo, separando suas (sync gap) das desconhecidas (vazamento)
+  const syncGapPorConta = new Map<string, { accountId: string | null; name: string | null; qtde: number; usd: number; cards: Set<string> }>();
   const vazPorConta = new Map<string, { accountId: string | null; name: string | null; qtde: number; usd: number; cards: Set<string> }>();
 
   for (const t of bank) {
@@ -76,16 +80,21 @@ export async function GET(request: Request) {
       matchedRefs.add(ref);
       if (mc.chargedAt.toISOString().slice(0, 7) !== t.date.toISOString().slice(0, 7)) B.casado.mesDiferente++;
     } else if (allReceiptRefs.has(ref)) {
-      B.bancoSemMetaControlada.qtde++; B.bancoSemMetaControlada.usd += usd;
       const acct = acctByRef.get(ref) ?? { accountId: null, accountName: null };
+      const suaConta = acct.accountId != null && controlledAccts.has(acct.accountId);
+      const dest = suaConta ? B.contaSuaSyncGap : B.vazamento;
+      dest.qtde++; dest.usd += usd;
+      const grp = suaConta ? syncGapPorConta : vazPorConta;
       const key = acct.accountId ?? "?";
-      const row = vazPorConta.get(key) ?? { accountId: acct.accountId, name: acct.accountName, qtde: 0, usd: 0, cards: new Set<string>() };
-      row.qtde++; row.usd += usd; if (t.cardLast4) row.cards.add(t.cardLast4); vazPorConta.set(key, row);
-      if (B.bancoSemMetaControlada.amostra.length < 15) B.bancoSemMetaControlada.amostra.push({ data: t.date.toISOString().slice(0, 10), usd: round2(usd), code: ref, card: t.cardLast4, contaRecibo: acct.accountName, accountId: acct.accountId, bank: t.account?.bank });
+      const row = grp.get(key) ?? { accountId: acct.accountId, name: acct.accountName, qtde: 0, usd: 0, cards: new Set<string>() };
+      row.qtde++; row.usd += usd; if (t.cardLast4) row.cards.add(t.cardLast4); grp.set(key, row);
+      if (!suaConta && B.vazamento.amostra.length < 15) B.vazamento.amostra.push({ data: t.date.toISOString().slice(0, 10), usd: round2(usd), code: ref, card: t.cardLast4, contaRecibo: acct.accountName, accountId: acct.accountId, bank: t.account?.bank });
     } else {
       B.codigoSemRecibo.qtde++; B.codigoSemRecibo.usd += usd;
     }
   }
+  const porContaFmt = (m: Map<string, { accountId: string | null; name: string | null; qtde: number; usd: number; cards: Set<string> }>) =>
+    [...m.values()].map((r) => ({ accountId: r.accountId, conta: r.name, qtde: r.qtde, usd: round2(r.usd), cartoes: [...r.cards] })).sort((a, b) => b.usd - a.usd);
 
   // lado META: cobranças controladas SEM débito no banco (recibo existe mas o código não aparece em nenhuma cobrança do banco)
   const refByTx = new Map(receipts.map((r) => [r.transactionId, r.referenceNumber!.toLowerCase()]));
@@ -105,22 +114,27 @@ export async function GET(request: Request) {
     bankTotalUsd: round2(bankTotal),
     diferencaUsd: round2(bankTotal - metaTotal),
     casado: { qtde: B.casado.qtde, bankUsd: round2(B.casado.bankUsd), metaUsd: round2(B.casado.metaUsd), deltaUsd_fxFee: round2(B.casado.bankUsd - B.casado.metaUsd), cobrancasEmMesDiferente: B.casado.mesDiferente },
-    bancoSemMetaControlada_VAZAMENTO: {
-      qtde: B.bancoSemMetaControlada.qtde,
-      usd: round2(B.bancoSemMetaControlada.usd),
-      porContaDoRecibo: [...vazPorConta.values()]
-        .map((r) => ({ accountId: r.accountId, conta: r.name, qtde: r.qtde, usd: round2(r.usd), cartoes: [...r.cards] }))
-        .sort((a, b) => b.usd - a.usd),
-      amostra: B.bancoSemMetaControlada.amostra,
+    // recibo aponta p/ conta SUA (em MetaAdAccount) mas o Meta-sync não trouxe a cobrança → lacuna do sync do Meta, NÃO vazamento
+    contaSuaMasMetaSyncNaoTrouxe: {
+      qtde: B.contaSuaSyncGap.qtde,
+      usd: round2(B.contaSuaSyncGap.usd),
+      porConta: porContaFmt(syncGapPorConta),
+    },
+    // recibo aponta p/ conta que você NÃO controla → 🔴 vazamento real
+    vazamentoReal_contaNaoControlada: {
+      qtde: B.vazamento.qtde,
+      usd: round2(B.vazamento.usd),
+      porConta: porContaFmt(vazPorConta),
+      amostra: B.vazamento.amostra,
     },
     bancoCodigoSemRecibo: { qtde: B.codigoSemRecibo.qtde, usd: round2(B.codigoSemRecibo.usd) },
     bancoSemCodigo: { qtde: B.semCodigo.qtde, usd: round2(B.semCodigo.usd) },
     metaControladaSemDebitoNoBanco: { qtde: metaSemBanco.qtde, usd: round2(metaSemBanco.usd), cobrancasMetaSemRecibo: metaSemBanco.semRecibo, amostra: metaSemBanco.amostra },
     legenda: {
-      casado: "banco e Meta ligados pelo recibo. deltaUsd_fxFee = banco − Meta (taxa de câmbio/IOF da Revolut/Wise + arredondamento)",
-      cobrancasEmMesDiferente: "cobranças casadas em que o mês do Meta ≠ mês do débito no banco (lag de vira-mês) → principal causa do mês não bater",
-      bancoSemMetaControlada_VAZAMENTO: "banco debitou Meta, tem recibo, mas a conta NÃO é controlada por você 🔴",
-      bancoSemCodigo: "débito Meta no banco sem metaRef (ex.: Revolut 1-3/mai não re-sincronizado)",
+      casado: "banco e Meta ligados pelo recibo. deltaUsd_fxFee = banco − Meta (câmbio/IOF + arredondamento)",
+      contaSuaMasMetaSyncNaoTrouxe: "recibo aponta p/ conta SUA (em MetaAdAccount), mas o sync do Meta não trouxe essa cobrança → lacuna do sync do Meta, não é vazamento",
+      vazamentoReal_contaNaoControlada: "recibo aponta p/ conta de anúncio que você NÃO controla 🔴 — dinheiro seu pagando conta de terceiro",
+      bancoSemCodigo: "débito Meta no banco sem metaRef (ex.: Revolut de junho sem CSV importado)",
       metaControladaSemDebitoNoBanco: "Meta cobrou conta sua, mas não achei o débito num banco sincronizado (cartão fora dos extratos, ou débito em outro mês)",
     },
   });
