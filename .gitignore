@@ -54,6 +54,5 @@ revolut_private.pem
 /receipts/
 *.pdf
 
-# recibos (PDFs e parse) — dados, não versionar
-receipts/
-receipts-parsed.json
+# parse local dos recibos (dados) — só na raiz, NÃO casar com src/app/receipts/
+/receipts-parsed.json
