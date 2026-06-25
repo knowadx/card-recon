@@ -119,6 +119,7 @@ model Transaction {
   cardLabel        String? // nome do cartão no banco (ex.: Revolut "BM 14 Snapnork") — só p/ exibição
   isMetaCharge     Boolean            @default(false) // cobrança classificada como Meta/Facebook
   metaRef          String? // código do descritor "Facebk *XXXX" extraído do extrato (= [transação][conta][cartão])
+  hasReceipt       Boolean            @default(false) // "Possui Fatura": metaRef bate com um PDF salvo (MetaReceipt). Recalculado no import de PDFs/CSV.
   metaCheck        String? // [legado] resíduo do match antigo — não usado
   metaCheckNote    String? // [legado] resíduo do match antigo — não usado
   // Valor ORIGINAL cobrado (antes do câmbio) — Meta cobra em USD; base da reconciliação gasto×cobrança
@@ -136,6 +137,7 @@ model Transaction {
   @@index([isMetaCharge])
   @@index([cardLast4])
   @@index([operationId])
+  @@index([hasReceipt])
 }
 
 model AccountingSplit {

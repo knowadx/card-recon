@@ -25,6 +25,7 @@ export async function GET(request: Request) {
   const colAccounting = searchParams.get("colAccounting") ?? "";
   const colAmountMin = searchParams.get("colAmountMin") ?? "";
   const colAmountMax = searchParams.get("colAmountMax") ?? "";
+  const colFatura = searchParams.get("colFatura") ?? ""; // "" | meta | com | sem (Possui Fatura)
 
   // SQLite/libSQL does not support mode:"insensitive" — use plain contains (already case-insensitive on ASCII in SQLite)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -45,6 +46,10 @@ export async function GET(request: Request) {
     ...(colStatusAccounting === "pending" ? { NOT: { splits: { some: { accountingCategoryId: { not: null } } } } } : {}),
     ...(colDirection === "in" ? { amount: { gt: 0 } } : {}),
     ...(colDirection === "out" ? { amount: { lt: 0 } } : {}),
+    // Possui Fatura (check de vazamento): meta=todas Meta, com=tem PDF, sem=Meta sem PDF (🔴)
+    ...(colFatura === "meta" ? { isMetaCharge: true } : {}),
+    ...(colFatura === "com" ? { isMetaCharge: true, hasReceipt: true } : {}),
+    ...(colFatura === "sem" ? { isMetaCharge: true, hasReceipt: false } : {}),
     ...(colManagerial ? { splits: { some: { managerialCategoryId: colManagerial } } } : {}),
     ...(colAccounting ? { splits: { some: { accountingCategoryId: colAccounting } } } : {}),
     // Amount filter: user enters absolute value, transactions can be negative or positive

@@ -22,6 +22,7 @@ type Document = { id: string; filename: string; path: string };
 type Transaction = {
   id: string; date: string; description: string; amount: number; currency: string; reference: string | null;
   ignored: boolean;
+  isMetaCharge?: boolean; metaRef?: string | null; hasReceipt?: boolean;
   account: Account;
   splits: ApiSplit[];
   accountingSplits: ApiAccountingSplit[];
@@ -69,12 +70,13 @@ export default function TransactionsPage() {
   const [colAccounting, setColAccounting] = useState("all");
   const [colAmountMin, setColAmountMin] = useState("");
   const [colAmountMax, setColAmountMax] = useState("");
+  const [colFatura, setColFatura] = useState("all"); // all | meta | com | sem (Possui Fatura)
 
   const buildParams = (skip = 0, overrides: Record<string, string> = {}) => {
     const state = {
       filterFrom, filterTo, showIgnored,
       colDescription, colCompany, colAccount, colStatus, colStatusAccounting,
-      colManagerial, colAccounting, colAmountMin, colAmountMax, colDirection,
+      colManagerial, colAccounting, colAmountMin, colAmountMax, colDirection, colFatura,
       ...overrides,
     };
     const params = new URLSearchParams();
@@ -97,6 +99,7 @@ export default function TransactionsPage() {
     if (state.colAccounting !== "all") params.set("colAccounting", state.colAccounting);
     if (state.colAmountMin) params.set("colAmountMin", state.colAmountMin);
     if (state.colAmountMax) params.set("colAmountMax", state.colAmountMax);
+    if (state.colFatura !== "all") params.set("colFatura", state.colFatura);
     params.set("skip", String(skip));
     params.set("take", String(PAGE_SIZE));
     return params;
@@ -134,7 +137,7 @@ export default function TransactionsPage() {
     fetch("/api/operations").then((r) => r.json()).then((d) => setOperations(Array.isArray(d) ? d : []));
   }, []);
 
-  useEffect(() => { load(); }, [filterFrom, filterTo, showIgnored, colCompany, colAccount, colStatus, colStatusAccounting, colManagerial, colAccounting, colDescription, colAmountMin, colAmountMax, colDirection]);
+  useEffect(() => { load(); }, [filterFrom, filterTo, showIgnored, colCompany, colAccount, colStatus, colStatusAccounting, colManagerial, colAccounting, colDescription, colAmountMin, colAmountMax, colDirection, colFatura]);
 
   const openTx = (tx: Transaction) => {
     setSelected(tx);
@@ -544,6 +547,7 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
               <th className="text-left px-4 py-3 text-[12px] font-semibold text-[#9ca3af] uppercase tracking-wider" style={{ width: 280, maxWidth: 280 }}>Description</th>
               <th className="text-left px-4 py-3 text-[12px] font-semibold text-[#9ca3af] uppercase tracking-wider w-36">Company</th>
               <th className="text-left px-4 py-3 text-[12px] font-semibold text-[#9ca3af] uppercase tracking-wider w-36">Account</th>
+              <th className="text-center px-2 py-3 text-[12px] font-semibold text-[#9ca3af] uppercase tracking-wider w-24" title="Possui Fatura: cobrança Meta com código e PDF salvo">Fatura</th>
               <th className="text-left px-4 py-3 text-[12px] font-semibold text-[#9ca3af] uppercase tracking-wider w-24">Mgmt. St.</th>
               <th className="text-left px-4 py-3 text-[12px] font-semibold text-[#9ca3af] uppercase tracking-wider w-40">Mgmt. Category</th>
               <th className="text-right px-8 py-3 text-[12px] font-semibold text-[#9ca3af] uppercase tracking-wider w-40">Amount</th>
@@ -587,6 +591,22 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
                   <SelectContent>
                     <SelectItem value="all">All</SelectItem>
                     {(colCompany === "all" ? accounts : accounts.filter(a => a.company.id === colCompany)).map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </th>
+              {/* Possui Fatura */}
+              <th className="px-2 py-2 w-24">
+                <Select value={colFatura} onValueChange={(v) => setColFatura(v ?? "all")}>
+                  <SelectTrigger className="h-7 text-[12px] border-[#e8eaed] bg-white rounded-lg w-full">
+                    <span className="truncate text-left flex-1 text-[12px]">
+                      {colFatura === "all" ? <span className="text-[#9ca3af]">All</span> : colFatura === "meta" ? "Meta" : colFatura === "com" ? "Com" : "Sem 🔴"}
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="meta">Só Meta</SelectItem>
+                    <SelectItem value="com">Com fatura</SelectItem>
+                    <SelectItem value="sem">Sem fatura 🔴</SelectItem>
                   </SelectContent>
                 </Select>
               </th>
@@ -672,7 +692,7 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
           <tbody>
             {visibleTransactions.length === 0 && (
               <tr>
-                <td colSpan={10} className="text-center py-24 text-[#9ca3af] text-sm">
+                <td colSpan={11} className="text-center py-24 text-[#9ca3af] text-sm">
                   {"No transactions found."}
                 </td>
               </tr>
@@ -717,6 +737,13 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
                 </td>
                 <td className="px-4 py-4 text-[13px] text-[#6b7280] whitespace-nowrap cursor-pointer" onClick={() => openTx(tx)}>
                   {tx.account.bank}
+                </td>
+                <td className="px-2 py-4 text-center cursor-pointer" onClick={() => openTx(tx)}>
+                  {!tx.isMetaCharge
+                    ? <span className="text-[#cbd5e1]">—</span>
+                    : tx.hasReceipt
+                      ? <span title="Possui fatura (PDF salvo) — conta de origem sob controle">✅</span>
+                      : <span title="Cobrança Meta SEM fatura — possível vazamento">🔴</span>}
                 </td>
                 <td className="px-4 py-4 cursor-pointer" onClick={() => openTx(tx)}>
                   {tx.splits.some(s => s.managerialCategory)

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { recomputeHasReceipt } from "@/lib/receipts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -64,13 +65,8 @@ export async function POST(request: Request) {
     inserted += res.count;
   }
 
-  // escreve o código (referenceNumber) descoberto nos recibos em cada cobrança do Meta correspondente
-  try { await prisma.$executeRawUnsafe(`ALTER TABLE "MetaBillingCharge" ADD COLUMN "referenceNumber" TEXT`); } catch { /* coluna já existe */ }
-  const upd = await prisma.$executeRawUnsafe(`
-    UPDATE "MetaBillingCharge"
-    SET "referenceNumber" = (SELECT r."referenceNumber" FROM "MetaReceipt" r WHERE r."transactionId" = "MetaBillingCharge"."transactionId")
-    WHERE "transactionId" IN (SELECT "transactionId" FROM "MetaReceipt" WHERE "referenceNumber" IS NOT NULL)
-  `);
+  // recalcula "Possui Fatura": cobrança Meta cujo código bate com um PDF salvo
+  const { comFatura, metaSemFatura } = await recomputeHasReceipt();
 
-  return NextResponse.json({ ok: true, recebidos: rows.length, inseridos: inserted, cobrancasMetaComCodigo: upd });
+  return NextResponse.json({ ok: true, recebidos: rows.length, inseridos: inserted, comFatura, metaSemFatura });
 }

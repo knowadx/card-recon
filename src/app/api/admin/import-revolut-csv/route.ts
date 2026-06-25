@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { extractMetaRef } from "@/lib/metaCheck";
+import { recomputeHasReceipt } from "@/lib/receipts";
 
 export const dynamic = "force-dynamic";
 
@@ -118,6 +119,9 @@ export async function POST(request: Request) {
   // ordena o gap por cartão (maior primeiro)
   const gapPorCartao = Object.entries(naoAchadosPorCartao).sort((a, b) => b[1] - a[1]).map(([cartao, qtde]) => ({ cartao, qtde }));
 
+  // recalcula "Possui Fatura" (agora que os códigos da Revolut entraram)
+  const { comFatura, metaSemFatura } = await recomputeHasReceipt();
+
   return NextResponse.json({
     linhasCsv: lines.length - 1,
     linhasComCodigoNoCsv: linhasComCodigo,
@@ -128,5 +132,6 @@ export async function POST(request: Request) {
     semTransacaoNoBanco: naoAchados, // CSV tem o código mas a API não trouxe a transação
     gapPeriodo: naoAchados ? { de: minData, ate: maxData } : null,
     gapPorCartao, // quais cartões concentram as cobranças que faltam no banco
+    comFatura, metaSemFatura, // Possui Fatura recalculado
   });
 }
