@@ -6,38 +6,46 @@ import { getValidAccessToken, REVOLUT_BASE } from "@/lib/revolut";
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/admin/revolut-raw — compara o JSON cru da transação Revolut no endpoint LIST
- * vs no DETALHE (/transaction/{id}), pra achar onde está o descritor "Facebk *XXXX".
- * Pega uma credencial Revolut ativa automaticamente. Exige login.
+ * GET /api/admin/revolut-raw?find=<texto> — procura um texto (ex.: o código "6ulyfvmht2" ou
+ * "facebk") DENTRO do JSON cru das transações da API Revolut, e retorna as que casarem
+ * (raw completo) — pra ver EM QUE CAMPO o código aparece. Sem find, lista os Facebook/Meta.
  */
-export async function GET() {
+export async function GET(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
+  const find = (new URL(request.url).searchParams.get("find") || "").toLowerCase();
+
   const cred = await prisma.credential.findFirst({ where: { issuer: "revolut", isActive: true }, select: { company: true } });
   if (!cred) return NextResponse.json({ error: "nenhuma credencial Revolut ativa" }, { status: 400 });
-
   let token: string;
   try { token = await getValidAccessToken(cred.company); }
   catch (e) { return NextResponse.json({ error: String(e) }, { status: 401 }); }
 
   const headers = { Authorization: `Bearer ${token}` };
-  const from = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString();
-  const listRes = await fetch(`${REVOLUT_BASE}/transactions?count=100&from=${from}`, { headers });
+  const from = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
+  const listRes = await fetch(`${REVOLUT_BASE}/transactions?count=1000&from=${from}`, { headers });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const list: any[] = await listRes.json();
   if (!Array.isArray(list)) return NextResponse.json({ error: "list não retornou array", raw: list }, { status: 502 });
 
-  // acha uma transação de cartão Meta
-  const meta = list.find((t) => /meta|facebk|facebook/i.test(t?.merchant?.name ?? "") || (t?.legs ?? []).some((l: { description?: string }) => /facebk|meta|facebook/i.test(l?.description ?? "")));
-  if (!meta) return NextResponse.json({ erro: "nenhuma Meta nas últimas 100", amostraMerchants: list.slice(0, 10).map((t) => t?.merchant?.name) });
+  // procura o texto no JSON cru de cada transação (list)
+  const term = find || "facebk";
+  const hits = list.filter((t) => JSON.stringify(t).toLowerCase().includes(term));
 
-  const detRes = await fetch(`${REVOLUT_BASE}/transaction/${meta.id}`, { headers });
-  const detail = await detRes.json();
+  // também busca no DETALHE de uma cobrança Meta (pode ter campo a mais)
+  const metaOne = list.find((t) => /facebk|facebook|meta/i.test(JSON.stringify(t)));
+  let detail = null;
+  if (metaOne) {
+    const detRes = await fetch(`${REVOLUT_BASE}/transaction/${metaOne.id}`, { headers });
+    detail = { status: detRes.status, body: await detRes.json() };
+  }
 
   return NextResponse.json({
-    listItem: meta,                 // como veio no LIST (o que o sync usa)
-    detailStatus: detRes.status,
-    detailItem: detail,             // como vem no DETALHE (/transaction/{id})
+    procurou: term,
+    totalTransacoes: list.length,
+    achouNoListCru: hits.length,
+    transacoesQueContemOTermo: hits.slice(0, 5), // raw completo — aqui veria o campo com o código
+    exemploDetalheMeta: detail, // raw do /transaction/{id} de uma Meta
   });
 }
