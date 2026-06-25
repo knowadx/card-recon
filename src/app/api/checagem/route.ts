@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     prisma.metaBillingCharge.count({ where: { chargedAt: { gte: CHECK_FLOOR } } }),
     prisma.operation.findMany({ select: { id: true, name: true } }),
     prisma.metaAdAccount.findMany({ select: { accountId: true, fundingCardLast4: true } }),
-    prisma.transaction.findMany({ where: base, select: { date: true, amount: true, currency: true, billAmount: true, billCurrency: true, accountId: true, account: { select: { name: true, company: { select: { name: true } } } } } }),
+    prisma.transaction.findMany({ where: base, select: { date: true, amount: true, currency: true, billAmount: true, billCurrency: true, accountId: true, metaRef: true, account: { select: { name: true, company: { select: { name: true } } } } } }),
     prisma.company.findMany({ where: scope === "all" ? {} : { id: { in: scope } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.account.findMany({ where: scope === "all" ? {} : { companyId: { in: scope } }, select: { id: true, name: true, company: { select: { name: true } } }, orderBy: { name: "asc" } }),
     prisma.metaBillingCharge.findMany({ where: { chargedAt: { gte: CHECK_FLOOR } }, select: { amountUsd: true, currency: true, chargedAt: true, accountId: true, accountName: true, bmName: true, bmId: true } }),
@@ -37,13 +37,15 @@ export async function GET(request: Request) {
   ]);
   // código do recibo (referenceNumber) por transactionId — pra exibir na tabela de cobranças do Meta
   const refByTx = new Map(receiptRefs.map((r) => [r.transactionId, r.referenceNumber]));
+  // conjunto de códigos de recibo (lowercase) — uma cobrança do extrato é "identificada" quando seu metaRef tem recibo
+  const refSet = new Set(receiptRefs.map((r) => r.referenceNumber!.toLowerCase()));
 
   // comparação por mês: gasto que o Meta diz × gasto cobrado na conta (USD, sem match)
   const months = new Set<string>();
-  const monthlyMap = new Map<string, { bankUsd: number; metaUsd: number; bankCount: number; metaCount: number }>();
+  const monthlyMap = new Map<string, { bankUsd: number; metaUsd: number; bankCount: number; metaCount: number; idCount: number; idUsd: number }>();
   const getRow = (m: string) => {
     let row = monthlyMap.get(m);
-    if (!row) { row = { bankUsd: 0, metaUsd: 0, bankCount: 0, metaCount: 0 }; monthlyMap.set(m, row); }
+    if (!row) { row = { bankUsd: 0, metaUsd: 0, bankCount: 0, metaCount: 0, idCount: 0, idUsd: 0 }; monthlyMap.set(m, row); }
     return row;
   };
   // lado conta (cobrado no extrato): billAmount (moeda original) quando há, senão o valor da transação
@@ -54,6 +56,7 @@ export async function GET(request: Request) {
     const cur = (t.billAmount != null ? t.billCurrency : t.currency) || t.currency;
     const usd = toUsd(amt, cur, m, rateMap);
     const mr = getRow(m); mr.bankUsd += usd; mr.bankCount++;
+    if (t.metaRef && refSet.has(t.metaRef.toLowerCase())) { mr.idCount++; mr.idUsd += usd; } // identificada (tem recibo)
     let row = bankAcctMap.get(t.accountId);
     if (!row) { row = { name: t.account?.name ?? "?", company: t.account?.company?.name ?? null, count: 0, totalUsd: 0, byMonth: {} }; bankAcctMap.set(t.accountId, row); }
     row.count++; row.totalUsd += usd; row.byMonth[m] = (row.byMonth[m] ?? 0) + usd;
@@ -69,7 +72,7 @@ export async function GET(request: Request) {
     row.count++; row.totalUsd += usd; row.byMonth[m] = (row.byMonth[m] ?? 0) + usd;
   }
   const monthly = Array.from(monthlyMap.entries())
-    .map(([month, v]) => ({ month, metaUsd: v.metaUsd, bankUsd: v.bankUsd, diffUsd: v.bankUsd - v.metaUsd, metaCount: v.metaCount, bankCount: v.bankCount }))
+    .map(([month, v]) => ({ month, metaUsd: v.metaUsd, bankUsd: v.bankUsd, diffUsd: v.bankUsd - v.metaUsd, metaCount: v.metaCount, bankCount: v.bankCount, idCount: v.idCount, idUsd: v.idUsd }))
     .sort((a, b) => b.month.localeCompare(a.month));
   const monthList = Array.from(months).sort((a, b) => b.localeCompare(a));
   const bankByAccount = Array.from(bankAcctMap.values()).sort((a, b) => b.totalUsd - a.totalUsd);

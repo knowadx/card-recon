@@ -16,7 +16,7 @@ type MetaCharge = {
   operation: string | null;
   fundingCard: string | null;
 };
-type Monthly = { month: string; metaUsd: number; bankUsd: number; diffUsd: number; metaCount: number; bankCount: number };
+type Monthly = { month: string; metaUsd: number; bankUsd: number; diffUsd: number; metaCount: number; bankCount: number; idCount: number; idUsd: number };
 type BankAcct = { name: string; company: string | null; count: number; totalUsd: number; byMonth: Record<string, number> };
 type MetaAcct = { name: string; accountId: string; bm: string | null; bmId: string | null; count: number; totalUsd: number; byMonth: Record<string, number> };
 type Company = { id: string; name: string };
@@ -191,6 +191,8 @@ export default function ChecagemPage() {
                       <th className="px-3 py-2 text-right" title="Nº de cobranças no extrato">Cobr. conta</th>
                       <th className="px-3 py-2 text-right" title="Soma cobrada nas contas (USD)">Cobrado na conta (US$)</th>
                       <th className="px-3 py-2 text-right" title="Conta − Meta (USD)">Diferença</th>
+                      <th className="px-3 py-2 text-right" title="Cobranças do extrato que casaram com um recibo (conta real identificada)">Qtde identif.</th>
+                      <th className="px-3 py-2 text-right" title="Valor (USD) das cobranças identificadas por recibo">Valor identif. (US$)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -202,6 +204,8 @@ export default function ChecagemPage() {
                         <td className="px-3 py-2 text-right tabular-nums text-slate-500">{m.bankCount}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">{money(m.bankUsd, "USD")}</td>
                         <td className={`px-3 py-2 text-right tabular-nums whitespace-nowrap ${Math.abs(m.diffUsd) < 1 ? "text-slate-400" : "text-red-600 font-semibold"}`}>{money(m.diffUsd, "USD")}</td>
+                        <td className={`px-3 py-2 text-right tabular-nums whitespace-nowrap ${m.idCount >= m.bankCount && m.bankCount > 0 ? "text-emerald-700" : "text-slate-600"}`}>{m.idCount}<span className="text-slate-400">/{m.bankCount}</span></td>
+                        <td className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">{money(m.idUsd, "USD")}</td>
                       </tr>
                     ))}
                   </tbody>
