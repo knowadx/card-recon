@@ -25,7 +25,8 @@ export async function GET(request: Request) {
 
   const [metaAccts, metaCharges, metaChargeCount, ops, metaAcctCards, allMetaTx, companies, accounts, allMetaCharges, receiptRefs, rateMap] = await Promise.all([
     prisma.metaAdAccount.count(),
-    prisma.metaBillingCharge.findMany({ where: { chargedAt: { gte: CHECK_FLOOR } }, orderBy: { chargedAt: "desc" }, take: 2000 }),
+    // sem corte arbitrário: o período (CHECK_FLOOR) já limita. take alto só como teto de segurança.
+    prisma.metaBillingCharge.findMany({ where: { chargedAt: { gte: CHECK_FLOOR } }, orderBy: { chargedAt: "desc" }, take: 20000 }),
     prisma.metaBillingCharge.count({ where: { chargedAt: { gte: CHECK_FLOOR } } }),
     prisma.operation.findMany({ select: { id: true, name: true } }),
     prisma.metaAdAccount.findMany({ select: { accountId: true, fundingCardLast4: true } }),
