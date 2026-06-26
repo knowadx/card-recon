@@ -71,7 +71,7 @@ export default function ChecagemPage() {
         <div>
           <h1 className="text-xl font-semibold">Checagem de vazamento</h1>
           <p className="text-sm text-slate-500 max-w-xl">
-            Toda cobrança Meta no extrato precisa ter <strong>código facebk</strong> e <strong>PDF salvo</strong>. Sem PDF = <strong className="text-red-600">possível vazamento</strong>. O lado Meta é só dado bruto, sem correlação.
+            Toda cobrança Meta no <strong>extrato</strong> precisa ter <strong>código facebk</strong> e <strong>PDF salvo</strong>. Sem PDF = <strong className="text-red-600">possível vazamento</strong>. As cobranças do Meta ficam na aba <strong>Cobranças Meta</strong>.
           </p>
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
