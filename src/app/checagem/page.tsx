@@ -9,6 +9,7 @@ type Company = { id: string; name: string };
 type AccountOpt = { id: string; name: string; company: string | null };
 type Data = {
   piso?: string;
+  mesesDisponiveis?: string[];
   companies?: Company[];
   accounts?: AccountOpt[];
   vazamento?: { total: { ok: Cell; codigoSemPdf: Cell; semCodigo: Cell }; porMes: MesRow[]; porCartao: CardRow[] };
@@ -26,6 +27,7 @@ export default function ChecagemPage() {
 
   const [fCompany, setFCompany] = useState("");
   const [fBank, setFBank] = useState("");
+  const [fMonth, setFMonth] = useState("");
 
   const [syncFrom, setSyncFrom] = useState("");
   const [syncTo, setSyncTo] = useState("");
@@ -39,10 +41,11 @@ export default function ChecagemPage() {
     const qs = new URLSearchParams();
     if (fCompany) qs.set("company", fCompany);
     if (fBank) qs.set("account", fBank);
+    if (fMonth) qs.set("month", fMonth);
     const q = qs.toString();
     setData(await fetch(`/api/checagem${q ? `?${q}` : ""}`).then((r) => r.json()));
   }
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [fCompany, fBank]);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [fCompany, fBank, fMonth]);
 
   async function savePeriod() {
     setBusy("Salvar período"); setMsg(null);
@@ -111,6 +114,11 @@ export default function ChecagemPage() {
 
           {/* Filtros */}
           <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3">
+            <label className="flex flex-col gap-1 text-xs text-slate-500">Mês
+              <select className={input} value={fMonth} onChange={(e) => setFMonth(e.target.value)}>
+                <option value="">Todos</option>
+                {(data.mesesDisponiveis ?? []).map((m) => <option key={m} value={m}>{m}</option>)}
+              </select></label>
             <label className="flex flex-col gap-1 text-xs text-slate-500">Empresa
               <select className={input + " max-w-[200px]"} value={fCompany} onChange={(e) => setFCompany(e.target.value)}>
                 <option value="">Todas</option>

@@ -28,7 +28,25 @@ export async function GET(request: Request) {
         : { companyId: { in: scope } };
 
   const floor = await getCheckFloor();
-  const base = { isMetaCharge: true, date: { gte: floor }, ...(accountWhere ? { account: accountWhere } : {}) };
+
+  // filtro de mês (YYYY-MM). gte = max(floor, início do mês); lt = início do mês seguinte.
+  const month = params.get("month");
+  let dateRange: { gte: Date; lt?: Date } = { gte: floor };
+  if (month && /^\d{4}-\d{2}$/.test(month)) {
+    const mStart = new Date(`${month}-01T00:00:00.000Z`);
+    const mEnd = new Date(mStart); mEnd.setUTCMonth(mEnd.getUTCMonth() + 1);
+    dateRange = { gte: mStart > floor ? mStart : floor, lt: mEnd };
+  }
+
+  // meses disponíveis (do piso até hoje) p/ o dropdown
+  const mesesDisponiveis: string[] = [];
+  for (let d = new Date(Date.UTC(floor.getUTCFullYear(), floor.getUTCMonth(), 1)), now = new Date();
+       d <= now; d.setUTCMonth(d.getUTCMonth() + 1)) {
+    mesesDisponiveis.push(d.toISOString().slice(0, 7));
+  }
+  mesesDisponiveis.reverse();
+
+  const base = { isMetaCharge: true, date: dateRange, ...(accountWhere ? { account: accountWhere } : {}) };
 
   const [bank, metaContas, metaCharges, companies, accounts, rateMap] = await Promise.all([
     prisma.transaction.findMany({
@@ -36,7 +54,7 @@ export async function GET(request: Request) {
       select: { date: true, amount: true, currency: true, billAmount: true, billCurrency: true, metaRef: true, hasReceipt: true, cardLast4: true, account: { select: { bank: true } } },
     }),
     prisma.metaAdAccount.count(),
-    prisma.metaBillingCharge.findMany({ where: { chargedAt: { gte: floor } }, select: { amountUsd: true, currency: true, chargedAt: true } }),
+    prisma.metaBillingCharge.findMany({ where: { chargedAt: dateRange }, select: { amountUsd: true, currency: true, chargedAt: true } }),
     prisma.company.findMany({ where: scope === "all" ? {} : { id: { in: scope } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.account.findMany({ where: scope === "all" ? {} : { companyId: { in: scope } }, select: { id: true, name: true, company: { select: { name: true } } }, orderBy: { name: "asc" } }),
     loadRateMap(),
@@ -77,6 +95,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     piso: floor.toISOString().slice(0, 10),
+    mesesDisponiveis,
     companies,
     accounts: accounts.map((a) => ({ id: a.id, name: a.name, company: a.company?.name ?? null })),
     // CHECK DE VAZAMENTO (extrato → código → PDF)
