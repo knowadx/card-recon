@@ -13,7 +13,6 @@ type Data = {
   companies?: Company[];
   accounts?: AccountOpt[];
   vazamento?: { total: { ok: Cell; codigoSemPdf: Cell; semCodigo: Cell }; porMes: MesRow[]; porCartao: CardRow[] };
-  meta?: { contas: number; cobrancas: number; totalUsd: number };
 };
 
 function money(n: number) {
@@ -59,18 +58,6 @@ export default function ChecagemPage() {
     } catch (e) { setMsg(`❌ ${(e as Error).message}`); } finally { setBusy(null); }
   }
 
-  async function syncMeta() {
-    setBusy("Sincronizar Meta"); setMsg(null);
-    try {
-      const r = await fetch("/api/meta/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: syncFrom || undefined, to: syncTo || undefined }) });
-      const text = await r.text();
-      let j: Record<string, unknown> | null = null;
-      try { j = JSON.parse(text); } catch { /* não-JSON */ }
-      setMsg(!j ? "⏱️ Sincronizar Meta excedeu o tempo (janela grande). Progresso salvo — janela menor e rode de novo." : j.ok === false ? `❌ ${j.error}` : `✅ Meta: ${JSON.stringify(j)}`);
-      await load();
-    } catch (e) { setMsg(`❌ ${(e as Error).message}`); } finally { setBusy(null); }
-  }
-
   const btn = "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50";
   const input = "rounded-md border border-slate-300 px-2 py-1 text-sm";
 
@@ -94,7 +81,6 @@ export default function ChecagemPage() {
             <label className="flex flex-col gap-1 text-xs text-slate-500">até (vazio = hoje)
               <input type="date" className={input} value={syncTo} onChange={(e) => setSyncTo(e.target.value)} /></label>
             <button className={btn} disabled={busy !== null || !syncFrom} onClick={savePeriod}>{busy === "Salvar período" ? "Salvando…" : "Salvar período"}</button>
-            <button className={btn} disabled={busy !== null} onClick={syncMeta}>{busy === "Sincronizar Meta" ? "Sincronizando…" : "Sincronizar Meta"}</button>
           </div>
           <p className="text-[11px] text-slate-400">Período único — vale pra todos os syncs e pro piso da Checagem.</p>
         </div>
@@ -107,9 +93,9 @@ export default function ChecagemPage() {
           {/* KPIs */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Kpi label="✅ Com fatura" value={String(v?.total.ok.qtde ?? 0)} sub={money(v?.total.ok.usd ?? 0)} />
-            <Kpi label="🔴 Sem fatura" value={String(semFaturaQtde)} sub={money(semFaturaUsd)} warn={semFaturaQtde > 0} />
-            <Kpi label="Meta — contas" value={String(data.meta?.contas ?? 0)} sub={`${data.meta?.cobrancas ?? 0} cobranças`} />
-            <Kpi label="Meta — gasto bruto" value={money(data.meta?.totalUsd ?? 0)} sub="dado bruto, sem correlação" />
+            <Kpi label="🔴 Código sem PDF" value={String(v?.total.codigoSemPdf.qtde ?? 0)} sub={money(v?.total.codigoSemPdf.usd ?? 0)} warn={(v?.total.codigoSemPdf.qtde ?? 0) > 0} />
+            <Kpi label="🔴 Sem código" value={String(v?.total.semCodigo.qtde ?? 0)} sub={money(v?.total.semCodigo.usd ?? 0)} warn={(v?.total.semCodigo.qtde ?? 0) > 0} />
+            <Kpi label="Total Meta no extrato" value={String((v?.total.ok.qtde ?? 0) + semFaturaQtde)} sub={money((v?.total.ok.usd ?? 0) + semFaturaUsd)} />
           </div>
 
           {/* Filtros */}

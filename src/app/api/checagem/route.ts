@@ -48,13 +48,11 @@ export async function GET(request: Request) {
 
   const base = { isMetaCharge: true, date: dateRange, ...(accountWhere ? { account: accountWhere } : {}) };
 
-  const [bank, metaContas, metaCharges, companies, accounts, rateMap] = await Promise.all([
+  const [bank, companies, accounts, rateMap] = await Promise.all([
     prisma.transaction.findMany({
       where: base,
       select: { date: true, amount: true, currency: true, billAmount: true, billCurrency: true, metaRef: true, hasReceipt: true, cardLast4: true, account: { select: { bank: true } } },
     }),
-    prisma.metaAdAccount.count(),
-    prisma.metaBillingCharge.findMany({ where: { chargedAt: dateRange }, select: { amountUsd: true, currency: true, chargedAt: true } }),
     prisma.company.findMany({ where: scope === "all" ? {} : { id: { in: scope } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.account.findMany({ where: scope === "all" ? {} : { companyId: { in: scope } }, select: { id: true, name: true, company: { select: { name: true } } }, orderBy: { name: "asc" } }),
     loadRateMap(),
@@ -91,8 +89,6 @@ export async function GET(request: Request) {
   const fmtCell = (c: Cell) => ({ qtde: c.qtde, usd: round2(c.usd) });
   const fmtMes = (r: ReturnType<typeof novo>) => ({ ok: fmtCell(r.ok), codigoSemPdf: fmtCell(r.codigoSemPdf), semCodigo: fmtCell(r.semCodigo) });
 
-  const metaTotalUsd = metaCharges.reduce((s, c) => s + toUsd(c.amountUsd, c.currency, c.chargedAt.toISOString().slice(0, 7), rateMap), 0);
-
   return NextResponse.json({
     piso: floor.toISOString().slice(0, 10),
     mesesDisponiveis,
@@ -104,7 +100,5 @@ export async function GET(request: Request) {
       porMes: [...porMesMap.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([mes, r]) => ({ mes, ...fmtMes(r) })),
       porCartao: [...porCartaoMap.entries()].map(([cartao, v]) => ({ cartao, bank: v.bank, qtde: v.qtde, usd: round2(v.usd) })).sort((a, b) => b.usd - a.usd),
     },
-    // META — só dado bruto, sem correlação
-    meta: { contas: metaContas, cobrancas: metaCharges.length, totalUsd: round2(metaTotalUsd) },
   });
 }
