@@ -234,7 +234,7 @@ export async function POST(request: Request) {
     if (!key) return Response.json({ error: "Token Wise não cadastrado nesta conta" }, { status: 400 });
 
     const period = await getSyncPeriod();
-    const end = (to || period.to) ? `${to || period.to}T23:59:59.999Z` : new Date().toISOString();
+    const end = to ? `${to}T23:59:59.999Z` : new Date().toISOString(); // sempre até HOJE (o "até" do período não trava)
     const start = `${from || period.from}T00:00:00.000Z`;
 
     const headers = { Authorization: `Bearer ${key}` };

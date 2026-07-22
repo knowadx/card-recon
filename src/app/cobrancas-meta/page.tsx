@@ -25,10 +25,9 @@ export default function CobrancasMetaPage() {
   const [fPdf, setFPdf] = useState(""); // "" | com | sem
 
   const [syncFrom, setSyncFrom] = useState("");
-  const [syncTo, setSyncTo] = useState("");
 
   useEffect(() => {
-    fetch("/api/settings/sync-period").then((r) => r.json()).then((p) => { setSyncFrom(p.from ?? ""); setSyncTo(p.to ?? ""); }).catch(() => {});
+    fetch("/api/settings/sync-period").then((r) => r.json()).then((p) => setSyncFrom(p.from ?? "")).catch(() => {});
   }, []);
 
   async function load() {
@@ -45,18 +44,18 @@ export default function CobrancasMetaPage() {
   async function savePeriod() {
     setBusy("Salvar período"); setMsg(null);
     try {
-      const r = await fetch("/api/settings/sync-period", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: syncFrom, to: syncTo || undefined }) });
+      const r = await fetch("/api/settings/sync-period", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: syncFrom }) });
       const j = await r.json();
       if (!r.ok) { setMsg(`❌ ${j.error}`); return; }
-      setSyncFrom(j.from ?? ""); setSyncTo(j.to ?? "");
-      setMsg(`✅ Período salvo: ${j.from} → ${j.to || "hoje"}. Vale pra todos os syncs.`);
+      setSyncFrom(j.from ?? "");
+      setMsg(`✅ Piso salvo: a partir de ${j.from}. Syncs vão sempre até hoje.`);
       await load();
     } catch (e) { setMsg(`❌ ${(e as Error).message}`); } finally { setBusy(null); }
   }
   async function syncMeta() {
     setBusy("Sincronizar Meta"); setMsg(null);
     try {
-      const r = await fetch("/api/meta/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: syncFrom || undefined, to: syncTo || undefined }) });
+      const r = await fetch("/api/meta/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: syncFrom || undefined }) });
       const text = await r.text(); let j: Record<string, unknown> | null = null;
       try { j = JSON.parse(text); } catch { /* não-JSON */ }
       setMsg(!j ? "⏱️ Sincronizar Meta excedeu o tempo. Progresso salvo — janela menor e rode de novo." : j.ok === false ? `❌ ${j.error}` : `✅ Meta: ${JSON.stringify(j)}`);
@@ -82,9 +81,8 @@ export default function CobrancasMetaPage() {
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           <div className="flex items-end gap-2 rounded-lg border border-slate-200 bg-white p-2">
-            <label className="flex flex-col gap-1 text-xs text-slate-500">de<input type="date" className={input} value={syncFrom} onChange={(e) => setSyncFrom(e.target.value)} /></label>
-            <label className="flex flex-col gap-1 text-xs text-slate-500">até (vazio = hoje)<input type="date" className={input} value={syncTo} onChange={(e) => setSyncTo(e.target.value)} /></label>
-            <button className={btn} disabled={busy !== null || !syncFrom} onClick={savePeriod}>{busy === "Salvar período" ? "Salvando…" : "Salvar período"}</button>
+            <label className="flex flex-col gap-1 text-xs text-slate-500">analisar a partir de<input type="date" className={input} value={syncFrom} onChange={(e) => setSyncFrom(e.target.value)} /></label>
+            <button className={btn} disabled={busy !== null || !syncFrom} onClick={savePeriod}>{busy === "Salvar período" ? "Salvando…" : "Salvar piso"}</button>
             <button className={btn} disabled={busy !== null} onClick={syncMeta}>{busy === "Sincronizar Meta" ? "Sincronizando…" : "Sincronizar Meta"}</button>
           </div>
         </div>

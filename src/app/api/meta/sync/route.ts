@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     const { from, to } = await request.json().catch(() => ({}));
     const period = await getSyncPeriod();
     const since = from || period.from;
-    const until = to || period.to || undefined;
+    const until = to || undefined; // sempre até HOJE (o "até" do período não trava o sync do Meta)
     const creds = await prisma.credential.findMany({
       where,
       select: { token: true, company: true, operationId: true },

@@ -63,7 +63,7 @@ export async function POST(request: Request) {
 
   const period = await getSyncPeriod();
   const fromDate = from || period.from;
-  const toDate = period.to ? `${period.to}T23:59:59.999Z` : new Date().toISOString();
+  const toDate = new Date().toISOString(); // sync sempre até HOJE (o "até" do período NÃO trava importação)
 
   const headers = { Authorization: `Bearer ${accessToken}` };
 

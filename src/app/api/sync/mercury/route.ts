@@ -111,7 +111,7 @@ export async function POST(request: Request) {
   if (!key) return Response.json({ error: "Token Mercury não cadastrado nesta conta" }, { status: 400 });
 
   const period = await getSyncPeriod();
-  const end = to || period.to || new Date().toISOString().slice(0, 10);
+  const end = to || new Date().toISOString().slice(0, 10); // sempre até HOJE (o "até" do período não trava)
   const start = from || period.from;
 
   const [transactions, cardMap] = await Promise.all([
