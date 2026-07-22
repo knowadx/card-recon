@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LayoutDashboard, Building2, Landmark, Tag, ArrowLeftRight, CheckSquare, BarChart2, Settings, X, Target, DollarSign, TrendingUp, ChevronLeft, ChevronRight, LineChart, ShieldCheck, Users, LogOut, KeyRound, Layers, Workflow, Receipt, FileUp } from "lucide-react";
+import { LayoutDashboard, Building2, Landmark, Tag, ArrowLeftRight, CheckSquare, BarChart2, Settings, X, Target, DollarSign, TrendingUp, ChevronLeft, ChevronRight, LineChart, ShieldCheck, Users, LogOut, KeyRound, Layers, Workflow, Receipt, FileUp, ListChecks } from "lucide-react";
 
 const mainNav = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/fechamento", label: "Fechamento do mês", icon: ListChecks },
   { href: "/checagem", label: "Checagem", icon: ShieldCheck },
   { href: "/cobrancas-meta", label: "Cobranças Meta", icon: Receipt },
   { href: "/receipts", label: "Faturas (PDFs)", icon: FileUp },
