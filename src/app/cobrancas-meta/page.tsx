@@ -25,6 +25,7 @@ export default function CobrancasMetaPage() {
   const [fPdf, setFPdf] = useState(""); // "" | com | sem
 
   const [syncFrom, setSyncFrom] = useState("");
+  const [syncMonth, setSyncMonth] = useState(""); // mês a sincronizar no Meta (janela pequena → sem timeout)
 
   useEffect(() => {
     fetch("/api/settings/sync-period").then((r) => r.json()).then((p) => setSyncFrom(p.from ?? "")).catch(() => {});
@@ -36,7 +37,9 @@ export default function CobrancasMetaPage() {
     if (fAccount) qs.set("account", fAccount);
     if (fPdf) qs.set("pdf", fPdf);
     const q = qs.toString();
-    setData(await fetch(`/api/cobrancas-meta${q ? `?${q}` : ""}`).then((r) => r.json()));
+    const d = await fetch(`/api/cobrancas-meta${q ? `?${q}` : ""}`).then((r) => r.json());
+    setData(d);
+    setSyncMonth((cur) => cur || (d?.mesesDisponiveis?.[0] ?? "")); // default: mês mais recente
     setPage(1);
   }
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [fMonth, fAccount, fPdf]);
@@ -53,12 +56,17 @@ export default function CobrancasMetaPage() {
     } catch (e) { setMsg(`❌ ${(e as Error).message}`); } finally { setBusy(null); }
   }
   async function syncMeta() {
+    if (!syncMonth) { setMsg("Escolha o mês pra sincronizar."); return; }
     setBusy("Sincronizar Meta"); setMsg(null);
     try {
-      const r = await fetch("/api/meta/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: syncFrom || undefined }) });
+      // sincroniza SÓ o mês escolhido → janela pequena, sem timeout
+      const [y, mo] = syncMonth.split("-").map(Number);
+      const lastDay = new Date(y, mo, 0).getDate();
+      const to = `${syncMonth}-${String(lastDay).padStart(2, "0")}`;
+      const r = await fetch("/api/meta/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: `${syncMonth}-01`, to }) });
       const text = await r.text(); let j: Record<string, unknown> | null = null;
       try { j = JSON.parse(text); } catch { /* não-JSON */ }
-      setMsg(!j ? "⏱️ Sincronizar Meta excedeu o tempo. Progresso salvo — janela menor e rode de novo." : j.ok === false ? `❌ ${j.error}` : `✅ Meta: ${JSON.stringify(j)}`);
+      setMsg(!j ? `⏱️ ${syncMonth} ainda excedeu o tempo (raro por mês). O progresso é salvo — rode de novo que continua de onde parou.` : j.ok === false ? `❌ ${j.error}` : `✅ Meta ${syncMonth}: ${JSON.stringify(j)}`);
       await load();
     } catch (e) { setMsg(`❌ ${(e as Error).message}`); } finally { setBusy(null); }
   }
@@ -83,8 +91,14 @@ export default function CobrancasMetaPage() {
           <div className="flex items-end gap-2 rounded-lg border border-slate-200 bg-white p-2">
             <label className="flex flex-col gap-1 text-xs text-slate-500">analisar a partir de<input type="date" className={input} value={syncFrom} onChange={(e) => setSyncFrom(e.target.value)} /></label>
             <button className={btn} disabled={busy !== null || !syncFrom} onClick={savePeriod}>{busy === "Salvar período" ? "Salvando…" : "Salvar piso"}</button>
-            <button className={btn} disabled={busy !== null} onClick={syncMeta}>{busy === "Sincronizar Meta" ? "Sincronizando…" : "Sincronizar Meta"}</button>
+            <span className="w-px self-stretch bg-slate-200 mx-1" />
+            <label className="flex flex-col gap-1 text-xs text-slate-500">sincronizar mês
+              <select className={input} value={syncMonth} onChange={(e) => setSyncMonth(e.target.value)}>
+                {(data?.mesesDisponiveis ?? []).map((m) => <option key={m} value={m}>{m}</option>)}
+              </select></label>
+            <button className={btn} disabled={busy !== null || !syncMonth} onClick={syncMeta}>{busy === "Sincronizar Meta" ? "Sincronizando…" : "Sincronizar Meta"}</button>
           </div>
+          <p className="text-[11px] text-slate-400">O sync do Meta é por mês (janela pequena evita timeout).</p>
         </div>
       </div>
 
