@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { sessionScopes } from "@/lib/auth";
-import { getCheckFloor } from "@/lib/settings";
+import { getSyncPeriod } from "@/lib/settings";
 import { loadRateMap, toUsd } from "@/lib/exchangeRates";
 
 export const dynamic = "force-dynamic";
@@ -19,15 +19,19 @@ export async function GET(request: Request) {
   const account = params.get("account");
   const pdf = params.get("pdf"); // "com" | "sem" | null
 
-  const floor = await getCheckFloor();
-  let dateRange: { gte: Date; lt?: Date } = { gte: floor };
+  const period = await getSyncPeriod();
+  const floor = new Date(`${period.from}T00:00:00.000Z`);
+  const ceiling = period.to ? new Date(`${period.to}T23:59:59.999Z`) : null;
+  let dateRange: { gte: Date; lt?: Date; lte?: Date };
   if (month && /^\d{4}-\d{2}$/.test(month)) {
     const mStart = new Date(`${month}-01T00:00:00.000Z`);
     const mEnd = new Date(mStart); mEnd.setUTCMonth(mEnd.getUTCMonth() + 1);
     dateRange = { gte: mStart > floor ? mStart : floor, lt: mEnd };
+  } else {
+    dateRange = { gte: floor, ...(ceiling ? { lte: ceiling } : {}) };
   }
   const meses: string[] = [];
-  for (let d = new Date(Date.UTC(floor.getUTCFullYear(), floor.getUTCMonth(), 1)), now = new Date(); d <= now; d.setUTCMonth(d.getUTCMonth() + 1)) meses.push(d.toISOString().slice(0, 7));
+  for (let d = new Date(Date.UTC(floor.getUTCFullYear(), floor.getUTCMonth(), 1)), end = ceiling ?? new Date(); d <= end; d.setUTCMonth(d.getUTCMonth() + 1)) meses.push(d.toISOString().slice(0, 7));
   meses.reverse();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

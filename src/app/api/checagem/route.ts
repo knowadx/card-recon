@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { scopedCompanyIds } from "@/lib/auth";
-import { getCheckFloor } from "@/lib/settings";
+import { getSyncPeriod } from "@/lib/settings";
 import { loadRateMap, toUsd } from "@/lib/exchangeRates";
 
 export const dynamic = "force-dynamic";
@@ -27,21 +27,26 @@ export async function GET(request: Request) {
         ? null
         : { companyId: { in: scope } };
 
-  const floor = await getCheckFloor();
+  // JANELA DE ANÁLISE = início/fim do período (o "fim" limita só a VISÃO, não os syncs).
+  const period = await getSyncPeriod();
+  const floor = new Date(`${period.from}T00:00:00.000Z`);
+  const ceiling = period.to ? new Date(`${period.to}T23:59:59.999Z`) : null;
 
-  // filtro de mês (YYYY-MM). gte = max(floor, início do mês); lt = início do mês seguinte.
+  // filtro de mês (YYYY-MM) — sobrepõe a janela.
   const month = params.get("month");
-  let dateRange: { gte: Date; lt?: Date } = { gte: floor };
+  let dateRange: { gte: Date; lt?: Date; lte?: Date };
   if (month && /^\d{4}-\d{2}$/.test(month)) {
     const mStart = new Date(`${month}-01T00:00:00.000Z`);
     const mEnd = new Date(mStart); mEnd.setUTCMonth(mEnd.getUTCMonth() + 1);
     dateRange = { gte: mStart > floor ? mStart : floor, lt: mEnd };
+  } else {
+    dateRange = { gte: floor, ...(ceiling ? { lte: ceiling } : {}) };
   }
 
-  // meses disponíveis (do piso até hoje) p/ o dropdown
+  // meses disponíveis (início → fim, ou hoje se sem fim) p/ o dropdown
   const mesesDisponiveis: string[] = [];
-  for (let d = new Date(Date.UTC(floor.getUTCFullYear(), floor.getUTCMonth(), 1)), now = new Date();
-       d <= now; d.setUTCMonth(d.getUTCMonth() + 1)) {
+  for (let d = new Date(Date.UTC(floor.getUTCFullYear(), floor.getUTCMonth(), 1)), end = ceiling ?? new Date();
+       d <= end; d.setUTCMonth(d.getUTCMonth() + 1)) {
     mesesDisponiveis.push(d.toISOString().slice(0, 7));
   }
   mesesDisponiveis.reverse();

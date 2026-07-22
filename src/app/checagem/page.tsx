@@ -29,10 +29,11 @@ export default function ChecagemPage() {
   const [fMonth, setFMonth] = useState("");
 
   const [syncFrom, setSyncFrom] = useState("");
+  const [syncTo, setSyncTo] = useState("");
 
   useEffect(() => {
     fetch("/api/settings/sync-period").then((r) => r.json())
-      .then((p) => setSyncFrom(p.from ?? "")).catch(() => {});
+      .then((p) => { setSyncFrom(p.from ?? ""); setSyncTo(p.to ?? ""); }).catch(() => {});
   }, []);
 
   async function load() {
@@ -48,11 +49,11 @@ export default function ChecagemPage() {
   async function savePeriod() {
     setBusy("Salvar período"); setMsg(null);
     try {
-      const r = await fetch("/api/settings/sync-period", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: syncFrom }) });
+      const r = await fetch("/api/settings/sync-period", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: syncFrom, to: syncTo || undefined }) });
       const j = await r.json();
       if (!r.ok) { setMsg(`❌ ${j.error}`); return; }
-      setSyncFrom(j.from ?? "");
-      setMsg(`✅ Piso salvo: a partir de ${j.from}. Vale pro início dos syncs e pro piso da Checagem. Syncs vão sempre até hoje.`);
+      setSyncFrom(j.from ?? ""); setSyncTo(j.to ?? "");
+      setMsg(`✅ Período salvo: ${j.from} → ${j.to || "hoje"}. Limita a análise; os syncs sempre importam até hoje.`);
       await load();
     } catch (e) { setMsg(`❌ ${(e as Error).message}`); } finally { setBusy(null); }
   }
@@ -75,11 +76,13 @@ export default function ChecagemPage() {
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           <div className="flex items-end gap-2 rounded-lg border border-slate-200 bg-white p-2">
-            <label className="flex flex-col gap-1 text-xs text-slate-500">analisar a partir de
+            <label className="flex flex-col gap-1 text-xs text-slate-500">início
               <input type="date" className={input} value={syncFrom} onChange={(e) => setSyncFrom(e.target.value)} /></label>
-            <button className={btn} disabled={busy !== null || !syncFrom} onClick={savePeriod}>{busy === "Salvar período" ? "Salvando…" : "Salvar piso"}</button>
+            <label className="flex flex-col gap-1 text-xs text-slate-500">fim (vazio = hoje)
+              <input type="date" className={input} value={syncTo} onChange={(e) => setSyncTo(e.target.value)} /></label>
+            <button className={btn} disabled={busy !== null || !syncFrom} onClick={savePeriod}>{busy === "Salvar período" ? "Salvando…" : "Salvar período"}</button>
           </div>
-          <p className="text-[11px] text-slate-400">Piso único — início dos syncs e da Checagem. Syncs sempre vão até hoje.</p>
+          <p className="text-[11px] text-slate-400">Período de <strong>análise</strong> (Checagem + Cobranças Meta). O <strong>fim</strong> não trava importação — syncs sempre vão até hoje.</p>
         </div>
       </div>
 
