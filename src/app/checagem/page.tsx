@@ -21,7 +21,6 @@ function money(n: number) {
 
 export default function ChecagemPage() {
   const [data, setData] = useState<Data | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   const [fCompany, setFCompany] = useState("");
@@ -46,19 +45,16 @@ export default function ChecagemPage() {
   }
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [fCompany, fBank, fMonth]);
 
-  async function savePeriod() {
-    setBusy("Salvar período"); setMsg(null);
+  // aplica o período AO MUDAR a data (sem botão) — salva silencioso e recarrega
+  async function applyPeriod(from: string, to: string) {
+    setSyncFrom(from); setSyncTo(to);
+    if (!from) return;
     try {
-      const r = await fetch("/api/settings/sync-period", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: syncFrom, to: syncTo || undefined }) });
-      const j = await r.json();
-      if (!r.ok) { setMsg(`❌ ${j.error}`); return; }
-      setSyncFrom(j.from ?? ""); setSyncTo(j.to ?? "");
-      setMsg(`✅ Período salvo: ${j.from} → ${j.to || "hoje"}. Limita a análise; os syncs sempre importam até hoje.`);
+      await fetch("/api/settings/sync-period", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from, to: to || undefined }) });
       await load();
-    } catch (e) { setMsg(`❌ ${(e as Error).message}`); } finally { setBusy(null); }
+    } catch { /* silencioso */ }
   }
 
-  const btn = "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50";
   const input = "rounded-md border border-slate-300 px-2 py-1 text-sm";
 
   const v = data?.vazamento;
@@ -77,10 +73,9 @@ export default function ChecagemPage() {
         <div className="flex flex-col items-end gap-1 shrink-0">
           <div className="flex items-end gap-2 rounded-lg border border-slate-200 bg-white p-2">
             <label className="flex flex-col gap-1 text-xs text-slate-500">início
-              <input type="date" className={input} value={syncFrom} onChange={(e) => setSyncFrom(e.target.value)} /></label>
+              <input type="date" className={input} value={syncFrom} onChange={(e) => applyPeriod(e.target.value, syncTo)} /></label>
             <label className="flex flex-col gap-1 text-xs text-slate-500">fim (vazio = hoje)
-              <input type="date" className={input} value={syncTo} onChange={(e) => setSyncTo(e.target.value)} /></label>
-            <button className={btn} disabled={busy !== null || !syncFrom} onClick={savePeriod}>{busy === "Salvar período" ? "Salvando…" : "Salvar período"}</button>
+              <input type="date" className={input} value={syncTo} onChange={(e) => applyPeriod(syncFrom, e.target.value)} /></label>
           </div>
           <p className="text-[11px] text-slate-400">Período de <strong>análise</strong> (Checagem + Cobranças Meta). O <strong>fim</strong> não trava importação — syncs sempre vão até hoje.</p>
         </div>

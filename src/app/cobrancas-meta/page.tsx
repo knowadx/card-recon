@@ -45,16 +45,14 @@ export default function CobrancasMetaPage() {
   }
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [fMonth, fAccount, fPdf]);
 
-  async function savePeriod() {
-    setBusy("Salvar período"); setMsg(null);
+  // aplica o período AO MUDAR a data (sem botão) — salva silencioso e recarrega
+  async function applyPeriod(from: string, to: string) {
+    setSyncFrom(from); setSyncTo(to);
+    if (!from) return;
     try {
-      const r = await fetch("/api/settings/sync-period", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: syncFrom, to: syncTo || undefined }) });
-      const j = await r.json();
-      if (!r.ok) { setMsg(`❌ ${j.error}`); return; }
-      setSyncFrom(j.from ?? ""); setSyncTo(j.to ?? "");
-      setMsg(`✅ Período salvo: ${j.from} → ${j.to || "hoje"}. Limita a análise; syncs importam até hoje.`);
+      await fetch("/api/settings/sync-period", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from, to: to || undefined }) });
       await load();
-    } catch (e) { setMsg(`❌ ${(e as Error).message}`); } finally { setBusy(null); }
+    } catch { /* silencioso */ }
   }
   async function syncMeta() {
     if (!syncMonth) { setMsg("Escolha o mês pra sincronizar."); return; }
@@ -90,9 +88,8 @@ export default function CobrancasMetaPage() {
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           <div className="flex items-end gap-2 rounded-lg border border-slate-200 bg-white p-2">
-            <label className="flex flex-col gap-1 text-xs text-slate-500">início<input type="date" className={input} value={syncFrom} onChange={(e) => setSyncFrom(e.target.value)} /></label>
-            <label className="flex flex-col gap-1 text-xs text-slate-500">fim (vazio = hoje)<input type="date" className={input} value={syncTo} onChange={(e) => setSyncTo(e.target.value)} /></label>
-            <button className={btn} disabled={busy !== null || !syncFrom} onClick={savePeriod}>{busy === "Salvar período" ? "Salvando…" : "Salvar período"}</button>
+            <label className="flex flex-col gap-1 text-xs text-slate-500">início<input type="date" className={input} value={syncFrom} onChange={(e) => applyPeriod(e.target.value, syncTo)} /></label>
+            <label className="flex flex-col gap-1 text-xs text-slate-500">fim (vazio = hoje)<input type="date" className={input} value={syncTo} onChange={(e) => applyPeriod(syncFrom, e.target.value)} /></label>
             <span className="w-px self-stretch bg-slate-200 mx-1" />
             <label className="flex flex-col gap-1 text-xs text-slate-500">sincronizar mês
               <select className={input} value={syncMonth} onChange={(e) => setSyncMonth(e.target.value)}>
