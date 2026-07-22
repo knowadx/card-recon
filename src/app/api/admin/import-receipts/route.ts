@@ -57,8 +57,12 @@ export async function POST(request: Request) {
     date: r.date ? new Date(r.date) : null,
   }));
 
-  // replace completo: o JSON é o conjunto inteiro dos recibos
-  await prisma.metaReceipt.deleteMany({});
+  // ADITIVO por mês: substitui só os recibos DESTE upload (por transactionId) e preserva os
+  // outros meses. Assim ler só a pasta de junho NÃO apaga maio (e vice-versa).
+  const ids = data.map((d) => d.transactionId);
+  for (let i = 0; i < ids.length; i += 400) {
+    await prisma.metaReceipt.deleteMany({ where: { transactionId: { in: ids.slice(i, i + 400) } } });
+  }
   let inserted = 0;
   for (let i = 0; i < data.length; i += 200) {
     const res = await prisma.metaReceipt.createMany({ data: data.slice(i, i + 200) });
