@@ -65,10 +65,21 @@ export async function GET(request: Request) {
     };
   }).filter((r) => (pdf === "com" ? r.hasPdf : pdf === "sem" ? !r.hasPdf : true));
 
+  // agregado por BM (respeita os filtros ativos — ex.: mês=junho + PDF=sem)
+  const bmMap = new Map<string, { bm: string | null; bmId: string | null; qtde: number; usd: number; comPdf: number; semPdf: number }>();
+  for (const r of rows) {
+    const key = r.bmId ?? r.bm ?? "(sem BM)";
+    const cur = bmMap.get(key) ?? { bm: r.bm, bmId: r.bmId, qtde: 0, usd: 0, comPdf: 0, semPdf: 0 };
+    cur.qtde++; cur.usd += r.usd; if (r.hasPdf) cur.comPdf++; else cur.semPdf++;
+    bmMap.set(key, cur);
+  }
+  const porBm = [...bmMap.values()].map((x) => ({ ...x, usd: round2(x.usd) })).sort((a, b) => b.usd - a.usd);
+
   return NextResponse.json({
     piso: floor.toISOString().slice(0, 10),
     mesesDisponiveis: meses,
     contas: contasCtrl, // dropdown de contas controladas
+    porBm,
     kpis: {
       contas: contasCtrl.length,
       cobrancas: charges.length,

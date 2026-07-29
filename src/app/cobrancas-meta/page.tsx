@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 
 type Row = { data: string; transactionId: string; conta: string | null; accountId: string; bm: string | null; bmId: string | null; usd: number; moeda: string; hasPdf: boolean; facebk: string | null };
 type Cell = { qtde: number; usd: number };
+type BmRow = { bm: string | null; bmId: string | null; qtde: number; usd: number; comPdf: number; semPdf: number };
 type Data = {
   mesesDisponiveis?: string[];
   contas?: { accountId: string; name: string }[];
+  porBm?: BmRow[];
   kpis?: { contas: number; cobrancas: number; totalUsd: number; comPdf: Cell; semPdf: Cell; pctComPdf: number };
   rows?: Row[];
 };
@@ -130,6 +132,44 @@ export default function CobrancasMetaPage() {
                 <option value="sem">🔴 Sem PDF</option>
               </select></label>
           </div>
+
+          {/* Resumo por BM — respeita os filtros (ex.: mês=junho + PDF=Sem) */}
+          {(data.porBm?.length ?? 0) > 0 && (
+            <section className="flex flex-col gap-2">
+              <h2 className="text-sm font-semibold text-slate-700">Resumo por BM {fMonth ? `· ${fMonth}` : ""}{fPdf === "sem" ? " · sem fatura 🔴" : fPdf === "com" ? " · com fatura ✅" : ""}</h2>
+              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">BM</th>
+                      <th className="px-3 py-2 text-right">Cobranças</th>
+                      <th className="px-3 py-2 text-right">🔴 Sem PDF</th>
+                      <th className="px-3 py-2 text-right">✅ Com PDF</th>
+                      <th className="px-3 py-2 text-right">Valor (US$)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.porBm!.map((b) => (
+                      <tr key={b.bmId ?? b.bm ?? "?"}>
+                        <td className="px-3 py-2 whitespace-nowrap">{b.bm ?? "(sem BM)"}{b.bmId ? <span className="text-slate-400 text-xs"> · {b.bmId}</span> : null}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{b.qtde}</td>
+                        <td className={`px-3 py-2 text-right tabular-nums ${b.semPdf ? "text-red-600 font-medium" : "text-slate-400"}`}>{b.semPdf}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-slate-500">{b.comPdf}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-semibold">{money(b.usd)}</td>
+                      </tr>
+                    ))}
+                    <tr className="bg-slate-50 font-semibold">
+                      <td className="px-3 py-2">Total ({data.porBm!.length} BMs)</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{data.porBm!.reduce((s, b) => s + b.qtde, 0)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-red-600">{data.porBm!.reduce((s, b) => s + b.semPdf, 0)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-500">{data.porBm!.reduce((s, b) => s + b.comPdf, 0)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{money(data.porBm!.reduce((s, b) => s + b.usd, 0))}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
           <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
             <table className="w-full text-sm">
