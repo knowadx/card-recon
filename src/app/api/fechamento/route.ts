@@ -21,14 +21,21 @@ export async function GET(request: Request) {
   for (let d = new Date(Date.UTC(floor.getUTCFullYear(), floor.getUTCMonth(), 1)); d <= ceiling; d.setUTCMonth(d.getUTCMonth() + 1)) meses.push(d.toISOString().slice(0, 7));
   meses.reverse();
 
+  // empresas que o usuário enxerga (pra o seletor de escopo)
+  const companies = await prisma.company.findMany({ where: scope === "all" ? {} : { id: { in: scope } }, select: { id: true, name: true }, orderBy: { name: "asc" } });
+
   const month = params.get("month") && /^\d{4}-\d{2}$/.test(params.get("month")!) ? params.get("month")! : meses[0];
-  if (!month) return NextResponse.json({ mesesDisponiveis: meses, month: null });
+  if (!month) return NextResponse.json({ mesesDisponiveis: meses, companies, month: null });
+
+  // escopo de empresa: 1 empresa selecionada (dentro do que o usuário vê) OU todas do escopo
+  const companyParam = params.get("company") || "";
+  const companyIds = companyParam ? [companyParam] : (scope === "all" ? null : scope);
+  const accountWhere = companyIds ? { companyId: { in: companyIds } } : undefined;
 
   const mStart = new Date(`${month}-01T00:00:00.000Z`);
   const mEnd = new Date(mStart); mEnd.setUTCMonth(mEnd.getUTCMonth() + 1);
   const dateRange = { gte: mStart, lt: mEnd };
 
-  const accountWhere = scope === "all" ? undefined : { companyId: { in: scope } };
   const bankBase = { isMetaCharge: true, date: dateRange, ...(accountWhere ? { account: accountWhere } : {}) };
 
   const [bancoMeta, revolutSemCodigo, comFatura, semFatura, metaCobrancas] = await Promise.all([
@@ -41,6 +48,8 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     mesesDisponiveis: meses,
+    companies,
+    company: companyParam || null,
     month,
     passos: {
       bancos: { transacoesMeta: bancoMeta, feito: bancoMeta > 0 },

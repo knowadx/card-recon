@@ -220,9 +220,10 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const period = await getSyncPeriod();
   const from: string = body.from || period.from;
+  const company: string | undefined = body.company || undefined; // escopo de empresa (companyId)
 
   const accounts = await prisma.account.findMany({
-    where: { syncConfig: { not: null } },
+    where: { syncConfig: { not: null }, ...(company ? { companyId: company } : {}) },
     include: { company: true },
   });
 

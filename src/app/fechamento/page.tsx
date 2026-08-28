@@ -7,6 +7,8 @@ import ReceiptsImporter from "@/components/receipts-importer";
 type Passo = { feito: boolean };
 type Data = {
   mesesDisponiveis?: string[];
+  companies?: { id: string; name: string }[];
+  company?: string | null;
   month?: string | null;
   passos?: {
     bancos: Passo & { transacoesMeta: number };
@@ -20,16 +22,20 @@ type Data = {
 export default function FechamentoPage() {
   const [data, setData] = useState<Data | null>(null);
   const [month, setMonth] = useState("");
+  const [company, setCompany] = useState(""); // "" = todas as empresas do escopo
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
-  async function load(m = month) {
-    const d: Data = await fetch(`/api/fechamento${m ? `?month=${m}` : ""}`).then((r) => r.json());
+  async function load(m = month, c = company) {
+    const qs = new URLSearchParams();
+    if (m) qs.set("month", m);
+    if (c) qs.set("company", c);
+    const d: Data = await fetch(`/api/fechamento?${qs.toString()}`).then((r) => r.json());
     setData(d);
     if (!m && d.month) setMonth(d.month);
   }
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
-  useEffect(() => { if (month) load(month); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [month]);
+  useEffect(() => { if (month) load(month, company); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [month, company]);
 
   async function run(label: string, fn: () => Promise<Response>) {
     setBusy(label); setMsg(null);
@@ -38,12 +44,12 @@ export default function FechamentoPage() {
       const text = await r.text(); let j: Record<string, unknown> | null = null;
       try { j = JSON.parse(text); } catch { /* não-JSON = timeout */ }
       setMsg(!j ? `⏱️ ${label}: excedeu o tempo (janela grande). Progresso salvo — rode de novo.` : (j.ok === false || j.error) ? `❌ ${j.error}` : `✅ ${label}: ${JSON.stringify(j).slice(0, 300)}`);
-      await load(month);
+      await load(month, company);
     } catch (e) { setMsg(`❌ ${(e as Error).message}`); } finally { setBusy(null); }
   }
 
   function syncBancos() {
-    return run("Sincronizar bancos", () => fetch("/api/sync/all", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }));
+    return run("Sincronizar bancos", () => fetch("/api/sync/all", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ company: company || undefined }) }));
   }
   function syncMeta() {
     const [y, mo] = month.split("-").map(Number);
@@ -56,7 +62,7 @@ export default function FechamentoPage() {
       const r = await fetch("/api/admin/import-revolut-csv", { method: "POST", headers: { "Content-Type": "text/csv" }, body: await file.text() });
       const j = await r.json();
       setMsg(r.ok ? `✅ CSV: ${j.metaRefGravados} código(s) gravado(s)` : `❌ ${j.error}`);
-      await load(month);
+      await load(month, company);
     } catch (e) { setMsg(`❌ ${(e as Error).message}`); } finally { setBusy(null); }
   }
 
@@ -68,13 +74,21 @@ export default function FechamentoPage() {
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold">Fechamento do mês</h1>
-          <p className="text-sm text-slate-500">Os passos na ordem certa. Faça de cima pra baixo — o PDF por último.</p>
+          <p className="text-sm text-slate-500">Passos na ordem — de cima pra baixo, PDF por último. Escopo: <strong>{company ? (data?.companies?.find((c) => c.id === company)?.name ?? "empresa") : "todas as empresas"}</strong> · <strong>{month || "—"}</strong>. O PDF importa <strong>só o mês selecionado</strong> — não mexe nos outros.</p>
         </div>
-        <label className="flex flex-col gap-1 text-xs text-slate-500">mês
-          <select className="rounded-md border border-slate-300 px-2 py-1 text-sm" value={month} onChange={(e) => setMonth(e.target.value)}>
-            {(data?.mesesDisponiveis ?? []).map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-        </label>
+        <div className="flex items-end gap-2">
+          <label className="flex flex-col gap-1 text-xs text-slate-500">empresa
+            <select className="rounded-md border border-slate-300 px-2 py-1 text-sm max-w-[200px]" value={company} onChange={(e) => setCompany(e.target.value)}>
+              <option value="">Todas</option>
+              {(data?.companies ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-slate-500">mês
+            <select className="rounded-md border border-slate-300 px-2 py-1 text-sm" value={month} onChange={(e) => setMonth(e.target.value)}>
+              {(data?.mesesDisponiveis ?? []).map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </label>
+        </div>
       </div>
 
       {msg && <pre className="max-h-24 overflow-auto rounded-md bg-slate-900 p-2 text-xs text-slate-100 whitespace-pre-wrap">{msg}</pre>}
@@ -95,7 +109,7 @@ export default function FechamentoPage() {
       </Step>
 
       <Step n={4} title="Faturas (PDFs) — por último" feito={p?.faturas.feito} status={p && p.faturas.semFatura > 0 ? `${p.faturas.semFatura} sem fatura 🔴 · ${p.faturas.comFatura} com fatura` : `${p?.faturas.comFatura ?? 0} com fatura`}>
-        <ReceiptsImporter onImported={() => load(month)} />
+        <ReceiptsImporter month={month} onImported={() => load(month, company)} />
       </Step>
 
       {data?.resultado && (

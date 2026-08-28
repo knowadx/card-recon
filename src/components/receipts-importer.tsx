@@ -19,8 +19,9 @@ function parseRow(fileName: string, text: string): Row {
   return { file: fileName, referenceNumber, transactionId: txId, accountId, accountName, cardLast4, amountUsd, date };
 }
 
-/** Lê os PDFs de uma pasta no navegador (pdfjs), mostra amostra e importa+cruza. */
-export default function ReceiptsImporter({ onImported }: { onImported?: () => void }) {
+/** Lê os PDFs de uma pasta no navegador (pdfjs), mostra amostra e importa+cruza.
+ *  Se `month` (YYYY-MM) for passado, importa SÓ os recibos daquele mês — não toca nos outros. */
+export default function ReceiptsImporter({ month, onImported }: { month?: string; onImported?: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<"idle" | "reading" | "ready" | "importing" | "done">("idle");
   const [progress, setProgress] = useState({ done: 0, total: 0, errors: 0 });
@@ -63,10 +64,13 @@ export default function ReceiptsImporter({ onImported }: { onImported?: () => vo
     setRows(out); setProgress({ done: all.length, total: all.length, errors }); setPhase("ready");
   }
 
+  // no Fechamento (month setado), importa SÓ os recibos daquele mês — preserva os outros
+  const toImport = month ? rows.filter((r) => r.date?.slice(0, 7) === month) : rows;
+
   async function importar() {
     setPhase("importing"); setResult(null);
     try {
-      const res = await fetch("/api/admin/import-receipts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rows) });
+      const res = await fetch("/api/admin/import-receipts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(toImport) });
       const j = await res.json();
       setResult(res.ok
         ? `✅ Importado e cruzado! · recibos: ${j.recebidos} · no banco: ${j.inseridos} · COM fatura: ${j.comFatura} · SEM fatura: ${j.metaSemFatura}`
@@ -94,6 +98,7 @@ export default function ReceiptsImporter({ onImported }: { onImported?: () => vo
       {(phase === "ready" || phase === "importing" || phase === "done") && rows.length > 0 && (
         <>
           <div className="text-sm text-slate-600">{rows.length} PDFs lidos · <strong>{comCodigo}</strong> com código{progress.errors > 0 ? ` · ${progress.errors} ilegíveis` : ""}</div>
+          {month && <div className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">Importando só <strong>{month}</strong>: {toImport.length} de {rows.length} recibos. Os outros meses da pasta NÃO são tocados.</div>}
           <div className="overflow-x-auto rounded border border-slate-100">
             <table className="w-full text-xs">
               <thead className="bg-slate-50 text-left text-slate-500"><tr><th className="px-2 py-1">Código</th><th className="px-2 py-1">Conta</th><th className="px-2 py-1">US$</th><th className="px-2 py-1">Data</th></tr></thead>
@@ -109,8 +114,8 @@ export default function ReceiptsImporter({ onImported }: { onImported?: () => vo
               </tbody>
             </table>
           </div>
-          <button onClick={importar} disabled={phase === "importing"} className="self-start rounded-md bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
-            {phase === "importing" ? "Importando e cruzando…" : `Importar e cruzar ${rows.length} recibos`}
+          <button onClick={importar} disabled={phase === "importing" || toImport.length === 0} className="self-start rounded-md bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+            {phase === "importing" ? "Importando e cruzando…" : `Importar e cruzar ${toImport.length} recibos${month ? ` de ${month}` : ""}`}
           </button>
         </>
       )}
