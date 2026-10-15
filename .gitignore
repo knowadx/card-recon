@@ -58,5 +58,5 @@ revolut_private.pem
 /receipts-parsed.json
 
 # banco de teste (vitest)
-test.db
-test.db-journal
+test*.db
+test*.db-*

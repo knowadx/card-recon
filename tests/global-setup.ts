@@ -9,13 +9,14 @@ import { createClient } from "@libsql/client";
  * Nunca toca dev.db nem produção (o caminho é fixo).
  */
 export default async function setup() {
+  const file = process.env.TEST_DB ?? "test.db";
   const sql = execFileSync(
     "npx",
     ["prisma", "migrate", "diff", "--from-empty", "--to-schema", "prisma/schema.prisma", "--script"],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
-  for (const f of ["test.db", "test.db-journal", "test.db-wal", "test.db-shm"]) rmSync(f, { force: true });
-  const db = createClient({ url: "file:./test.db" });
+  for (const suffix of ["", "-journal", "-wal", "-shm"]) rmSync(file + suffix, { force: true });
+  const db = createClient({ url: `file:./${file}` });
   await db.executeMultiple(sql);
   db.close();
 }
