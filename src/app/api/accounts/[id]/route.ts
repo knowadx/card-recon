@@ -1,9 +1,16 @@
 import { prisma } from "@/lib/db";
+import { assertAccount, assertCompany, assertOperation, guarded, requireUser } from "@/lib/access";
 
-export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export const PUT = guarded(async (request: Request, { params }: Ctx) => {
+  const user = await requireUser();
   const { id } = await params;
+  await assertAccount(user, id);
   const body = await request.json();
-  const account = await prisma.account.update({
+  if (body.companyId) await assertCompany(user, body.companyId); // mover para outra empresa: só se ela for sua
+  if (body.operationId) await assertOperation(user, body.operationId);
+  const { apiToken, ...account } = await prisma.account.update({
     where: { id },
     data: {
       companyId: body.companyId,
@@ -15,12 +22,15 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     },
     include: { company: true },
   });
-  return Response.json(account);
-}
+  // Não vaza o token pro client — só sinaliza se existe
+  return Response.json({ ...account, hasApiToken: !!apiToken });
+});
 
 /** PATCH /api/accounts/[id] — merge parcial em syncConfig (ex.: { wiseProfileId } ou { mercuryAccountId }). */
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const PATCH = guarded(async (request: Request, { params }: Ctx) => {
+  const user = await requireUser();
   const { id } = await params;
+  await assertAccount(user, id);
   const body = await request.json().catch(() => ({}));
   const acc = await prisma.account.findUnique({ where: { id }, select: { syncConfig: true } });
   if (!acc) return Response.json({ error: "account not found" }, { status: 404 });
@@ -29,10 +39,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const merged = { ...config, ...(body.syncConfig ?? {}) };
   await prisma.account.update({ where: { id }, data: { syncConfig: JSON.stringify(merged) } });
   return Response.json({ ok: true, syncConfig: merged });
-}
+});
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = guarded(async (_req: Request, { params }: Ctx) => {
+  const user = await requireUser();
   const { id } = await params;
+  await assertAccount(user, id);
   await prisma.account.delete({ where: { id } });
   return new Response(null, { status: 204 });
-}
+});

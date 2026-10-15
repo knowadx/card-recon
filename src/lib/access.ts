@@ -1,6 +1,6 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "./db";
-import { getCurrentUser, isSuperadmin, scopes } from "./auth";
+import { findAccessibleOperation, getCurrentUser, isSuperadmin, scopes } from "./auth";
 
 /**
  * Permissão por grupo — a peça ÚNICA que as rotas usam. Regras:
@@ -114,6 +114,11 @@ export async function assertHolding(user: AppUser, holdingId: string): Promise<v
   }
   const { holdingIds } = await scopes(user.id);
   if (!holdingIds.includes(holdingId)) throw new AccessError(404, "holding não encontrada");
+}
+
+/** Operação que o usuário pode usar (mesmo critério de findAccessibleOperation). */
+export async function assertOperation(user: AppUser, operationId: string): Promise<void> {
+  if (!(await findAccessibleOperation(user, operationId))) throw new AccessError(404, "operação não encontrada");
 }
 
 /** Embrulha um handler de rota: AccessError vira resposta JSON com o status certo. */

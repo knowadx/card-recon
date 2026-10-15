@@ -1,10 +1,10 @@
 import { prisma } from "@/lib/db";
-import { scopedAccountIds } from "@/lib/auth";
+import { accountScope, assertCompany, assertOperation, guarded, requireUser } from "@/lib/access";
 
-export async function GET() {
-  const scope = await scopedAccountIds();
+export const GET = guarded(async () => {
+  const user = await requireUser();
   const accounts = await prisma.account.findMany({
-    where: scope === "all" ? {} : { id: { in: scope } },
+    where: await accountScope(user),
     include: { company: true, operation: { select: { id: true, name: true } } },
     orderBy: { name: "asc" },
   });
@@ -12,11 +12,14 @@ export async function GET() {
   return Response.json(
     accounts.map(({ apiToken, ...a }) => ({ ...a, hasApiToken: !!apiToken })),
   );
-}
+});
 
-export async function POST(request: Request) {
+export const POST = guarded(async (request: Request) => {
+  const user = await requireUser();
   const body = await request.json();
-  const account = await prisma.account.create({
+  await assertCompany(user, body.companyId);
+  if (body.operationId) await assertOperation(user, body.operationId);
+  const { apiToken, ...account } = await prisma.account.create({
     data: {
       companyId: body.companyId,
       bank: body.bank,
@@ -27,5 +30,5 @@ export async function POST(request: Request) {
     },
     include: { company: true },
   });
-  return Response.json(account, { status: 201 });
-}
+  return Response.json({ ...account, hasApiToken: !!apiToken }, { status: 201 });
+});
