@@ -134,7 +134,7 @@ export function Sidebar() {
       {/* Footer */}
       <div className={`px-2 py-3 border-t border-[#e8eaed] flex items-center ${collapsed ? "justify-center gap-1 flex-col" : "justify-between px-3"}`}>
         {!collapsed && (
-          <p className="text-[11px] text-[#9ca3af]">Card Recon <span className="text-[#d1d5db]">v{process.env.NEXT_PUBLIC_BUILD_ID ?? "dev"}</span></p>
+          <p className="text-[11px] text-[#9ca3af]">PixelFinance <span className="text-[#d1d5db]">v{process.env.NEXT_PUBLIC_BUILD_ID ?? "dev"}</span></p>
         )}
         <form action="/api/auth/logout" method="post" className="inline">
           <button type="submit" title="Sair" className="p-2 rounded-lg text-[#9ca3af] hover:text-[#6b7280] hover:bg-[#f3f4f6] transition-all">

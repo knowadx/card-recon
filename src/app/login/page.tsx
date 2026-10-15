@@ -34,7 +34,7 @@ function LoginForm() {
     <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center">
       <div className="bg-white rounded-2xl border border-[#e8eaed] shadow-sm p-10 w-full max-w-sm">
         <div className="mb-8 text-center">
-          <h1 className="text-xl font-bold text-[#1a202c]">Card Recon</h1>
+          <h1 className="text-xl font-bold text-[#1a202c]">PixelFinance</h1>
           <p className="text-[13px] text-[#6b7280] mt-1">Entre com email e senha</p>
         </div>
         <form onSubmit={submit} className="space-y-4">

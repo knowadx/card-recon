@@ -1,4 +1,6 @@
-# Card Recon — Conciliação Gasto (Meta Ads) × Cobrança (Cartões)
+# PixelFinance — back-office do grupo (bancos, conciliação, documentos e prazos)
+
+> Antigo **Card Recon**. A conciliação Gasto (Meta Ads) × Cobrança (Cartões) descrita abaixo continua sendo um dos módulos.
 
 Ferramenta de **controle antifraude**: cruza o **gasto** das Contas de Anúncio do Meta
 (por BM/Conta) com as **cobranças reais** que caíram nos cartões de crédito

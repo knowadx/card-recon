@@ -6,8 +6,8 @@ import { Sidebar } from "@/components/sidebar";
 const inter = Inter({ variable: "--font-sans", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Finance Manager",
-  description: "Multi-company financial management",
+  title: "PixelFinance",
+  description: "Back-office do grupo: bancos, conciliação, documentos e prazos",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
