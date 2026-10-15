@@ -56,3 +56,7 @@ revolut_private.pem
 
 # parse local dos recibos (dados) — só na raiz, NÃO casar com src/app/receipts/
 /receipts-parsed.json
+
+# banco de teste (vitest)
+test.db
+test.db-journal

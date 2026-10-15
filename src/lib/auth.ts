@@ -1,20 +1,27 @@
 import { createHmac, scryptSync, randomBytes, timingSafeEqual } from "crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { prisma } from "./db";
+import { ACCESS_JWT_HEADER, loginConfig, verifyAccessJwt } from "./accessJwt";
 
 /**
- * Auth multi-usuário com cookie de sessão ASSINADO (stateless).
- * payload = userId.role.exp  → cookie = base64url(payload).HMAC(secret,payload)
- * O middleware (edge) só valida a assinatura+exp (sem DB). O servidor (node)
- * usa getSession()/getCurrentUser() e o escopo por empresa.
+ * Identidade de quem chama. Duas fontes, decididas por loginConfig() (src/lib/accessJwt.ts):
+ *  - login da Cloudflare LIGADO: o JWT conferido diz o e-mail; o cadastro (User ativo) diz quem é.
+ *  - DESLIGADO (até a virada): cookie de sessão ASSINADO (stateless),
+ *    payload = userId.role.exp → cookie = base64url(payload).HMAC(secret,payload).
+ * O papel e o escopo vêm SEMPRE do banco (getCurrentUser), nunca do cookie.
  */
 
 const COOKIE = "cr_session";
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 dias
 
-function secret(): string {
-  return process.env.SESSION_SECRET || process.env.APP_PASSWORD || "card-recon-dev-secret";
+export function sessionSecret(): string {
+  const s = process.env.SESSION_SECRET || process.env.APP_PASSWORD;
+  if (s) return s;
+  // Em produção, sem segredo configurado ninguém entra (fecha). Só dev/teste usa o fixo.
+  if (process.env.NODE_ENV === "production") throw new Error("SESSION_SECRET não configurado");
+  return "pixelfinance-dev-secret";
 }
+const secret = sessionSecret;
 
 function b64url(s: string): string {
   return Buffer.from(s).toString("base64url");
@@ -75,6 +82,18 @@ export async function getSession(): Promise<SessionData | null> {
 }
 
 export async function getCurrentUser() {
+  const cfg = loginConfig();
+  if (cfg.mode !== "desligado") {
+    if (cfg.mode === "incompleto") return null; // configuração errada fecha
+    let email: string;
+    try {
+      email = await verifyAccessJwt((await headers()).get(ACCESS_JWT_HEADER), cfg);
+    } catch {
+      return null;
+    }
+    const user = await prisma.user.findUnique({ where: { email } });
+    return user && user.isActive ? user : null;
+  }
   const s = await getSession();
   if (!s) return null;
   const user = await prisma.user.findUnique({ where: { id: s.userId } });
@@ -82,7 +101,7 @@ export async function getCurrentUser() {
   return user;
 }
 
-async function scopes(userId: string) {
+export async function scopes(userId: string) {
   const [h, o] = await Promise.all([
     prisma.membership.findMany({ where: { userId }, select: { holdingId: true } }),
     prisma.operationMembership.findMany({ where: { userId }, select: { operationId: true } }),
