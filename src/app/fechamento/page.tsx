@@ -234,12 +234,9 @@ export default function FechamentoPage() {
                 status={!conexoes.length ? "nenhuma operação no seu escopo"
                   : <>{conexoes.map((m) => `${m.operacao}: ${!m.conectado ? "não conectada" : m.valido ? `conectada${m.expiraEm ? ` até ${br(m.expiraEm)}` : ""}` : m.valido === false ? "expirada" : "não deu pra conferir"}`).join(" · ")} · {n(p?.meta.cobrancas ?? 0)} cobranças da Meta no mês (<Link href="/cobrancas-meta" className="text-[#00a896] hover:underline">sincronizar</Link>)</>}
                 acao={metaRuim.length > 0 && (
-                  <>
-                    <button className={btn} onClick={() => window.open(`/api/meta/auth?operationId=${metaRuim[0].operationId}`, "conectar-meta", "width=640,height=760")}>
-                      {metaRuim[0].conectado ? "Reconectar" : "Conectar"}{metaRuim.length > 1 ? ` (${metaRuim[0].operacao})` : ""}
-                    </button>
-                    <Link href="/operations" className="text-[12px] text-[#00a896] hover:underline">ou colar token</Link>
-                  </>
+                  <button className={btn} onClick={() => window.open(`/api/meta/auth?operationId=${metaRuim[0].operationId}`, "conectar-meta", "width=640,height=760")}>
+                    {metaRuim[0].conectado ? "Reconectar" : "Conectar"}{metaRuim.length > 1 ? ` (${metaRuim[0].operacao})` : ""}
+                  </button>
                 )} />
 
               <Passo n={4} titulo="Faturas PDF" estado={!total ? "pendente" : (pend?.codigoSemPdf ?? 0) === 0 && (pend?.semCodigo ?? 0) === 0 ? "ok" : comFatura ? "aviso" : "pendente"}
