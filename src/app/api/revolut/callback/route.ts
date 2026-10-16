@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { completeConsent } from "@/lib/revolut";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -9,8 +10,13 @@ const html = (body: string, status = 200) =>
     status,
   });
 
-/** GET /api/revolut/callback?code=... — empresa vem do cookie (Revolut nem sempre devolve state). */
-export async function GET(request: NextRequest) {
+/**
+ * GET /api/revolut/callback?code=... — empresa vem do cookie (Revolut nem sempre devolve state).
+ * A rota é PÚBLICA no middleware (destino do OAuth) e o `state` é só o nome da empresa (forjável):
+ * exige a sessão do administrador geral — o navegador que abriu o /api/revolut/auth é o dele.
+ */
+export const GET = guarded(async (request: NextRequest) => {
+  await requireSuperadmin();
   const code = request.nextUrl.searchParams.get("code");
   const error = request.nextUrl.searchParams.get("error");
   const company =
@@ -29,4 +35,4 @@ export async function GET(request: NextRequest) {
   } catch (e) {
     return html(`<h2>Erro ao conectar</h2><pre style="white-space:pre-wrap">${(e as Error).message}</pre>`, 500);
   }
-}
+});

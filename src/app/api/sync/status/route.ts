@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { KEY_MAP } from "@/lib/mercury";
 import { getValidAccessToken } from "@/lib/revolut";
 import { getCredentialToken } from "@/lib/credentials";
+import { accountScope, guarded, requireUser } from "@/lib/access";
 
 const MERCURY_BASE = "https://api.mercury.com/api/v1";
 
@@ -28,8 +29,11 @@ async function checkWise(token: string): Promise<{ ok: boolean; label: string }>
   }
 }
 
-export async function GET() {
+export const GET = guarded(async () => {
+  const user = await requireUser();
+  // só as contas do escopo do usuário (superadmin = todas)
   const accounts = await prisma.account.findMany({
+    where: await accountScope(user),
     select: { id: true, bank: true, apiToken: true, company: { select: { name: true } } },
   });
 
@@ -70,4 +74,4 @@ export async function GET() {
   );
 
   return Response.json(Object.fromEntries(results.map((r) => [r.accountId, { ok: r.ok, label: r.label }])));
-}
+});

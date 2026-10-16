@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -10,11 +10,10 @@ export const dynamic = "force-dynamic";
  * antigo (company "default") que só inflam a contagem de contas.
  *   - sem ?apply=1 → DRY-RUN (só mostra).
  *   - com ?apply=1 → apaga.
- * NUNCA apaga conta que tenha cobrança. Exige login.
+ * NUNCA apaga conta que tenha cobrança. Só o administrador geral (superadmin).
  */
-export async function GET(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+export const GET = guarded(async (request: Request) => {
+  await requireSuperadmin();
 
   const apply = new URL(request.url).searchParams.get("apply") === "1";
 
@@ -39,4 +38,4 @@ export async function GET(request: Request) {
 
   const del = await prisma.metaAdAccount.deleteMany({ where });
   return NextResponse.json({ apagadas: del.count });
-}
+});

@@ -3,6 +3,7 @@ import { KEY_MAP } from "@/lib/mercury";
 import { isMetaMerchant, extractMetaRef } from "@/lib/metaCheck";
 import { getCredentialToken } from "@/lib/credentials";
 import { getSyncPeriod } from "@/lib/settings";
+import { assertAccount, guarded, requireUser } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -85,7 +86,8 @@ async function fetchAllTransactions(key: string, mercuryAccountId: string, start
   }>;
 }
 
-export async function POST(request: Request) {
+export const POST = guarded(async (request: Request) => {
+  const user = await requireUser();
   const body = await request.json();
   const { mercuryAccountId, accountId, from, to, entity } = body as {
     mercuryAccountId: string;
@@ -98,6 +100,7 @@ export async function POST(request: Request) {
   if (!mercuryAccountId || !accountId) {
     return Response.json({ error: "mercuryAccountId and accountId required" }, { status: 400 });
   }
+  await assertAccount(user, accountId); // conta de outro grupo = 404
 
   const account = await prisma.account.findUnique({ where: { id: accountId }, include: { company: true } });
   if (!account) return Response.json({ error: "account not found" }, { status: 404 });
@@ -161,4 +164,4 @@ export async function POST(request: Request) {
     skipped: transactions.length - toCreate.length,
     range: { start, end },
   });
-}
+});

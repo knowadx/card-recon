@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { guarded, requireSuperadmin } from "@/lib/access";
 import { recomputeHasReceipt } from "@/lib/receipts";
 
 export const dynamic = "force-dynamic";
@@ -19,11 +19,10 @@ type Row = {
 /**
  * POST /api/admin/import-receipts — recebe o receipts-parsed.json (array) e carrega em
  * MetaReceipt. Cria a tabela se não existir. Aditivo/idempotente (skipDuplicates por
- * transactionId). Exige login.
+ * transactionId). Só o administrador geral (superadmin).
  */
-export async function POST(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+export const POST = guarded(async (request: Request) => {
+  await requireSuperadmin();
 
   // garante a tabela em prod (idempotente)
   await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "MetaReceipt" (
@@ -73,4 +72,4 @@ export async function POST(request: Request) {
   const { comFatura, metaSemFatura } = await recomputeHasReceipt();
 
   return NextResponse.json({ ok: true, recebidos: rows.length, inseridos: inserted, comFatura, metaSemFatura });
-}
+});

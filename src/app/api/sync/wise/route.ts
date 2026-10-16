@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { isMetaMerchant, extractMetaRef } from "@/lib/metaCheck";
 import { getCredentialToken } from "@/lib/credentials";
 import { getSyncPeriod } from "@/lib/settings";
+import { AccessError, assertAccount, guarded, requireUser } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -208,7 +209,8 @@ async function resolveTransferAmount(
   return null;
 }
 
-export async function POST(request: Request) {
+export const POST = guarded(async (request: Request) => {
+  const user = await requireUser();
   try {
     const body = await request.json();
     const { profileId, accountId, from, to } = body as {
@@ -221,6 +223,7 @@ export async function POST(request: Request) {
     if (!profileId || !accountId) {
       return Response.json({ error: "profileId and accountId required" }, { status: 400 });
     }
+    await assertAccount(user, accountId); // conta de outro grupo = 404
 
     const account = await prisma.account.findUnique({ where: { id: accountId }, include: { company: true } });
     if (!account) return Response.json({ error: "account not found" }, { status: 404 });
@@ -360,7 +363,8 @@ export async function POST(request: Request) {
       newActivities: newActivities.length,
     });
   } catch (e) {
+    if (e instanceof AccessError) throw e; // permissão: guarded responde 404 (não vira 500)
     console.error("Wise sync error:", e);
     return Response.json({ error: String(e) }, { status: 500 });
   }
-}
+});

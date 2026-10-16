@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { authorizeUrl, registerCompany } from "@/lib/revolut";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,8 @@ export const dynamic = "force-dynamic";
  * guarda a empresa num cookie (o Revolut nem sempre devolve o `state`) e redireciona
  * pro consentimento.
  */
-export async function GET(request: Request) {
+export const GET = guarded(async (request: Request) => {
+  await requireSuperadmin(); // configurar integração = só o administrador geral
   const url = new URL(request.url);
   const company = url.searchParams.get("company");
   const clientId = url.searchParams.get("client_id");
@@ -28,4 +30,4 @@ export async function GET(request: Request) {
     path: "/",
   });
   return res;
-}
+});

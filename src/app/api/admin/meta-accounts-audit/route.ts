@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -9,9 +9,8 @@ export const dynamic = "force-dynamic";
  * marca quais NÃO têm credencial Meta ativa (perfil antigo/desconectado). Mostra também
  * quantas cobranças cada grupo tem. Serve p/ decidir o que é "stale" antes de limpar.
  */
-export async function GET() {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+export const GET = guarded(async () => {
+  await requireSuperadmin();
 
   const [accounts, creds, charges] = await Promise.all([
     prisma.metaAdAccount.findMany({ select: { accountId: true, operationId: true, company: true } }),
@@ -53,4 +52,4 @@ export async function GET() {
     totalCobrancas: charges.length,
     grupos, // grupos sem credencial ativa = candidatos a limpeza
   });
-}
+});

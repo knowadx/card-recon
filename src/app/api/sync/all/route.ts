@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { KEY_MAP } from "@/lib/mercury";
 import { getValidAccessToken, REVOLUT_BASE } from "@/lib/revolut";
 import { getSyncPeriod } from "@/lib/settings";
+import { accountScope, assertCompany, guarded, requireUser } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -216,14 +217,17 @@ async function syncRevolut(accountId: string, companyName: string, revolutAccoun
   return { imported: candidates.length, skipped: completed.length - candidates.length };
 }
 
-export async function POST(request: Request) {
+export const POST = guarded(async (request: Request) => {
+  const user = await requireUser();
   const body = await request.json().catch(() => ({}));
   const period = await getSyncPeriod();
   const from: string = body.from || period.from;
   const company: string | undefined = body.company || undefined; // escopo de empresa (companyId)
+  if (company) await assertCompany(user, company); // empresa de outro grupo = 404
 
+  // só as contas do escopo do usuário (superadmin = todas)
   const accounts = await prisma.account.findMany({
-    where: { syncConfig: { not: null }, ...(company ? { companyId: company } : {}) },
+    where: { AND: [{ syncConfig: { not: null }, ...(company ? { companyId: company } : {}) }, await accountScope(user)] },
     include: { company: true },
   });
 
@@ -251,4 +255,4 @@ export async function POST(request: Request) {
   const totalSkipped = results.reduce((s, r) => s + (r.skipped ?? 0), 0);
 
   return Response.json({ imported: totalImported, skipped: totalSkipped, accounts: results });
-}
+});

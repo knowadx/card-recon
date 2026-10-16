@@ -1,6 +1,8 @@
 import { getValidAccessToken, REVOLUT_BASE } from "@/lib/revolut";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
-export async function GET(request: Request) {
+export const GET = guarded(async (request: Request) => {
+  await requireSuperadmin(); // depuração (transações cruas do banco) = só o administrador geral
   const { searchParams } = new URL(request.url);
   const count = parseInt(searchParams.get("count") ?? "5");
   const company = searchParams.get("company");
@@ -27,4 +29,4 @@ export async function GET(request: Request) {
 
   const raw = await res.json();
   return Response.json(raw, { status: res.ok ? 200 : 502 });
-}
+});

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { exchangeCode } from "@/lib/wise";
 import { NextRequest } from "next/server";
 import { timingSafeEqual } from "crypto";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
 const html = (body: string, status = 200) =>
   new Response(`<html><body style="font-family:sans-serif;padding:40px">${body}</body></html>`, {
@@ -9,7 +10,8 @@ const html = (body: string, status = 200) =>
     status,
   });
 
-export async function GET(request: NextRequest) {
+export const GET = guarded(async (request: NextRequest) => {
+  await requireSuperadmin(); // grava o token global do Wise = só o administrador geral
   const state = request.nextUrl.searchParams.get("state");
   const storedState = request.cookies.get("oauth_state_wise")?.value;
 
@@ -43,4 +45,4 @@ export async function GET(request: NextRequest) {
   } catch {
     return html("<h2>Erro ao conectar</h2><p>Tente novamente.</p>", 500);
   }
-}
+});

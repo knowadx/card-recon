@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -10,9 +10,8 @@ export const dynamic = "force-dynamic";
  * cartão (last4) — em quais posições o cartão é constante (= posições que codificam o cartão).
  * Também: para cada posição, se o caractere mapeia 1:1 pra um único last4 (posição discriminante).
  */
-export async function GET() {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+export const GET = guarded(async () => {
+  await requireSuperadmin();
 
   const rows = await prisma.transaction.findMany({
     where: { metaRef: { not: null }, cardLast4: { not: null } },
@@ -56,4 +55,4 @@ export async function GET() {
   }));
 
   return NextResponse.json({ totalCodigos: codes.length, posGlobal, posDiscriminante, cartoes });
-}
+});

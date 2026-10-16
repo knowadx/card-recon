@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -10,11 +10,10 @@ export const dynamic = "force-dynamic";
  * inflam o total do "Meta diz".
  *   - sem ?apply=1 → DRY-RUN: só lista o que apagaria (prova antes de apagar).
  *   - com ?apply=1 → apaga de verdade.
- * Exige usuário logado.
+ * Só o administrador geral (superadmin).
  */
-export async function GET(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+export const GET = guarded(async (request: Request) => {
+  await requireSuperadmin();
 
   const apply = new URL(request.url).searchParams.get("apply") === "1";
 
@@ -56,4 +55,4 @@ export async function GET(request: Request) {
 
   const del = await prisma.metaBillingCharge.deleteMany({ where });
   return NextResponse.json({ apagadas: del.count, contasOrfas: resumo.length, resumo });
-}
+});

@@ -31,6 +31,24 @@ async function canManageTarget(scope: { all: boolean; holdingIds: string[]; oper
   );
 }
 
+/**
+ * Senha, papel, ativo/inativo e remoção valem para a CONTA inteira (todos os grupos do usuário).
+ * O gestor não-superadmin só mexe nisso se TODOS os vínculos do alvo estão no escopo dele —
+ * senão o admin de um grupo tomaria a conta de quem também é de outro grupo.
+ */
+async function fullyInScope(scope: { all: boolean; holdingIds: string[]; operationIds: string[] }, targetId: string) {
+  if (scope.all) return true;
+  const t = await prisma.user.findUnique({
+    where: { id: targetId },
+    select: { memberships: { select: { holdingId: true } }, operationMemberships: { select: { operationId: true } } },
+  });
+  if (!t) return false;
+  return (
+    t.memberships.every((m) => scope.holdingIds.includes(m.holdingId)) &&
+    t.operationMemberships.every((m) => scope.operationIds.includes(m.operationId))
+  );
+}
+
 /** PATCH /api/users/[id] — { role?, isActive?, password?, holdingIds?, operationIds? } */
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const me = await requireManager();
@@ -39,6 +57,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const scope = await manageScope(me);
   if (!(await canManageTarget(scope, id))) return Response.json({ error: "sem acesso a esse usuário" }, { status: 403 });
   const body = await request.json().catch(() => ({}));
+  const touchesAccount = !!body.role || typeof body.isActive === "boolean" || !!body.password;
+  if (touchesAccount && id !== me.id && !(await fullyInScope(scope, id))) {
+    return Response.json({ error: "sem acesso a esse usuário" }, { status: 403 });
+  }
 
   const data: Record<string, unknown> = {};
   if (body.role) {
@@ -70,6 +92,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   if (id === me.id) return Response.json({ error: "não pode remover a si mesmo" }, { status: 400 });
   const scope = await manageScope(me);
   if (!(await canManageTarget(scope, id))) return Response.json({ error: "sem acesso a esse usuário" }, { status: 403 });
+  if (!(await fullyInScope(scope, id))) return Response.json({ error: "sem acesso a esse usuário" }, { status: 403 });
   await prisma.user.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

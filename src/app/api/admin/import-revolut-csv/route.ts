@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { guarded, requireSuperadmin } from "@/lib/access";
 import { extractMetaRef } from "@/lib/metaCheck";
 import { recomputeHasReceipt } from "@/lib/receipts";
 
@@ -33,9 +33,8 @@ function parseLine(line: string): string[] {
   return out;
 }
 
-export async function POST(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+export const POST = guarded(async (request: Request) => {
+  await requireSuperadmin();
 
   const csv = await request.text();
   const lines = csv.split(/\r?\n/).filter((l) => l.trim().length > 0);
@@ -134,4 +133,4 @@ export async function POST(request: Request) {
     gapPorCartao, // quais cartões concentram as cobranças que faltam no banco
     comFatura, metaSemFatura, // Possui Fatura recalculado
   });
-}
+});

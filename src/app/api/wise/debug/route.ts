@@ -1,3 +1,5 @@
+import { guarded, requireSuperadmin } from "@/lib/access";
+
 const WISE_BASE = "https://api.wise.com";
 
 async function safeJson(res: Response): Promise<unknown> {
@@ -6,7 +8,8 @@ async function safeJson(res: Response): Promise<unknown> {
   try { return JSON.parse(text); } catch { return { _raw: text.slice(0, 500), status: res.status }; }
 }
 
-export async function GET(request: Request) {
+export const GET = guarded(async (request: Request) => {
+  await requireSuperadmin(); // depuração (dados crus do banco + nomes das chaves) = só o administrador geral
   try {
     const { searchParams } = new URL(request.url);
     const profileId = searchParams.get("profileId");
@@ -61,4 +64,4 @@ export async function GET(request: Request) {
   } catch (e) {
     return Response.json({ error: String(e), stack: e instanceof Error ? e.stack : undefined }, { status: 500 });
   }
-}
+});

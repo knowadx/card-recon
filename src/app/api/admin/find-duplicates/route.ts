@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -9,9 +9,8 @@ export const dynamic = "force-dynamic";
  * mesma conta + dia + valor + descrição, mas com `reference` diferente (sinal de import
  * pela API E por CSV, p.ex.). NÃO apaga nada — só lista.
  */
-export async function GET() {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+export const GET = guarded(async () => {
+  await requireSuperadmin();
 
   const txs = await prisma.transaction.findMany({
     select: { id: true, accountId: true, date: true, amount: true, description: true, reference: true, metaRef: true,
@@ -43,4 +42,4 @@ export async function GET() {
     registrosExtras: totalExtra, // quanto está sendo contado a mais
     amostra: dups.slice(0, 100),
   });
-}
+});

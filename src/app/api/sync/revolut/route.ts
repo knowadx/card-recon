@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { getValidAccessToken, REVOLUT_BASE } from "@/lib/revolut";
 import { isMetaMerchant, last4Of, extractMetaRef } from "@/lib/metaCheck";
 import { getSyncPeriod } from "@/lib/settings";
+import { assertAccount, guarded, requireUser } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -41,7 +42,8 @@ async function fetchWith429Retry(url: string, init: RequestInit, maxRetries = 4)
   }
 }
 
-export async function POST(request: Request) {
+export const POST = guarded(async (request: Request) => {
+  const user = await requireUser();
   const body = await request.json().catch(() => ({}));
   const { accountId, revolutAccountId, from } = body as {
     accountId: string;
@@ -50,6 +52,7 @@ export async function POST(request: Request) {
   };
 
   if (!accountId) return Response.json({ error: "accountId required" }, { status: 400 });
+  await assertAccount(user, accountId); // conta de outro grupo = 404
 
   const account = await prisma.account.findUnique({ where: { id: accountId }, include: { company: true } });
   if (!account) return Response.json({ error: "account not found" }, { status: 404 });
@@ -185,4 +188,4 @@ export async function POST(request: Request) {
   }
 
   return Response.json({ imported, fetched, skipped: Math.max(0, fetched - imported), cardsLabeled: cardLabelByLast4.size });
-}
+});

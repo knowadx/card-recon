@@ -1,7 +1,9 @@
 import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
-export async function GET() {
+export const GET = guarded(async () => {
+  await requireSuperadmin(); // configurar integração = só o administrador geral
   const clientId = process.env.WISE_CLIENT_ID;
   const redirectUri = process.env.WISE_REDIRECT_URI;
 
@@ -22,4 +24,4 @@ export async function GET() {
     httpOnly: true, secure: true, sameSite: "lax", maxAge: 600, path: "/",
   });
   return res;
-}
+});

@@ -1,12 +1,11 @@
 import { buildJwt } from "@/lib/revolut";
-import { getCurrentUser } from "@/lib/auth";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
 /** GET /api/revolut/diag — confirma que a chave assina o JWT em produção (admin). */
-export async function GET(request: Request) {
-  const user = await getCurrentUser();
-  if (!user || user.role !== "superadmin") return Response.json({ error: "forbidden" }, { status: 403 });
+export const GET = guarded(async (request: Request) => {
+  await requireSuperadmin();
 
   const hasEnv = !!process.env.REVOLUT_PRIVATE_KEY;
   const origin = new URL(request.url).origin;
@@ -27,4 +26,4 @@ export async function GET(request: Request) {
   } catch (e) {
     return Response.json({ ok: false, keyFromEnv: hasEnv, error: (e as Error).message }, { status: 500 });
   }
-}
+});

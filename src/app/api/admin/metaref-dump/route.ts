@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/admin/metaref-dump — lista os metaRef capturados (com cartão/valor/data) e a
  * quebra [4 transação][3 conta][3 cartão]. Serve p/ verificar a extração e analisar o hash.
- * Exige login.
+ * Só o administrador geral (superadmin).
  */
-export async function GET() {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+export const GET = guarded(async () => {
+  await requireSuperadmin();
 
   const metaTotal = await prisma.transaction.count({ where: { isMetaCharge: true } });
   const withRef = await prisma.transaction.count({ where: { metaRef: { not: null } } });
@@ -60,4 +59,4 @@ export async function GET() {
       company: r.account?.company?.name ?? null,
     })),
   });
-}
+});

@@ -1,8 +1,10 @@
 import { prisma } from "@/lib/db";
 import { getValidAccessToken, REVOLUT_BASE } from "@/lib/revolut";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
 /** GET /api/revolut/accounts?accountId= — lista contas Revolut da EMPRESA daquela conta. */
-export async function GET(request: Request) {
+export const GET = guarded(async (request: Request) => {
+  await requireSuperadmin(); // integração Revolut (lista dados crus do banco) = só o administrador geral
   const accountId = new URL(request.url).searchParams.get("accountId");
   if (!accountId) return Response.json({ error: "accountId required" }, { status: 400 });
   const account = await prisma.account.findUnique({ where: { id: accountId }, include: { company: true } });
@@ -16,4 +18,4 @@ export async function GET(request: Request) {
   } catch (e) {
     return Response.json({ error: `Revolut "${account.company.name}" não conectado`, needsAuth: true, detail: (e as Error).message }, { status: 401 });
   }
-}
+});

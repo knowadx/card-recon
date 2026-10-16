@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { assertAccount, guarded, requireSuperadmin, requireUser } from "@/lib/access";
 
 const MERCURY_BASE = "https://api.mercury.com/api/v1";
 
@@ -29,18 +30,22 @@ async function fetchAccounts(label: string, key: string) {
   return [...accounts, ...credits];
 }
 
-export async function GET(request: Request) {
+export const GET = guarded(async (request: Request) => {
+  const user = await requireUser();
   const accountId = new URL(request.url).searchParams.get("accountId");
 
-  // 1 token por conta: se veio accountId, lista usando o token DAQUELA conta
+  // 1 token por conta: se veio accountId, lista usando o token DAQUELA conta (só se a conta é do escopo)
   if (accountId) {
+    await assertAccount(user, accountId);
     const acc = await prisma.account.findUnique({ where: { id: accountId } });
     if (!acc?.apiToken) return Response.json([]);
     // rótulo = nome da CONTA (não da empresa)
     return Response.json(await fetchAccounts(acc.name, acc.apiToken).catch(() => []));
   }
 
-  // Sem accountId: agrega todos os tokens conhecidos (contas + env) — retrocompat
+  // Sem accountId: agrega todos os tokens conhecidos (contas + env) — retrocompat.
+  // Tokens de TODAS as contas/grupos + chaves globais → só o administrador geral.
+  await requireSuperadmin();
   const accountsWithToken = await prisma.account.findMany({
     where: { bank: "Mercury", NOT: { apiToken: null } },
   });
@@ -60,4 +65,4 @@ export async function GET(request: Request) {
   }
   const results = await Promise.all(sources.map(({ label, key }) => fetchAccounts(label, key).catch(() => [])));
   return Response.json(results.flat());
-}
+});
