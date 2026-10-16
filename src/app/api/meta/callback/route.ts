@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
       await prisma.credential.create({ data: { issuer: "meta", company: op.name, operationId: op.id, token, secrets } });
     }
     const who = profile?.name ? ` como <strong>${escapeHtml(profile.name)}</strong>` : "";
-    return html(`<h2 style="color:#00b9a5">✓ Meta conectado (${escapeHtml(op.name)})${who}!</h2><p>Pode fechar esta aba. Rode "Sync contas Meta" na Checagem.</p>`);
+    return html(`<h2 style="color:#00b9a5">✓ Meta conectado (${escapeHtml(op.name)})${who}!</h2><p>Pode fechar esta janela e voltar ao Fechamento Meta — a tela atualiza sozinha.</p><script>setTimeout(function(){window.close()},2000)</script>`);
   } catch (e) {
     return html(`<h2>Erro ao conectar Meta</h2><pre style="white-space:pre-wrap">${escapeHtml((e as Error).message)}</pre>`, 500);
   }
