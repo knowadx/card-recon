@@ -13,7 +13,7 @@ export const GET = guarded(async (_req: Request, { params }: Ctx) => {
       account: { omit: { apiToken: true }, include: { company: true } }, // nunca devolve o token do banco
       splits: { include: { managerialCategory: true, accountingCategory: true, operation: { select: { id: true, name: true } } } },
       accountingSplits: { include: { accountingCategory: true } },
-      documents: true,
+      documents: { select: { id: true, filename: true, mimetype: true, size: true, uploadedAt: true } },
     },
   });
   if (!tx) return Response.json({ error: "not found" }, { status: 404 });

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LayoutDashboard, Building2, Landmark, Tag, ArrowLeftRight, CheckSquare, BarChart2, Settings, X, Target, DollarSign, TrendingUp, ChevronLeft, ChevronRight, LineChart, ShieldCheck, Users, LogOut, KeyRound, Layers, Workflow, Receipt, FileUp, ListChecks } from "lucide-react";
+import { LayoutDashboard, Building2, Landmark, Tag, ArrowLeftRight, CheckSquare, BarChart2, Settings, X, Target, DollarSign, TrendingUp, ChevronLeft, ChevronRight, LineChart, ShieldCheck, Users, LogOut, KeyRound, Layers, Workflow, Receipt, FileUp, ListChecks, FolderOpen, Files } from "lucide-react";
 
 const mainNav = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -11,6 +11,7 @@ const mainNav = [
   { href: "/checagem", label: "Checagem", icon: ShieldCheck },
   { href: "/cobrancas-meta", label: "Cobranças Meta", icon: Receipt },
   { href: "/receipts", label: "Faturas (PDFs)", icon: FileUp },
+  { href: "/documents", label: "Documentos", icon: FolderOpen },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/control", label: "Control", icon: CheckSquare },
   { href: "/plan", label: "Planning", icon: Target },
@@ -26,6 +27,7 @@ const settingsNav = [
   { href: "/users", label: "Users", icon: Users },
   { href: "/integracoes", label: "Integrações", icon: KeyRound },
   { href: "/categories", label: "Categories", icon: Tag },
+  { href: "/document-types", label: "Tipos de documento", icon: Files },
   { href: "/charts", label: "Charts", icon: BarChart2 },
   { href: "/exchange-rates", label: "Exchange Rates", icon: DollarSign },
 ];
@@ -36,8 +38,19 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [isSuperadmin, setIsSuperadmin] = useState(false);
 
+  // documentos vencidos + vencendo (selo no menu; muda de página → recarrega)
+  const [docAlerts, setDocAlerts] = useState(0);
+
   useEffect(() => {
     fetch("/api/me").then((r) => (r.ok ? r.json() : null)).then((me) => setIsSuperadmin(me?.role === "superadmin")).catch(() => {});
+  }, []);
+  useEffect(() => {
+    fetch("/api/documents?status=alerta").then((r) => (r.ok ? r.json() : null)).then((d) => setDocAlerts(d?.documents?.length ?? 0)).catch(() => {});
+  }, [pathname]);
+  useEffect(() => {
+    const onAlertas = (e: Event) => setDocAlerts((e as CustomEvent<number>).detail);
+    window.addEventListener("documentos:alertas", onAlertas);
+    return () => window.removeEventListener("documentos:alertas", onAlertas);
   }, []);
 
   // Control é restrito a superadmin
@@ -85,8 +98,14 @@ export function Sidebar() {
                   : "text-[#6b7280] hover:text-[#374151] hover:bg-[#f3f4f6]"
               }`}
             >
-              <Icon className={`w-[17px] h-[17px] shrink-0 ${active ? "text-[#00b9a5]" : "text-[#9ca3af]"}`} />
+              <span className="relative shrink-0">
+                <Icon className={`w-[17px] h-[17px] ${active ? "text-[#00b9a5]" : "text-[#9ca3af]"}`} />
+                {collapsed && href === "/documents" && docAlerts > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-rose-500" />}
+              </span>
               {!collapsed && label}
+              {!collapsed && href === "/documents" && docAlerts > 0 && (
+                <span title="documentos vencidos ou vencendo" className="ml-auto min-w-5 h-5 px-1.5 rounded-full bg-rose-500 text-white text-[11px] font-semibold flex items-center justify-center tabular-nums">{docAlerts}</span>
+              )}
             </Link>
           );
         })}

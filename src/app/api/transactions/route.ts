@@ -18,7 +18,7 @@ export const GET = guarded(async (request: Request) => {
       account: { omit: { apiToken: true }, include: { company: true } }, // nunca devolve o token do banco
       splits: { include: { managerialCategory: true, accountingCategory: true, operation: { select: { id: true, name: true } } } },
       accountingSplits: { include: { accountingCategory: true } },
-      documents: true,
+      documents: { select: { id: true, filename: true, mimetype: true, size: true, uploadedAt: true } },
     },
     orderBy: { date: "desc" as const },
     take: take + 1, // +1 sentinela p/ saber hasMore sem precisar do count
@@ -57,7 +57,7 @@ export const POST = guarded(async (request: Request) => {
     include: {
       account: { omit: { apiToken: true }, include: { company: true } }, // nunca devolve o token do banco
       splits: true,
-      documents: true,
+      documents: { select: { id: true, filename: true, mimetype: true, size: true, uploadedAt: true } },
     },
   });
   return Response.json(transaction, { status: 201 });

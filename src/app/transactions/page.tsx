@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Separator } from "@/components/ui/separator";
 import { Upload, Plus, X, FileText, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
+import { uploadDocument } from "@/lib/uploadClient";
 
 type Company = { id: string; name: string; color: string };
 type Account = { id: string; name: string; bank: string; currency: string; company: Company };
@@ -18,7 +19,7 @@ type Split = { amount: number; amountStr: string; note: string; accountingDate: 
 type ApiSplit = { id: string; amount: number; note: string | null; accountingDate: string | null; managerialCategory: Category | null; accountingCategory: Category | null; operation?: Operation | null };
 type AccountingSplit = { amount: number; amountStr: string; note: string; accountingDate: string; accountingCategoryId: string };
 type ApiAccountingSplit = { id: string; amount: number; note: string | null; accountingDate: string | null; accountingCategory: Category | null };
-type Document = { id: string; filename: string; path: string };
+type Document = { id: string; filename: string };
 type Transaction = {
   id: string; date: string; description: string; amount: number; currency: string; reference: string | null;
   ignored: boolean;
@@ -264,9 +265,11 @@ export default function TransactionsPage() {
 
   const uploadDoc = async (file: File) => {
     if (!selected) return;
-    const fd = new FormData();
-    fd.append("file", file);
-    await fetch(`/api/transactions/${selected.id}/documents`, { method: "POST", body: fd });
+    try {
+      await uploadDocument(file, { transactionId: selected.id });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "falha ao anexar");
+    }
     refreshTx(selected.id);
   };
 
@@ -1072,7 +1075,7 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
                 {selected.documents.length === 0
                   ? <p className="text-[13px] text-[#9ca3af]">No documents attached.</p>
                   : selected.documents.map((d) => (
-                      <a key={d.id} href={d.path} target="_blank" rel="noreferrer"
+                      <a key={d.id} href={`/api/documents/${d.id}`} target="_blank" rel="noreferrer"
                         className="flex items-center gap-2.5 text-[13px] text-[#374151] hover:text-[#00b9a5] transition-colors">
                         <FileText className="w-4 h-4 shrink-0 text-[#9ca3af]" />{d.filename}
                       </a>

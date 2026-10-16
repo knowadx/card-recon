@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/u
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from "recharts";
-import { TrendingUp, TrendingDown, Minus, Wallet, BarChart2 } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Wallet, BarChart2, FolderOpen } from "lucide-react";
 import { formatValue, unitPrefix } from "@/lib/chartFormat";
 import type { Unit, Format } from "@/lib/chartFormat";
 import Link from "next/link";
@@ -41,6 +41,38 @@ function MetricCard({ label, value, icon: Icon, accent }: {
         </div>
       </div>
       <p className="text-2xl font-bold text-[#1a202c] tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+type DocAlert = { id: string; title: string | null; filename: string; expiresAt: string; status: "vencido" | "vencendo"; company: { name: string; color: string }; type: { name: string } };
+
+/** Documentos vencidos ou vencendo — só aparece quando tem algo pra resolver. */
+function DocAlertsPanel() {
+  const [docs, setDocs] = useState<DocAlert[]>([]);
+  useEffect(() => {
+    fetch("/api/documents?status=alerta").then((r) => (r.ok ? r.json() : null)).then((d) => setDocs(d?.documents ?? [])).catch(() => {});
+  }, []);
+  if (docs.length === 0) return null;
+  return (
+    <div className="bg-white rounded-2xl border border-[#e8eaed] p-5">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[14px] font-semibold text-[#1a202c] flex items-center gap-2"><FolderOpen className="w-4 h-4 text-[#9ca3af]" />Documentos que precisam de atenção</p>
+        <Link href="/documents" className="text-[13px] text-[#00b9a5] hover:text-[#00a896] font-medium">Ver todos</Link>
+      </div>
+      <div className="divide-y divide-[#f3f4f6]">
+        {docs.slice(0, 5).map((d) => (
+          <a key={d.id} href={`/api/documents/${d.id}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 py-2.5 text-[13px] hover:bg-[#fafbfc]">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.company.color }} />
+            <span className="text-[#374151] font-medium">{d.company.name}</span>
+            <span className="text-[#6b7280] truncate">{d.type.name}{d.title ? ` · ${d.title}` : ""}</span>
+            <span className={`ml-auto shrink-0 px-2.5 py-0.5 rounded-full text-[12px] font-semibold ${d.status === "vencido" ? "bg-rose-50 text-rose-600" : "bg-amber-50 text-amber-700"}`}>
+              {d.status === "vencido" ? "venceu" : "vence"} {d.expiresAt.split("-").reverse().join("/")}
+            </span>
+          </a>
+        ))}
+      </div>
+      {docs.length > 5 && <p className="text-[12px] text-[#9ca3af] mt-2">e mais {docs.length - 5}</p>}
     </div>
   );
 }
@@ -216,6 +248,8 @@ export default function DashboardPage() {
       </div>
 
       <div className="p-8 space-y-8">
+        <DocAlertsPanel />
+
         {/* Metric cards */}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <MetricCard label={`Total in${showUsd ? " (USD)" : ""}`} value={`${showUsd ? "$" : ""}${fmt(totalIn)}`} icon={TrendingUp} accent="bg-emerald-50 text-emerald-600" />
