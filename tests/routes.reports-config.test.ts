@@ -471,13 +471,26 @@ describe("/api/settings/sync-period", () => {
   });
 });
 
-describe("/api/coverage", () => {
-  it("só superadmin (papel lido do banco: cookie forjado com role=superadmin não passa); deslogado = 401", async () => {
+describe("/api/coverage (Control)", () => {
+  it("member não vê (403, papel lido do banco: cookie forjado com role=superadmin não passa); deslogado = 401", async () => {
     expect((await call(s.users.pixel, () => coverage.GET())).status).toBe(403);
     expect((await call({ id: s.users.pixel.id, role: "superadmin" }, () => coverage.GET())).status).toBe(403);
     expect((await call(null, () => coverage.GET())).status).toBe(401);
+  });
+
+  it("superadmin vê todas as empresas; admin vê só as do grupo dele, com as transações dele", async () => {
     const root = await call(s.users.root, () => coverage.GET());
     expect(root.status).toBe(200);
     expect(root.body.companies).toHaveLength(2);
+
+    const adminPixel = await prisma.user.create({ data: { email: "adm-px@teste.com", role: "admin", passwordHash: "x:y" } });
+    await prisma.membership.create({ data: { userId: adminPixel.id, holdingId: s.holdings.pixel.id } });
+    const px = await call(adminPixel, () => coverage.GET());
+    expect(px.status).toBe(200);
+    expect(px.body.companies.map((c: { id: string }) => c.id)).toEqual([s.companies.pixel.id]);
+    expect(px.body.accounts.map((a: { id: string }) => a.id)).toEqual([s.accounts.pixel.id]);
+    const mes = Object.keys(px.body.matrix[s.companies.pixel.id]).find((m) => px.body.matrix[s.companies.pixel.id][m] > 0);
+    expect(mes).toBe("2026-10");
+    expect(JSON.stringify(px.body)).not.toContain(s.companies.outro.id);
   });
 });

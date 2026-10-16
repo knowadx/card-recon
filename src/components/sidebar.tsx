@@ -36,7 +36,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [isSuperadmin, setIsSuperadmin] = useState(false);
+  const [canSeeControl, setCanSeeControl] = useState(false); // superadmin e admins (cada um no seu escopo)
 
   // documentos vencidos + vencendo (selo no menu; muda de página → recarrega)
   const [docAlerts, setDocAlerts] = useState(0);
@@ -44,7 +44,7 @@ export function Sidebar() {
   // Papel e selo: conferidos a cada troca de página. Falha momentânea (ex.: o app reiniciando num
   // deploy) NÃO apaga o que já se sabia — senão o "Control" sumia até recarregar a página.
   useEffect(() => {
-    fetch("/api/me").then((r) => (r.ok ? r.json() : null)).then((me) => { if (me?.role) setIsSuperadmin(me.role === "superadmin"); }).catch(() => {});
+    fetch("/api/me").then((r) => (r.ok ? r.json() : null)).then((me) => { if (me?.role) setCanSeeControl(me.role === "superadmin" || me.role === "admin"); }).catch(() => {});
     fetch("/api/documents?status=alerta").then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.documents) setDocAlerts(d.documents.length); }).catch(() => {});
   }, [pathname]);
   useEffect(() => {
@@ -53,8 +53,7 @@ export function Sidebar() {
     return () => window.removeEventListener("documentos:alertas", onAlertas);
   }, []);
 
-  // Control é restrito a superadmin
-  const nav = mainNav.filter(({ href }) => href !== "/control" || isSuperadmin);
+  const nav = mainNav.filter(({ href }) => href !== "/control" || canSeeControl);
 
   const isSettingsActive = settingsNav.some(({ href }) => pathname === href || pathname.startsWith(href + "/"));
 

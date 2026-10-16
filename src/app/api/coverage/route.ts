@@ -1,17 +1,24 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { guarded, requireSuperadmin } from "@/lib/access";
+import { AccessError, accountScope, companyScope, guarded, requireUser, transactionScope } from "@/lib/access";
+import { isManager } from "@/lib/auth";
 
-// Cobertura de TODAS as empresas: só o administrador geral (papel lido do banco, nunca do cookie).
+// Control (cobertura de sincronização e categorização por empresa/mês). Papel lido do banco, nunca
+// do cookie. Superadmin vê todas as empresas; admin vê só as do grupo dele; member não vê
+// (decisão do dono em 2026-10-16).
 export const GET = guarded(async () => {
-  await requireSuperadmin();
+  const user = await requireUser();
+  if (!isManager(user.role)) throw new AccessError(403, "só administradores veem o Control");
+  const [cScope, aScope, tScope] = await Promise.all([companyScope(user), accountScope(user), transactionScope(user)]);
   try {
   const companies = await prisma.company.findMany({
+    where: cScope,
     include: {
       accounts: {
+        where: aScope,
         include: {
           transactions: {
-            where: { ignored: false },
+            where: { AND: [{ ignored: false }, tScope] },
             select: { date: true, splits: { select: { id: true } } },
           },
         },
@@ -20,12 +27,12 @@ export const GET = guarded(async () => {
     orderBy: { name: "asc" },
   });
 
+  // Datas de transação são dia "puro" gravado à meia-noite UTC: o mês sai em UTC, senão um
+  // servidor em fuso atrás do UTC jogaria o dia 1º no mês anterior.
+  const monthKey = (d: Date) => d.toISOString().slice(0, 7);
   const now = new Date();
   const months: string[] = [];
-  for (let i = 12; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-  }
+  for (let i = 12; i >= 0; i--) months.push(monthKey(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))));
 
   const matrix: Record<string, Record<string, number>> = {};
   const pendingMatrix: Record<string, Record<string, number>> = {};
@@ -39,8 +46,7 @@ export const GET = guarded(async () => {
     }
     for (const account of company.accounts) {
       for (const tx of account.transactions) {
-        const d = new Date(tx.date);
-        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const key = monthKey(new Date(tx.date));
         if (matrix[company.id][key] !== undefined) {
           matrix[company.id][key]++;
           if (tx.splits.length === 0) pendingMatrix[company.id][key]++;
@@ -63,8 +69,7 @@ export const GET = guarded(async () => {
         accountPendingMatrix[account.id][month] = 0;
       }
       for (const tx of account.transactions) {
-        const d = new Date(tx.date);
-        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const key = monthKey(new Date(tx.date));
         if (accountMatrix[account.id][key] !== undefined) {
           accountMatrix[account.id][key]++;
           if (tx.splits.length === 0) accountPendingMatrix[account.id][key]++;

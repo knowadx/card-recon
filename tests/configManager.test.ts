@@ -38,8 +38,10 @@ describe("configuração do app: superadmin e admins alteram, member só lê", (
     expect((await post()).status).not.toBe(403);
   });
 
-  it("diagnóstico interno (/coverage) continua só do superadmin", async () => {
+  it("Control (/coverage): admin vê, mas só as empresas do grupo dele", async () => {
     loginAs(admin);
-    expect((await coverage.GET()).status).toBe(403);
+    const res = await coverage.GET();
+    expect(res.status).toBe(200);
+    expect((await res.json()).companies.map((c: { id: string }) => c.id)).toEqual([s.companies.pixel.id]);
   });
 });
