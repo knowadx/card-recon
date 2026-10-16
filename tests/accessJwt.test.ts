@@ -119,6 +119,21 @@ describe("getCurrentUser com o login da Cloudflare", () => {
     expect(await getCurrentUser()).toBeNull();
   });
 
+  it("lê o pedido ANTES de tudo, mesmo sem a Cloudflare configurada (senão o Next pré-monta a página no build com 'sem usuário' — bug do /control)", async () => {
+    vi.stubEnv("ACCESS_TEAM_DOMAIN", "");
+    vi.stubEnv("ACCESS_AUD", "");
+    const estado = (globalThis as unknown as { __fakeRequest: { headers: Record<string, string> } }).__fakeRequest;
+    const original = estado.headers;
+    let leu = false;
+    Object.defineProperty(estado, "headers", { get() { leu = true; return original; }, configurable: true });
+    try {
+      expect(await getCurrentUser()).toBeNull();
+      expect(leu).toBe(true);
+    } finally {
+      Object.defineProperty(estado, "headers", { value: original, writable: true, configurable: true, enumerable: true });
+    }
+  });
+
   it("DESLIGADO (Cloudflare não configurada): ninguém entra — nem com JWT válido (o login por cookie foi removido)", async () => {
     await wipe();
     await prisma.user.create({ data: { email: "pixel@teste.com" } });

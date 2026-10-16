@@ -10,11 +10,15 @@ import type { Prisma } from "@/generated/prisma/client";
  */
 
 export async function getCurrentUser() {
+  // Lê o pedido ANTES de tudo: isso obriga o Next a montar quem usa esta função A CADA ACESSO. Sem isso,
+  // no build (sem as envs da Cloudflare) a página era pré-montada com "sem usuário" e o redirect ficava
+  // gravado — foi o que fez o /control voltar sempre pra home (2026-10-16).
+  const pedido = await headers();
   const cfg = loginConfig();
   if (cfg.mode !== "ligado") return null; // sem a Cloudflare configurada (ou mal configurada) fecha
   let email: string;
   try {
-    email = await verifyAccessJwt((await headers()).get(ACCESS_JWT_HEADER), cfg);
+    email = await verifyAccessJwt(pedido.get(ACCESS_JWT_HEADER), cfg);
   } catch {
     return null;
   }
