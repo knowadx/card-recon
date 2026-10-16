@@ -79,10 +79,11 @@ export const GET = guarded(async (request: Request) => {
     prisma.metaBillingCharge.count({ where: { chargedAt: dateRange, ...metaScope } }),
   ]);
 
-  const [contas, metaConexoes, pendentes] = await Promise.all([
+  const [contas, metaConexoes, pendentes, importacoes] = await Promise.all([
     contasDoPasso1(user, companyParam, dateRange),
     conexoesMeta(user),
     semFaturaDoMes({ ...bankBase, hasReceipt: false }),
+    importacoesDoMes(user, dateRange),
   ]);
 
   return NextResponse.json({
@@ -91,6 +92,7 @@ export const GET = guarded(async (request: Request) => {
     contas,
     metaConexoes,
     pendentes,
+    importacoes,
     companies,
     company: companyParam || null,
     month,
@@ -116,9 +118,10 @@ async function contasDoPasso1(user: AppUserLike, companyId: string, dateRange: {
     orderBy: [{ bank: "asc" }, { name: "asc" }],
   });
   const ids = contas.map((c) => c.id);
-  const [ultimas, metaNoMes, creds] = await Promise.all([
+  const [ultimas, metaNoMes, semCodigo, creds] = await Promise.all([
     prisma.transaction.groupBy({ by: ["accountId"], where: { accountId: { in: ids } }, _max: { date: true } }),
     prisma.transaction.groupBy({ by: ["accountId"], where: { accountId: { in: ids }, isMetaCharge: true, date: dateRange }, _count: { _all: true } }),
+    prisma.transaction.groupBy({ by: ["accountId"], where: { accountId: { in: ids }, isMetaCharge: true, ignored: false, metaRef: null, date: dateRange }, _count: { _all: true } }),
     prisma.credential.findMany({
       where: { company: { in: [...new Set(contas.map((c) => c.company.name))] }, isActive: true, NOT: { token: "" } },
       select: { issuer: true, company: true },
@@ -137,6 +140,7 @@ async function contasDoPasso1(user: AppUserLike, companyId: string, dateRange: {
     ultimaTransacao: dia(ultimas.find((u) => u.accountId === c.id)?._max.date),
     sincronizadaAte: dia(c.syncedThrough), // fim do último sync completo — o que libera o mês
     cobrancasMetaNoMes: metaNoMes.find((m) => m.accountId === c.id)?._count._all ?? 0,
+    semCodigoNoMes: semCodigo.find((m) => m.accountId === c.id)?._count._all ?? 0, // passo 2: CSV de qual conta falta
   }));
 }
 
@@ -191,4 +195,34 @@ async function semFaturaDoMes(where: Prisma.TransactionWhereInput) {
       codigo: t.metaRef,
     })),
   };
+}
+
+/** Histórico do mês: importações (CSV Revolut, faturas PDF) cujo conteúdo cobre o mês. Escopo: empresas visíveis. */
+async function importacoesDoMes(user: AppUserLike, dateRange: { gte: Date; lt: Date }) {
+  const ultimoDia = new Date(dateRange.lt.getTime() - 1);
+  const visiveis = isSuperadmin(user.role)
+    ? null
+    : (await prisma.company.findMany({ where: await companyScope(user), select: { id: true } })).map((c) => c.id);
+  const logs = await prisma.importLog.findMany({
+    where: {
+      AND: [
+        { OR: [{ periodFrom: null }, { periodFrom: { lte: ultimoDia } }] },
+        { OR: [{ periodTo: null }, { periodTo: { gte: dateRange.gte } }] },
+        ...(visiveis ? [{ OR: [{ companyIds: { isEmpty: true } }, { companyIds: { hasSome: visiveis } }] }] : []),
+      ],
+    },
+    include: { user: { select: { name: true, email: true } } },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+  return logs.map((l) => ({
+    id: l.id,
+    tipo: l.kind,
+    arquivo: l.filename,
+    quem: l.user?.name || l.user?.email || "—",
+    quando: l.createdAt.toISOString(),
+    de: dia(l.periodFrom),
+    ate: dia(l.periodTo),
+    resumo: JSON.parse(l.summary) as Record<string, unknown>,
+  }));
 }

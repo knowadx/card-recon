@@ -1,4 +1,4 @@
-import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
+import { createLocalJWKSet, createRemoteJWKSet, jwtVerify, type JSONWebKeySet, type JWTVerifyGetKey } from "jose";
 
 /**
  * Login pela Cloudflare Access (mesmo desenho do hash-ads: backend/app/core/access_jwt.py).
@@ -58,8 +58,15 @@ export function setAccessKeysForTests(getKey: JWTVerifyGetKey | null) {
   keysForTests = getKey;
 }
 
+let devKeys: JWTVerifyGetKey | null = null;
+
 function keysFor(team: string): JWTVerifyGetKey {
   if (keysForTests) return keysForTests;
+  // Só no desenvolvimento local (next dev): ACCESS_DEV_JWKS = chave PÚBLICA de um par local, pra ver as
+  // telas sem a Cloudflare (um proxy local assina o JWT, como a Cloudflare faz). Em produção
+  // (NODE_ENV=production) isto é ignorado — lá só valem as chaves da equipe.
+  const devJwks = process.env.NODE_ENV !== "production" ? process.env.ACCESS_DEV_JWKS : undefined;
+  if (devJwks) return (devKeys ??= createLocalJWKSet(JSON.parse(devJwks) as JSONWebKeySet));
   if (!remoteKeys || remoteKeys.team !== team) {
     remoteKeys = { team, getKey: createRemoteJWKSet(new URL(`https://${team}/cdn-cgi/access/certs`)) };
   }

@@ -11,13 +11,15 @@ const ON = { ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD };
 
 let privateKey: CryptoKey;
 let otherKey: CryptoKey;
+let chavesDoArquivo: ReturnType<typeof createLocalJWKSet>;
 
 beforeAll(async () => {
   const kp = await generateKeyPair("RS256");
   privateKey = kp.privateKey;
   otherKey = (await generateKeyPair("RS256")).privateKey;
   const jwk = { ...(await exportJWK(kp.publicKey)), kid: "k1", alg: "RS256" };
-  setAccessKeysForTests(createLocalJWKSet({ keys: [jwk] }));
+  chavesDoArquivo = createLocalJWKSet({ keys: [jwk] });
+  setAccessKeysForTests(chavesDoArquivo);
 });
 
 afterEach(() => {
@@ -131,6 +133,26 @@ describe("getCurrentUser com o login da Cloudflare", () => {
       expect(leu).toBe(true);
     } finally {
       Object.defineProperty(estado, "headers", { value: original, writable: true, configurable: true, enumerable: true });
+    }
+  });
+
+  it("chave de desenvolvimento (ACCESS_DEV_JWKS) é IGNORADA em produção: só valem as chaves da equipe", async () => {
+    // par local de "desenvolvimento" — diferente da chave dos testes
+    const dev = await generateKeyPair("RS256");
+    const devJwk = { ...(await exportJWK(dev.publicKey)), kid: "dev", alg: "RS256" };
+    const tokenDev = await new SignJWT({ email: "pixel@teste.com" }).setProtectedHeader({ alg: "RS256", kid: "dev" })
+      .setIssuer(`https://${TEAM}`).setAudience(AUD).setIssuedAt().setExpirationTime("5m").sign(dev.privateKey);
+    vi.stubEnv("ACCESS_TEAM_DOMAIN", TEAM);
+    vi.stubEnv("ACCESS_AUD", AUD);
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ACCESS_DEV_JWKS", JSON.stringify({ keys: [devJwk] }));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("sem rede no teste", { status: 503 }))); // "chaves da equipe" fora do ar
+    setAccessKeysForTests(null);
+    try {
+      expect(await reason(verifyAccessJwt(tokenDev))).not.toBe("ok");
+    } finally {
+      vi.unstubAllGlobals();
+      setAccessKeysForTests(chavesDoArquivo);
     }
   });
 

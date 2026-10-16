@@ -312,6 +312,7 @@ model User {
   memberships          Membership[]
   operationMemberships OperationMembership[]
   documentsUploaded    Document[]
+  importLogs           ImportLog[]
 }
 
 // Acesso de um usuário a um HOLDING (empresas e contas herdam do holding)
@@ -421,4 +422,21 @@ model CardWhitelist {
 
   @@unique([last4, company])
   @@index([last4])
+}
+
+/// Histórico de importações do Fechamento Meta (CSV da Revolut, faturas PDF): o que entrou, quando,
+/// por quem e o resultado — o arquivo em si não é guardado (só o que foi lido dele).
+model ImportLog {
+  id         String    @id @default(cuid())
+  kind       String // "csv_revolut" | "faturas_pdf"
+  filename   String? // nome do arquivo (CSV) ou da pasta/lote (PDFs) que a pessoa subiu
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  periodFrom DateTime? @db.Date // datas cobertas pelo conteúdo
+  periodTo   DateTime? @db.Date
+  companyIds String[] // empresas afetadas (CSV: das transações que receberam código); vazio = sem empresa (PDFs)
+  summary    String // JSON com as contagens do resultado
+  createdAt  DateTime  @default(now())
+
+  @@index([createdAt])
 }

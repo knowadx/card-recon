@@ -34,6 +34,13 @@ function parseLine(line: string): string[] {
   return out;
 }
 
+/** Nome do arquivo que a tela manda no cabeçalho x-filename (codificado — pode ter acento). */
+function nomeDoArquivo(request: Request): string | null {
+  const raw = request.headers.get("x-filename");
+  if (!raw) return null;
+  try { return decodeURIComponent(raw).slice(0, 200); } catch { return raw.slice(0, 200); }
+}
+
 export const POST = guarded(async (request: Request) => {
   // superadmin e admins (passos 2 e 4 do Fechamento Meta — decisão do dono em 2026-10-16); member não
   const user = await requireUser();
@@ -77,18 +84,22 @@ export const POST = guarded(async (request: Request) => {
   // só as transações do grupo de quem importa (superadmin = todas): admin nunca grava código em transação de outro grupo
   const txs = await prisma.transaction.findMany({
     where: { AND: [{ reference: { startsWith: "revolut:" } }, await transactionScope(user)] },
-    select: { id: true, reference: true, metaRef: true },
+    select: { id: true, reference: true, metaRef: true, account: { select: { name: true, companyId: true } } },
   });
 
   // monta updates (id da transação → metaRef), só onde o UUID do CSV bate
   const updates: { id: string; metaRef: string }[] = [];
   const matched = new Set<string>(); // UUIDs do CSV que acharam transação no banco
   let jaTinha = 0;
+  const porConta: Record<string, number> = {}; // códigos que este CSV casou, por conta (pro histórico)
+  const empresas = new Set<string>();
   for (const t of txs) {
     const uuid = (t.reference ?? "").split(":")[1];
     const row = uuid ? refByUuid.get(uuid) : undefined;
     if (!row) continue;
     matched.add(uuid);
+    porConta[t.account.name] = (porConta[t.account.name] ?? 0) + 1;
+    empresas.add(t.account.companyId);
     if (t.metaRef && t.metaRef.toLowerCase() === row.code) { jaTinha++; continue; }
     updates.push({ id: t.id, metaRef: row.code });
   }
@@ -124,6 +135,20 @@ export const POST = guarded(async (request: Request) => {
 
   // recalcula "Possui Fatura" (agora que os códigos da Revolut entraram)
   const { comFatura, metaSemFatura } = await recomputeHasReceipt();
+
+  // histórico (Fechamento Meta → "Importações deste mês"): o que entrou, de quando, por quem e o resultado
+  const datas = [...refByUuid.values()].map((r) => r.date.slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+  await prisma.importLog.create({
+    data: {
+      kind: "csv_revolut",
+      filename: nomeDoArquivo(request),
+      userId: user.id,
+      periodFrom: datas.length ? new Date(`${datas[0]}T00:00:00.000Z`) : null,
+      periodTo: datas.length ? new Date(`${datas[datas.length - 1]}T00:00:00.000Z`) : null,
+      companyIds: [...empresas],
+      summary: JSON.stringify({ linhasCsv: lines.length - 1, comCodigoNoCsv: refByUuid.size, gravados, jaTinham: jaTinha, semTransacaoNoBanco: naoAchados, porConta }),
+    },
+  });
 
   return NextResponse.json({
     linhasCsv: lines.length - 1,

@@ -58,5 +58,22 @@ export const POST = guarded(async (request: Request) => {
   // recalcula "Possui Fatura": cobrança Meta cujo código bate com um PDF salvo
   const { comFatura, metaSemFatura } = await recomputeHasReceipt();
 
+  // histórico (Fechamento Meta → "Importações deste mês"); faturas não são de uma empresa só
+  const datas = data.map((d) => d.date).filter((d): d is Date => !!d && !Number.isNaN(d.getTime())).sort((a, b) => a.getTime() - b.getTime());
+  const raw = request.headers.get("x-filename");
+  let filename: string | null = null;
+  try { filename = raw ? decodeURIComponent(raw).slice(0, 200) : null; } catch { filename = raw?.slice(0, 200) ?? null; }
+  await prisma.importLog.create({
+    data: {
+      kind: "faturas_pdf",
+      filename,
+      userId: user.id,
+      periodFrom: datas[0] ?? null,
+      periodTo: datas[datas.length - 1] ?? null,
+      companyIds: [],
+      summary: JSON.stringify({ recebidos: rows.length, inseridos: inserted, comFatura, metaSemFatura }),
+    },
+  });
+
   return NextResponse.json({ ok: true, recebidos: rows.length, inseridos: inserted, comFatura, metaSemFatura });
 });
