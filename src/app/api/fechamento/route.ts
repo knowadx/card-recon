@@ -4,6 +4,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { accessibleOperationsWhere, isSuperadmin, scopes } from "@/lib/auth";
 import { accountScope, assertCompany, companyScope, guarded, requireUser, transactionScope } from "@/lib/access";
 import { metaTokenStatus } from "@/lib/meta";
+import { statusDoMes } from "@/lib/importStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -35,8 +36,29 @@ export const GET = guarded(async (request: Request) => {
   // empresas que o usuário enxerga (pra o seletor de escopo)
   const companies = await prisma.company.findMany({ where: await companyScope(user), select: { id: true, name: true }, orderBy: { name: "asc" } });
 
-  const month = params.get("month") && /^\d{4}-\d{2}$/.test(params.get("month")!) ? params.get("month")! : meses[0];
-  if (!month) return NextResponse.json({ mesesDisponiveis: meses, companies, month: null });
+  // cada mês: liberado só com a importação terminada (src/lib/importStatus.ts — regra única)
+  const contasDoEscopo = await prisma.account.findMany({
+    where: { AND: [await accountScope(user), ...(companyParam ? [{ companyId: companyParam }] : [])] },
+    select: { name: true, bank: true, syncConfig: true, syncedThrough: true },
+  });
+  const paraStatus = contasDoEscopo.map((c) => ({ nome: c.name, banco: c.bank, configurada: !!c.syncConfig, syncedThrough: c.syncedThrough }));
+  const mesesStatus = Object.fromEntries(meses.map((m) => [m, statusDoMes(m, paraStatus, agora)]));
+
+  // sem mês pedido: o mais recente LIBERADO (o mês corrente nunca está)
+  const pedido = params.get("month") && /^\d{4}-\d{2}$/.test(params.get("month")!) ? params.get("month")! : null;
+  const month = pedido ?? meses.find((m) => mesesStatus[m].liberado) ?? meses[0];
+  if (!month) return NextResponse.json({ mesesDisponiveis: meses, mesesStatus, companies, month: null });
+  const status = mesesStatus[month] ?? statusDoMes(month, paraStatus, agora);
+  if (!status.liberado) {
+    // mês com a importação incompleta: não dá pra conferir — devolve só o motivo (e o passo 1, pra ver o que falta)
+    const mStartB = new Date(`${month}-01T00:00:00.000Z`);
+    const mEndB = new Date(mStartB); mEndB.setUTCMonth(mEndB.getUTCMonth() + 1);
+    return NextResponse.json({
+      mesesDisponiveis: meses, mesesStatus, companies, company: companyParam || null, month,
+      bloqueado: status.motivo,
+      contas: await contasDoPasso1(user, companyParam, { gte: mStartB, lt: mEndB }),
+    });
+  }
 
   // escopo: 1 empresa selecionada (já conferida acima) e, sempre, só as transações do grupo do usuário
   const accountWhere = companyParam ? { companyId: { in: [companyParam] } } : undefined;
@@ -65,6 +87,7 @@ export const GET = guarded(async (request: Request) => {
 
   return NextResponse.json({
     mesesDisponiveis: meses,
+    mesesStatus,
     contas,
     metaConexoes,
     pendentes,
@@ -89,7 +112,7 @@ const dia = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : 
 async function contasDoPasso1(user: AppUserLike, companyId: string, dateRange: { gte: Date; lt: Date }) {
   const contas = await prisma.account.findMany({
     where: { AND: [await accountScope(user), ...(companyId ? [{ companyId }] : [])] },
-    select: { id: true, name: true, bank: true, currency: true, syncConfig: true, apiToken: true, company: { select: { id: true, name: true } } },
+    select: { id: true, name: true, bank: true, currency: true, syncConfig: true, syncedThrough: true, apiToken: true, company: { select: { id: true, name: true } } },
     orderBy: [{ bank: "asc" }, { name: "asc" }],
   });
   const ids = contas.map((c) => c.id);
@@ -112,6 +135,7 @@ async function contasDoPasso1(user: AppUserLike, companyId: string, dateRange: {
     configurada: !!c.syncConfig, // já sincronizou uma vez (o "Sincronizar todas" só pega estas)
     temChave: c.bank === "Revolut" ? temCred("revolut", c.company.name) : !!c.apiToken || temCred(c.bank.toLowerCase(), c.company.name),
     ultimaTransacao: dia(ultimas.find((u) => u.accountId === c.id)?._max.date),
+    sincronizadaAte: dia(c.syncedThrough), // fim do último sync completo — o que libera o mês
     cobrancasMetaNoMes: metaNoMes.find((m) => m.accountId === c.id)?._count._all ?? 0,
   }));
 }

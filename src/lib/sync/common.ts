@@ -1,3 +1,4 @@
+import { prisma } from "@/lib/db";
 /**
  * Peças comuns do sync de bancos (src/lib/sync/*). Cada banco tem UMA implementação, usada pela
  * rota do banco (/api/sync/mercury|wise|revolut) e pelo /api/sync/all.
@@ -18,4 +19,12 @@ export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, in
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return out;
+}
+
+/**
+ * Marca até quando a conta está sincronizada (fim da janela do sync que TERMINOU). O Fechamento
+ * Meta só libera um mês quando toda conta configurada passou do fim dele (src/lib/importStatus.ts).
+ */
+export async function markSynced(accountId: string, through: Date): Promise<void> {
+  await prisma.account.update({ where: { id: accountId }, data: { syncedThrough: through } });
 }

@@ -7,12 +7,14 @@ import ReceiptsImporter from "@/components/receipts-importer";
 type Passo = { feito: boolean };
 type Conta = {
   id: string; nome: string; banco: string; empresa: string; moeda: string;
-  manual: boolean; configurada: boolean; temChave: boolean; ultimaTransacao: string | null; cobrancasMetaNoMes: number;
+  manual: boolean; configurada: boolean; temChave: boolean; ultimaTransacao: string | null; sincronizadaAte: string | null; cobrancasMetaNoMes: number;
 };
 type ConexaoMeta = { operationId: string; operacao: string; conectado: boolean; valido: boolean | null; expiraEm: string | null; erro: string | null };
 type Pendente = { id: string; data: string; banco: string; conta: string; empresa: string; cartao: string | null; descricao: string; valor: number; moeda: string; codigo: string | null };
 type Data = {
   mesesDisponiveis?: string[];
+  mesesStatus?: Record<string, { liberado: boolean; motivo: string | null }>;
+  bloqueado?: string | null; // mês pedido com a importação incompleta → só o motivo
   companies?: { id: string; name: string }[];
   company?: string | null;
   month?: string | null;
@@ -126,11 +128,30 @@ export default function FechamentoPage() {
           </label>
           <label className="flex flex-col gap-1 text-xs text-slate-500">mês
             <select className="rounded-md border border-slate-300 px-2 py-1 text-sm" value={month} onChange={(e) => setMonth(e.target.value)}>
-              {(data?.mesesDisponiveis ?? []).map((m) => <option key={m} value={m}>{m}</option>)}
+              {(data?.mesesDisponiveis ?? []).map((m) => {
+                const st = data?.mesesStatus?.[m];
+                return <option key={m} value={m} disabled={st ? !st.liberado : false}>{m}{st && !st.liberado ? " — bloqueado" : ""}</option>;
+              })}
             </select>
           </label>
         </div>
       </div>
+
+      {(() => {
+        const bloqueados = (data?.mesesDisponiveis ?? []).filter((m) => data?.mesesStatus?.[m] && !data.mesesStatus[m].liberado).slice(0, 3);
+        return bloqueados.length > 0 && (
+          <div className="text-xs text-slate-500">
+            <span className="font-medium text-slate-600">Só dá pra conferir mês com a importação terminada</span> (o mês acabou e toda conta configurada foi sincronizada depois dele — na aba <Link href="/accounts" className="text-indigo-600 hover:underline">Accounts</Link>).
+            {bloqueados.map((m) => <div key={m}>· {m}: {data?.mesesStatus?.[m]?.motivo}</div>)}
+          </div>
+        );
+      })()}
+
+      {data?.bloqueado && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Ainda não dá pra conferir <strong>{month}</strong>: {data.bloqueado}. Sincronize na aba <Link href="/accounts" className="underline">Accounts</Link> e volte.
+        </div>
+      )}
 
       {msg && (
         <div className={`rounded-md border px-3 py-2 text-sm ${msgCor}`}>
@@ -142,11 +163,12 @@ export default function FechamentoPage() {
         <div className="flex flex-col gap-2">
           <div className="text-xs text-slate-500">Transações novas entram pela aba <Link href="/accounts" className={link}>Accounts</Link> (sincronizar). Aqui só confere se cada conta já tem dados do mês.</div>
           <table className="w-full text-sm">
-            <thead><tr className="text-left text-xs text-slate-400"><th className="py-1 font-medium">Conta</th><th className="font-medium">Dados até</th><th className="font-medium">Meta no mês</th><th className="font-medium text-right">Situação</th></tr></thead>
+            <thead><tr className="text-left text-xs text-slate-400"><th className="py-1 font-medium">Conta</th><th className="font-medium">Sincronizada até</th><th className="font-medium">Dados até</th><th className="font-medium">Meta no mês</th><th className="font-medium text-right">Situação</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {(data?.contas ?? []).map((c) => (
                 <tr key={c.id}>
                   <td className="py-1.5"><span className="text-slate-800">{c.banco}</span> <span className="text-slate-500">· {c.nome}</span></td>
+                  <td className="tabular-nums text-slate-600">{br(c.sincronizadaAte)}</td>
                   <td className="tabular-nums text-slate-600">{br(c.ultimaTransacao)}</td>
                   <td className="tabular-nums text-slate-600">{c.cobrancasMetaNoMes}</td>
                   <td className="text-right text-xs">
@@ -162,38 +184,43 @@ export default function FechamentoPage() {
         </div>
       </Step>
 
-      <Step n={2} title="Código Revolut (CSV do mês)" feito={p?.revolutCsv.feito} status={p && p.revolutCsv.semCodigo > 0 ? `${p.revolutCsv.semCodigo} cobranças Revolut sem código` : "todas com código"}>
-        <label className={btn + " cursor-pointer inline-block"}>
-          {busy === "CSV da Revolut" ? "Importando…" : "Subir CSV da Revolut"}
-          <input type="file" accept=".csv,text/csv" className="hidden" disabled={busy !== null} onChange={(e) => { const f = e.target.files?.[0]; if (f) onCsv(f); e.target.value = ""; }} />
-        </label>
-        <span className="ml-2 text-xs text-slate-400">a API da Revolut não manda o código “Facebk *…” — ele vem do extrato em CSV</span>
-      </Step>
+      {/* mês com a importação incompleta: só o passo 1 (pra ver qual conta falta sincronizar) */}
+      {!data?.bloqueado && (
+        <>
+        <Step n={2} title="Código Revolut (CSV do mês)" feito={p?.revolutCsv.feito} status={p && p.revolutCsv.semCodigo > 0 ? `${p.revolutCsv.semCodigo} cobranças Revolut sem código` : "todas com código"}>
+          <label className={btn + " cursor-pointer inline-block"}>
+            {busy === "CSV da Revolut" ? "Importando…" : "Subir CSV da Revolut"}
+            <input type="file" accept=".csv,text/csv" className="hidden" disabled={busy !== null} onChange={(e) => { const f = e.target.files?.[0]; if (f) onCsv(f); e.target.value = ""; }} />
+          </label>
+          <span className="ml-2 text-xs text-slate-400">a API da Revolut não manda o código “Facebk *…” — ele vem do extrato em CSV</span>
+        </Step>
 
-      <Step n={3} title="Cobranças Meta (só este mês)" feito={p?.meta.feito} status={`${p?.meta.cobrancas ?? 0} cobranças do Meta`}>
-        <div className="flex flex-col gap-2">
-          {(data?.metaConexoes ?? []).length === 0 && <div className="text-xs text-slate-400">Nenhuma operação no seu escopo.</div>}
-          {(data?.metaConexoes ?? []).map((m) => (
-            <div key={m.operationId} className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-slate-800">{m.operacao}:</span>
-              {!m.conectado ? <span className="text-amber-700">não conectado</span>
-                : m.valido ? <span className="text-emerald-700">conectado{m.expiraEm ? ` (vale até ${br(m.expiraEm)})` : ""}</span>
-                : m.valido === false ? <span className="text-red-700">expirado/inválido — {m.erro}</span>
-                : <span className="text-slate-500">não deu pra conferir ({m.erro})</span>}
-              {m.valido !== true && (
-                <button className={btnSm} onClick={() => window.open(`/api/meta/auth?operationId=${m.operationId}`, "conectar-meta", "width=640,height=760")}>
-                  {m.conectado ? "Reconectar Meta" : "Conectar Meta"}
-                </button>
-              )}
-            </div>
-          ))}
-          <div className="text-xs text-slate-500">As cobranças da Meta são sincronizadas na aba <Link href="/cobrancas-meta" className={link}>Cobranças Meta</Link> (escolha o mês lá).</div>
-        </div>
-      </Step>
+        <Step n={3} title="Cobranças Meta (só este mês)" feito={p?.meta.feito} status={`${p?.meta.cobrancas ?? 0} cobranças do Meta`}>
+          <div className="flex flex-col gap-2">
+            {(data?.metaConexoes ?? []).length === 0 && <div className="text-xs text-slate-400">Nenhuma operação no seu escopo.</div>}
+            {(data?.metaConexoes ?? []).map((m) => (
+              <div key={m.operationId} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-slate-800">{m.operacao}:</span>
+                {!m.conectado ? <span className="text-amber-700">não conectado</span>
+                  : m.valido ? <span className="text-emerald-700">conectado{m.expiraEm ? ` (vale até ${br(m.expiraEm)})` : ""}</span>
+                  : m.valido === false ? <span className="text-red-700">expirado/inválido — {m.erro}</span>
+                  : <span className="text-slate-500">não deu pra conferir ({m.erro})</span>}
+                {m.valido !== true && (
+                  <button className={btnSm} onClick={() => window.open(`/api/meta/auth?operationId=${m.operationId}`, "conectar-meta", "width=640,height=760")}>
+                    {m.conectado ? "Reconectar Meta" : "Conectar Meta"}
+                  </button>
+                )}
+              </div>
+            ))}
+            <div className="text-xs text-slate-500">As cobranças da Meta são sincronizadas na aba <Link href="/cobrancas-meta" className={link}>Cobranças Meta</Link> (escolha o mês lá).</div>
+          </div>
+        </Step>
 
-      <Step n={4} title="Faturas (PDFs) — por último" feito={p?.faturas.feito} status={p && p.faturas.semFatura > 0 ? `${p.faturas.semFatura} sem fatura 🔴 · ${p.faturas.comFatura} com fatura` : `${p?.faturas.comFatura ?? 0} com fatura`}>
-        <ReceiptsImporter month={month} onImported={reload} />
-      </Step>
+        <Step n={4} title="Faturas (PDFs) — por último" feito={p?.faturas.feito} status={p && p.faturas.semFatura > 0 ? `${p.faturas.semFatura} sem fatura 🔴 · ${p.faturas.comFatura} com fatura` : `${p?.faturas.comFatura ?? 0} com fatura`}>
+          <ReceiptsImporter month={month} onImported={reload} />
+        </Step>
+        </>
+      )}
 
       {data?.resultado && (
         <div className="rounded-lg border border-slate-200 bg-white p-4 flex flex-col gap-3">

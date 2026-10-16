@@ -4,7 +4,7 @@ import { NO_OWN_TOKEN_MESSAGE, resolveBankToken } from "@/lib/credentials";
 import { isSuperadmin } from "@/lib/auth";
 import { getSyncPeriod } from "@/lib/settings";
 import { assertAccount, type AppUser } from "@/lib/access";
-import { mapLimit, type SyncOutcome } from "./common";
+import { mapLimit, markSynced, type SyncOutcome } from "./common";
 
 const WISE_BASE = "https://api.wise.com";
 
@@ -414,6 +414,7 @@ export async function syncWiseAccount(opts: {
       data: { syncConfig: JSON.stringify({ wiseProfileId: profileId }) },
     });
   }
+  await markSynced(accountId, new Date(end)); // leu a janela inteira (até hoje, ou o "to" pedido)
 
   return {
     status: 200,

@@ -68,18 +68,19 @@ model Company {
 }
 
 model Account {
-  id           String        @id @default(cuid())
-  companyId    String
-  company      Company       @relation(fields: [companyId], references: [id])
-  bank         String
-  currency     String
-  name         String
-  apiToken     String? // token da API do banco — 1 token por conta (ex.: Mercury)
-  syncConfig   String? // JSON: { mercuryAccountId?, mercuryEntity?, wiseProfileId? }
-  operationId  String? // operação dona desta conta (as transações herdam)
-  operation    Operation?    @relation(fields: [operationId], references: [id])
-  createdAt    DateTime      @default(now())
-  transactions Transaction[]
+  id            String        @id @default(cuid())
+  companyId     String
+  company       Company       @relation(fields: [companyId], references: [id])
+  bank          String
+  currency      String
+  name          String
+  apiToken      String? // token da API do banco — 1 token por conta (ex.: Mercury)
+  syncConfig    String? // JSON: { mercuryAccountId?, mercuryEntity?, wiseProfileId? }
+  syncedThrough DateTime? // fim da janela do último sync COMPLETO (o sync vai até hoje) — libera o Fechamento Meta do mês
+  operationId   String? // operação dona desta conta (as transações herdam)
+  operation     Operation?    @relation(fields: [operationId], references: [id])
+  createdAt     DateTime      @default(now())
+  transactions  Transaction[]
 
   @@index([companyId])
   @@index([operationId])

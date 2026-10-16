@@ -4,7 +4,7 @@ import { NO_OWN_TOKEN_MESSAGE, resolveBankToken } from "@/lib/credentials";
 import { isSuperadmin } from "@/lib/auth";
 import { getSyncPeriod } from "@/lib/settings";
 import { assertAccount, type AppUser } from "@/lib/access";
-import type { SyncOutcome } from "./common";
+import { markSynced, type SyncOutcome } from "./common";
 
 const MERCURY_BASE = "https://api.mercury.com/api/v1";
 
@@ -128,7 +128,10 @@ export async function syncMercuryAccount(opts: {
     (tx) => tx.status !== "failed" && tx.status !== "cancelled" && !existingRefs.has(tx.id)
   );
 
+  // terminou de ler a janela inteira → a conta está sincronizada até o fim dela
+  const ate = to ? new Date(`${to}T23:59:59.999Z`) : new Date();
   if (toCreate.length === 0) {
+    await markSynced(accountId, ate);
     return { status: 200, body: { imported: 0, skipped: transactions.length } };
   }
 
@@ -157,6 +160,7 @@ export async function syncMercuryAccount(opts: {
     });
   }
 
+  await markSynced(accountId, ate);
   return {
     status: 200,
     body: { imported: toCreate.length, skipped: transactions.length - toCreate.length, range: { start, end } },

@@ -262,6 +262,31 @@ describe("/api/checagem", () => {
 
 describe("/api/fechamento", () => {
   const get = (q = "") => () => fechamento.GET(req(`/api/fechamento?month=2026-10${q}`));
+  // "hoje" = 15/11/2026: outubro já acabou (o Fechamento Meta só confere mês encerrado e importado)
+  beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-15T12:00:00Z") }); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("mês com a importação incompleta fica BLOQUEADO (com o motivo); sincronizada depois do fim, libera", async () => {
+    await prisma.account.update({ where: { id: s.accounts.pixel.id }, data: { syncConfig: JSON.stringify({ mercuryAccountId: "m1" }), syncedThrough: new Date("2026-10-20T00:00:00Z") } });
+    const r = await call(s.users.pixel, get());
+    expect(r.status).toBe(200);
+    expect(r.body.bloqueado).toContain("falta sincronizar depois de 31/10/2026");
+    expect(r.body.passos).toBeUndefined(); // nada de conferência num mês incompleto
+    expect(r.body.contas.map((c: { id: string }) => c.id)).toEqual([s.accounts.pixel.id]); // mas mostra qual conta falta
+    expect(r.body.mesesStatus["2026-10"].liberado).toBe(false);
+    expect(r.body.mesesStatus["2026-11"]).toEqual({ liberado: false, motivo: "o mês ainda não acabou" });
+
+    await prisma.account.update({ where: { id: s.accounts.pixel.id }, data: { syncedThrough: new Date("2026-11-02T00:00:00Z") } });
+    const ok = await call(s.users.pixel, get());
+    expect(ok.body.bloqueado).toBeUndefined();
+    expect(ok.body.passos.bancos.transacoesMeta).toBe(1);
+  });
+
+  it("sem mês pedido abre o mês mais recente LIBERADO (nunca o corrente)", async () => {
+    const r = await call(s.users.pixel, () => fechamento.GET(req("/api/fechamento")));
+    expect(r.body.month).toBe("2026-10");
+    expect(r.body.bloqueado).toBeUndefined();
+  });
 
   it("contagens só do próprio grupo; cobranças Meta seguem a operação; superadmin vê tudo", async () => {
     const pixel = await call(s.users.pixel, get());
@@ -290,7 +315,7 @@ describe("/api/fechamento", () => {
     expect(body.mesesDisponiveis[0]).toBe(atual);
     expect(body.mesesDisponiveis.at(-1)).toBe("2026-05");
     expect(body.mesesDisponiveis).toContain("2026-07");
-    expect(body.month).toBe(atual);
+    expect(body.month).toBe("2026-10"); // abre o mais recente LIBERADO — o corrente (atual) nunca está
   });
 
   it("passo 1: só as contas do grupo, com config/chave/última data — e nunca a chave do banco", async () => {

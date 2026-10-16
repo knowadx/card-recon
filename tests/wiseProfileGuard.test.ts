@@ -32,6 +32,7 @@ describe("sync Wise confere o dono do perfil", () => {
     expect((await res.json()).error).toMatch(/não é da empresa "Pixel Ads LLC"/);
     expect(await importadas()).toBe(antes);
     expect((await prisma.account.findUniqueOrThrow({ where: { id: acc.wise.id } })).syncConfig).toBeNull();
+    expect((await prisma.account.findUniqueOrThrow({ where: { id: acc.wise.id } })).syncedThrough).toBeNull(); // recusado não conta como sincronizado
   });
 
   it("perfil já ligado a OUTRA conta = 400 (duplicaria as transações)", async () => {
@@ -46,7 +47,11 @@ describe("sync Wise confere o dono do perfil", () => {
 
   it("mesmo nome com caixa/sufixo diferente passa (PIXEL ADS = Pixel Ads LLC)", async () => {
     installFakeBanks({ wise: { [WISE_PROFILE]: { ...wiseFixture(), profileName: "PIXEL ADS" } } });
+    const antes = Date.now();
     expect((await sync()).status).toBe(200);
+    // sync que TERMINA marca até quando a conta está sincronizada (libera o Fechamento Meta do mês)
+    const ate = (await prisma.account.findUniqueOrThrow({ where: { id: acc.wise.id } })).syncedThrough;
+    expect(ate && ate.getTime() >= antes - 1000).toBe(true);
     expect(JSON.parse((await prisma.account.findUniqueOrThrow({ where: { id: acc.wise.id } })).syncConfig!)).toEqual({ wiseProfileId: WISE_PROFILE });
   });
 

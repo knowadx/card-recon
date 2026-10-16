@@ -3,7 +3,7 @@ import { getValidAccessToken, REVOLUT_BASE } from "@/lib/revolut";
 import { isMetaMerchant, last4Of, extractMetaRef } from "@/lib/metaCheck";
 import { getSyncPeriod } from "@/lib/settings";
 import { assertAccount, type AppUser } from "@/lib/access";
-import type { SyncOutcome } from "./common";
+import { markSynced, type SyncOutcome } from "./common";
 
 interface RevolutTransaction {
   id: string;
@@ -154,6 +154,7 @@ export async function syncRevolutAccount(opts: {
   // ⚠️ O Revolut IGNORA `created_before` quando `to` também é enviado (volta sempre as mais
   // recentes) — verificado na API. Por isso paginamos só com `to`, sem `created_before`.
   let cursorTo: string = toDate;
+  let completo = false; // chegou ao começo da janela (e não parou no teto de páginas)
   for (let page = 0; page < 50; page++) {
     const url = new URL(`${REVOLUT_BASE}/transactions`);
     url.searchParams.set("from", `${fromDate}T00:00:00Z`);
@@ -170,7 +171,7 @@ export async function syncRevolutAccount(opts: {
     }
 
     const batch: RevolutTransaction[] = await res.json();
-    if (!Array.isArray(batch) || batch.length === 0) break;
+    if (!Array.isArray(batch) || batch.length === 0) { completo = true; break; }
     fetched += batch.length;
 
     const cands = toCandidates(batch);
@@ -191,9 +192,9 @@ export async function syncRevolutAccount(opts: {
       }
     }
 
-    if (batch.length < 1000) break;
+    if (batch.length < 1000) { completo = true; break; }
     const oldest = batch[batch.length - 1].created_at;
-    if (oldest === cursorTo) break; // janela não avançou → evita loop infinito
+    if (oldest === cursorTo) { completo = true; break; } // janela não avançou → evita loop infinito
     cursorTo = oldest;
   }
 
@@ -202,5 +203,7 @@ export async function syncRevolutAccount(opts: {
     await prisma.transaction.updateMany({ where: { accountId, cardLast4: l4 }, data: { cardLabel: label } });
   }
 
-  return { status: 200, body: { imported, fetched, skipped: Math.max(0, fetched - imported), cardsLabeled: cardLabelByLast4.size } };
+  // só marca "sincronizada até hoje" se leu a janela inteira (parar no teto de páginas = incompleto)
+  if (completo) await markSynced(accountId, new Date(toDate));
+  return { status: 200, body: { imported, fetched, skipped: Math.max(0, fetched - imported), cardsLabeled: cardLabelByLast4.size, ...(completo ? {} : { incompleto: true }) } };
 }
