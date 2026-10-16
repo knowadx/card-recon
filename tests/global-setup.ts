@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import pg from "pg";
 import { TEST_CONTAINER, TEST_PG, testDbName } from "./pg";
 
@@ -7,7 +7,7 @@ import { TEST_CONTAINER, TEST_PG, testDbName } from "./pg";
  * Banco de teste NOVO a cada rodada, num Postgres descartável em Docker (127.0.0.1:54329):
  *  1. sobe o container se não estiver de pé;
  *  2. recria o banco desta suíte (pf_<TEST_DB>) — só dentro desse container de teste;
- *  3. aplica a migration REAL (prisma/migrations/0001_init_postgres) — assim ela também é testada.
+ *  3. aplica TODAS as migrations reais (prisma/migrations/*, em ordem) — assim elas também são testadas.
  */
 function docker(args: string[]) {
   return execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -52,6 +52,10 @@ export default async function setup() {
 
   const client = new pg.Client({ ...TEST_PG, database: db });
   await client.connect();
-  await client.query(readFileSync("prisma/migrations/0001_init_postgres/migration.sql", "utf8"));
+  const pastas = readdirSync("prisma/migrations", { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .sort();
+  for (const m of pastas) await client.query(readFileSync(`prisma/migrations/${m}/migration.sql`, "utf8"));
   await client.end();
 }

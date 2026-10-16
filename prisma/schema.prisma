@@ -384,6 +384,9 @@ model MetaBillingCharge {
   currency      String
   chargedAt     DateTime
   createdAt     DateTime @default(now())
+  // nº de referência da cobrança — existia só em produção (coluna criada fora das migrations,
+  // 960 valores em out/2026); preservado na migração para o Postgres. O código atual não usa.
+  referenceNumber String?
 
   @@index([accountId])
   @@index([chargedAt])
