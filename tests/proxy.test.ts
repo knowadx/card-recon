@@ -71,3 +71,16 @@ function signSessionWith(secret: string) {
   const payload = `u1.member.${Math.floor(Date.now() / 1000) + 3600}`;
   return `${Buffer.from(payload).toString("base64url")}.${createHmac("sha256", secret).update(payload).digest("hex")}`;
 }
+
+describe("proxy — /api/health (deploy/Docker)", () => {
+  it("passa em qualquer modo, mas só o caminho exato (nada de /api/healthX nem subcaminho)", async () => {
+    expect((await call("/api/health")).headers.get("x-middleware-next")).toBe("1");
+    vi.stubEnv("ACCESS_TEAM_DOMAIN", TEAM);
+    vi.stubEnv("ACCESS_AUD", AUD);
+    expect((await call("/api/health")).headers.get("x-middleware-next")).toBe("1");
+    expect((await call("/api/healthz")).status).toBe(403);
+    expect((await call("/api/health/../accounts")).status).toBe(403);
+    vi.stubEnv("ACCESS_AUD", "");
+    expect((await call("/api/health")).headers.get("x-middleware-next")).toBe("1");
+  });
+});

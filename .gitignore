@@ -60,3 +60,6 @@ revolut_private.pem
 # banco de teste (vitest)
 test*.db
 test*.db-*
+
+# segredos do deploy (token do túnel etc.) — nunca no git
+deploy/segredos/

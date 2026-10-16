@@ -1,0 +1,17 @@
+# nada de segredo, banco local, recibos ou artefatos dentro da imagem
+.git
+node_modules
+.next
+.env*
+*.pem
+*.cer
+*.db
+*.db-*
+receipts
+receipts-parsed.json
+uploads
+deploy/segredos
+tests
+coverage
+.claude
+vitest.config.ts

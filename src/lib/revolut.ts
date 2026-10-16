@@ -17,7 +17,9 @@ export const REVOLUT_BASE = process.env.REVOLUT_API_BASE || "https://b2b.revolut
 function getPrivateKey(): string {
   if (process.env.REVOLUT_PRIVATE_KEY) return process.env.REVOLUT_PRIVATE_KEY.replace(/\\n/g, "\n");
   const keyPath = process.env.REVOLUT_PRIVATE_KEY_PATH ?? "./revolut_private.pem";
-  return readFileSync(path.resolve(process.cwd(), keyPath), "utf8");
+  // caminho só no dev local; em produção a chave vem pelo CONTEÚDO (REVOLUT_PRIVATE_KEY).
+  // turbopackIgnore: sem isso o Next empacota o projeto inteiro no build standalone.
+  return readFileSync(path.resolve(/*turbopackIgnore: true*/ process.cwd(), keyPath), "utf8");
 }
 
 function base64url(buf: Buffer | string): string {

@@ -56,7 +56,11 @@ function refuse(request: NextRequest, status: 401 | 403 | 503, message: string) 
   return new NextResponse(message, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
 }
 
+/** Saúde para o deploy/Docker: sem dado nenhum, passa em qualquer modo (ver api/health). */
+const HEALTH_PATH = "/api/health";
+
 export async function proxy(request: NextRequest) {
+  if (request.nextUrl.pathname === HEALTH_PATH) return NextResponse.next();
   const cfg = loginConfig();
 
   if (cfg.mode === "incompleto") return refuse(request, 503, "Login mal configurado (ACCESS_TEAM_DOMAIN/ACCESS_AUD). Ninguém entra até corrigir.");

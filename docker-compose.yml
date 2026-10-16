@@ -1,0 +1,75 @@
+# PixelFinance — produção no padrão do Hash: Postgres + app + túnel da Cloudflare.
+#
+# Feito para morar no MESMO VPS do Hash por enquanto e sair dele sem dor: projeto, rede, volume do
+# banco, segredos e túnel são SÓ do PixelFinance; nada é compartilhado com o Hash. Nenhuma porta
+# é publicada na máquina (o painel do Hash usa a 3000 do host): quem entra é o túnel da Cloudflare.
+#
+# Redes: `interno` = app ↔ postgres; `borda` = cloudflared ↔ app. O conector do túnel não alcança
+# o banco, mesmo que a regra do túnel seja editada.
+name: pixelfinance
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pixelfinance
+      POSTGRES_USER: pixelfinance
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env (só letras e números)}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pixelfinance -d pixelfinance"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [interno]
+
+  # uso: docker compose run --rm migrate   (o pf_deploy.sh roda antes de trocar o app)
+  migrate:
+    build: { context: ., target: migrate, args: { NODE_IMAGE: "${NODE_IMAGE:-node:24-alpine}" } }
+    environment:
+      DATABASE_URL: postgresql://pixelfinance:${POSTGRES_PASSWORD}@postgres:5432/pixelfinance
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [interno]
+    profiles: ["ferramentas"]
+
+  app:
+    build: { context: ., target: app, args: { NODE_IMAGE: "${NODE_IMAGE:-node:24-alpine}" } }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://pixelfinance:${POSTGRES_PASSWORD}@postgres:5432/pixelfinance
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [interno, borda]
+
+  cloudflared:
+    # mesma imagem fixa (versão + digest) do Hash; o token vem de ARQUIVO, nunca do .env
+    image: cloudflare/cloudflared:2026.9.3@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      - TUNNEL_TOKEN_FILE=/run/secrets/tunel_token
+    secrets: [tunel_token]
+    depends_on: [app]
+    restart: unless-stopped
+    networks: [borda]
+    profiles: ["producao"]
+
+secrets:
+  tunel_token:
+    file: ./deploy/segredos/tunel_token
+
+networks:
+  interno: {}
+  borda: {}
+
+volumes:
+  pgdata: {}
