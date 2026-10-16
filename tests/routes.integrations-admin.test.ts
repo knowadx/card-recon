@@ -100,8 +100,6 @@ const adminCalls: Array<[string, () => Promise<Response>]> = [
   ["clean-orphan-charges GET ?apply=1", () => cleanOrphan.GET(req("/api/admin/clean-orphan-charges?apply=1"))],
   ["clean-stale-accounts GET ?apply=1", () => cleanStale.GET(req("/api/admin/clean-stale-accounts?apply=1"))],
   ["find-duplicates GET", () => findDuplicates.GET()],
-  ["import-receipts POST", () => importReceipts.POST(req("/api/admin/import-receipts", { method: "POST", json: [{ transactionId: "r-1", referenceNumber: "abcd123xyz" }] }))],
-  ["import-revolut-csv POST", () => importRevolutCsv.POST(new Request("http://localhost/api/admin/import-revolut-csv", { method: "POST", headers: { "content-type": "text/csv" }, body: CSV }))],
   ["meta-accounts-audit GET", () => metaAudit.GET()],
   ["metaref-analyze GET", () => metarefAnalyze.GET()],
   ["metaref-dump GET", () => metarefDump.GET()],
@@ -141,6 +139,53 @@ describe("/api/admin/* — só o administrador geral", () => {
     const csv = await importRevolutCsv.POST(new Request("http://localhost/api/admin/import-revolut-csv", { method: "POST", body: CSV }));
     expect(csv.status).toBe(200);
     expect((await prisma.transaction.findFirst({ where: { reference: `revolut:${UUID}:leg1` } }))?.metaRef).toBe("abcd123xyz");
+  });
+});
+
+// ─────────── passos 2 e 4 do Fechamento Meta: superadmin E admins (decisão do dono em 2026-10-16) ───────────
+
+const importCalls: [string, () => Promise<Response>][] = [
+  ["import-receipts POST", () => importReceipts.POST(req("/api/admin/import-receipts", { method: "POST", json: [{ transactionId: "r-1", referenceNumber: "abcd123xyz" }] }))],
+  ["import-revolut-csv POST", () => importRevolutCsv.POST(new Request("http://localhost/api/admin/import-revolut-csv", { method: "POST", headers: { "content-type": "text/csv" }, body: CSV }))],
+];
+
+describe("importar CSV da Revolut e faturas (PDF) — admins também", () => {
+  const adminDe = async (holdingId: string, email: string) => {
+    const u = await prisma.user.create({ data: { email, role: "admin", passwordHash: "x:y" } });
+    await prisma.membership.create({ data: { userId: u.id, holdingId } });
+    return u;
+  };
+
+  it.each(importCalls)("membro, operador e sem vínculo em %s = 403 e o banco não muda; deslogado = 401", async (_name, call) => {
+    await seedAdminData();
+    const before = await snapshot();
+    for (const u of [s.users.pixel, s.users.operador, s.users.semAcesso]) {
+      loginAs(u);
+      expect((await call()).status).toBe(403);
+    }
+    expect(await snapshot()).toEqual(before);
+    loginAs(null);
+    expect((await call()).status).toBe(401);
+  });
+
+  it.each(importCalls)("admin do grupo em %s = 200", async (_name, call) => {
+    await seedAdminData();
+    loginAs(await adminDe(s.holdings.pixel.id, "adm-px@teste.com"));
+    expect((await call()).status).toBe(200);
+  });
+
+  it("CSV de um admin só grava código nas transações do grupo DELE (superadmin grava em todas)", async () => {
+    // a transação com o UUID do CSV é do OUTRO grupo
+    const alheia = await prisma.transaction.create({
+      data: { accountId: s.accounts.outro.id, date: new Date("2026-10-01"), description: "Meta Pay", amount: -50, currency: "USD", reference: `revolut:${UUID}:leg1`, isMetaCharge: true },
+    });
+    const csv = () => importRevolutCsv.POST(new Request("http://localhost/api/admin/import-revolut-csv", { method: "POST", body: CSV }));
+    loginAs(await adminDe(s.holdings.pixel.id, "adm-px@teste.com"));
+    expect((await csv()).status).toBe(200);
+    expect((await prisma.transaction.findUniqueOrThrow({ where: { id: alheia.id } })).metaRef).toBeNull();
+    loginAs(s.users.root);
+    expect((await csv()).status).toBe(200);
+    expect((await prisma.transaction.findUniqueOrThrow({ where: { id: alheia.id } })).metaRef).toBe("abcd123xyz");
   });
 });
 

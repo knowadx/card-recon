@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { guarded, requireSuperadmin } from "@/lib/access";
+import { AccessError, guarded, requireUser } from "@/lib/access";
+import { isManager } from "@/lib/auth";
 import { recomputeHasReceipt } from "@/lib/receipts";
 
 export const dynamic = "force-dynamic";
@@ -19,10 +20,12 @@ type Row = {
 /**
  * POST /api/admin/import-receipts — recebe o receipts-parsed.json (array) e carrega em
  * MetaReceipt (a tabela nasce na migration). Aditivo/idempotente (skipDuplicates por
- * transactionId). Só o administrador geral (superadmin).
+ * transactionId). Superadmin e admins.
  */
 export const POST = guarded(async (request: Request) => {
-  await requireSuperadmin();
+  // superadmin e admins (passos 2 e 4 do Fechamento Meta — decisão do dono em 2026-10-16); member não
+  const user = await requireUser();
+  if (!isManager(user.role)) throw new AccessError(403, "só administradores importam as faturas (PDFs)");
 
   const rows = (await request.json()) as Row[];
   if (!Array.isArray(rows)) return NextResponse.json({ error: "esperado um array" }, { status: 400 });

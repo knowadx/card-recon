@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { guarded, requireSuperadmin } from "@/lib/access";
+import { AccessError, guarded, requireUser, transactionScope } from "@/lib/access";
+import { isManager } from "@/lib/auth";
 import { extractMetaRef } from "@/lib/metaCheck";
 import { recomputeHasReceipt } from "@/lib/receipts";
 
@@ -34,7 +35,9 @@ function parseLine(line: string): string[] {
 }
 
 export const POST = guarded(async (request: Request) => {
-  await requireSuperadmin();
+  // superadmin e admins (passos 2 e 4 do Fechamento Meta — decisão do dono em 2026-10-16); member não
+  const user = await requireUser();
+  if (!isManager(user.role)) throw new AccessError(403, "só administradores importam o CSV da Revolut");
 
   const csv = await request.text();
   const lines = csv.split(/\r?\n/).filter((l) => l.trim().length > 0);
@@ -71,8 +74,9 @@ export const POST = guarded(async (request: Request) => {
   if (refByUuid.size === 0) return NextResponse.json({ error: "Nenhuma linha com 'Facebk *XXXX' no Description", linhas: lines.length - 1 }, { status: 400 });
 
   // transações Revolut já importadas pela API (casa por reference = revolut:<UUID>:<leg>)
+  // só as transações do grupo de quem importa (superadmin = todas): admin nunca grava código em transação de outro grupo
   const txs = await prisma.transaction.findMany({
-    where: { reference: { startsWith: "revolut:" } },
+    where: { AND: [{ reference: { startsWith: "revolut:" } }, await transactionScope(user)] },
     select: { id: true, reference: true, metaRef: true },
   });
 
