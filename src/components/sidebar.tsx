@@ -7,10 +7,10 @@ import { LayoutDashboard, Building2, Landmark, Tag, ArrowLeftRight, CheckSquare,
 
 const mainNav = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/fechamento", label: "Fechamento do mês", icon: ListChecks },
-  { href: "/checagem", label: "Checagem", icon: ShieldCheck },
+  { href: "/fechamento", label: "Fechamento Meta", icon: ListChecks },
+  { href: "/checagem", label: "Checagem Meta", icon: ShieldCheck },
   { href: "/cobrancas-meta", label: "Cobranças Meta", icon: Receipt },
-  { href: "/receipts", label: "Faturas (PDFs)", icon: FileUp },
+  { href: "/receipts", label: "Faturas Meta (PDFs)", icon: FileUp },
   { href: "/documents", label: "Documentos", icon: FolderOpen },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/control", label: "Control", icon: CheckSquare },

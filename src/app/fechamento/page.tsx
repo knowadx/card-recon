@@ -73,7 +73,8 @@ export default function FechamentoPage() {
     <div className="flex flex-col gap-4 p-2 max-w-3xl">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold">Fechamento do mês</h1>
+          <h1 className="text-xl font-semibold">Fechamento Meta do mês</h1>
+          <p className="text-sm text-slate-700 mb-1"><strong>Só cobranças da Meta (Facebook):</strong> confere cada cobrança da Meta no extrato dos bancos contra a fatura (PDF) da Meta. A Meta cobra várias vezes por dia — por isso este fechamento existe. Outras despesas e receitas <strong>não</strong> entram aqui.</p>
           <p className="text-sm text-slate-500">Passos na ordem — de cima pra baixo, PDF por último. Escopo: <strong>{company ? (data?.companies?.find((c) => c.id === company)?.name ?? "empresa") : "todas as empresas"}</strong> · <strong>{month || "—"}</strong>. O PDF importa <strong>só o mês selecionado</strong> — não mexe nos outros.</p>
         </div>
         <div className="flex items-end gap-2">
