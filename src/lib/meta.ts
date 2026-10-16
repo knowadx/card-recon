@@ -16,9 +16,14 @@ export function metaAuthorizeUrl(redirectUri: string, state: string): string {
   const u = new URL(`https://www.facebook.com/${version()}/dialog/oauth`);
   u.searchParams.set("client_id", process.env.META_APP_ID ?? "");
   u.searchParams.set("redirect_uri", redirectUri);
-  // ads_management: necessário p/ act_<id>/activities expor os eventos de cobrança
-  // (event_type=ad_account_billing_charge) — a "Atividade de pagamento" do Business Suite.
-  u.searchParams.set("scope", "ads_read,ads_management,business_management");
+  // App do tipo Business (Facebook Login for Business): as permissões ficam numa "configuração" criada
+  // no painel do app e o link manda só o ID dela — a Meta desaconselha mandar `scope` junto.
+  // A configuração precisa ter ads_read, ads_management e business_management (as mesmas do scope abaixo).
+  const configId = process.env.META_LOGIN_CONFIG_ID;
+  if (configId) u.searchParams.set("config_id", configId);
+  // App clássico (Facebook Login): ads_management é necessário p/ act_<id>/activities expor os eventos
+  // de cobrança (event_type=ad_account_billing_charge) — a "Atividade de pagamento" do Business Suite.
+  else u.searchParams.set("scope", "ads_read,ads_management,business_management");
   u.searchParams.set("response_type", "code");
   u.searchParams.set("state", state);
   return u.toString();

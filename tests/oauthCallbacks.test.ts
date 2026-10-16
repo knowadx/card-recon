@@ -49,6 +49,25 @@ describe("/api/meta/callback", () => {
     expect(state).toMatch(new RegExp(`^${s.operations.pixel.id}:[0-9a-f]{32}$`));
     expect(res.headers.get("set-cookie")).toContain(`cr_meta_op=${encodeURIComponent(state)}`);
   });
+
+  it("app Business: com META_LOGIN_CONFIG_ID o link manda config_id e NÃO manda scope; sem ele, manda o scope de sempre", async () => {
+    vi.stubEnv("META_APP_ID", "app123");
+    loginAs(s.users.operador);
+    const link = async () =>
+      new URL((await metaAuth.GET(new Request(`https://app.exemplo.com/api/meta/auth?operationId=${s.operations.pixel.id}`))).headers.get("location")!).searchParams;
+
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "cfg-987");
+    const business = await link();
+    expect(business.get("config_id")).toBe("cfg-987");
+    expect(business.has("scope")).toBe(false);
+    expect(business.get("client_id")).toBe("app123");
+    expect(business.get("response_type")).toBe("code");
+
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "");
+    const classico = await link();
+    expect(classico.has("config_id")).toBe(false);
+    expect(classico.get("scope")).toBe("ads_read,ads_management,business_management");
+  });
 });
 
 describe("/api/revolut/callback", () => {
