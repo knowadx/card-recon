@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { assertTransactions, guarded, requireUser, type AppUser } from "@/lib/access";
 
 const CHUNK = 500;
 
@@ -8,10 +9,17 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+/** TODAS as transações do lote precisam estar no escopo — confere tudo ANTES de gravar (1 de fora = recusa o lote inteiro). */
+async function assertAllInScope(user: AppUser, ids: string[]) {
+  for (const batch of chunk(ids, CHUNK)) await assertTransactions(user, batch);
+}
+
 // DELETE: remove transactions by ids
-export async function DELETE(request: Request) {
+export const DELETE = guarded(async (request: Request) => {
+  const user = await requireUser();
   const { ids } = await request.json() as { ids: string[] };
   if (!ids?.length) return Response.json({ error: "ids required" }, { status: 400 });
+  await assertAllInScope(user, ids);
 
   for (const batch of chunk(ids, CHUNK)) {
     await prisma.transactionSplit.deleteMany({ where: { transactionId: { in: batch } } });
@@ -20,31 +28,35 @@ export async function DELETE(request: Request) {
   }
 
   return Response.json({ deleted: ids.length });
-}
+});
 
 // PATCH: set ignored flag
-export async function PATCH(request: Request) {
+export const PATCH = guarded(async (request: Request) => {
+  const user = await requireUser();
   const { ids, ignored } = await request.json() as { ids: string[]; ignored: boolean };
   if (!ids?.length) return Response.json({ error: "ids required" }, { status: 400 });
+  await assertAllInScope(user, ids);
 
   for (const batch of chunk(ids, CHUNK)) {
     await prisma.transaction.updateMany({ where: { id: { in: batch } }, data: { ignored } });
   }
 
   return Response.json({ updated: ids.length });
-}
+});
 
 // PUT: aplica/limpa uma categoria nas transações selecionadas.
 // SUBSTITUI a classificação atual (não acumula): se já há split, atualiza; se há
 // splits duplicados (não somam o valor da transação), colapsa em 1 (corrige valor
 // dobrado); se não há split, cria. Splits legítimos (que somam o total) são preservados.
-export async function PUT(request: Request) {
+export const PUT = guarded(async (request: Request) => {
+  const user = await requireUser();
   const { ids, managerialCategoryId, accountingCategoryId } = await request.json() as {
     ids: string[];
     managerialCategoryId?: string;
     accountingCategoryId?: string;
   };
   if (!ids?.length) return Response.json({ error: "ids required" }, { status: 400 });
+  await assertAllInScope(user, ids);
 
   // campos a setar (só os enviados; "" → null = limpar)
   const fields = {
@@ -88,4 +100,4 @@ export async function PUT(request: Request) {
   );
 
   return Response.json({ updated: ids.length });
-}
+});

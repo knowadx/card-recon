@@ -102,3 +102,16 @@ describe("um grupo não enxerga o outro", () => {
     expect(await statusOf(assertHolding(u, s.holdings.outro.id))).toBe("ok");
   });
 });
+
+describe("id vazio ou ausente nunca passa (o Prisma ignoraria o filtro { id: undefined })", () => {
+  it("todas as checagens recusam undefined, vazio e não-texto, mesmo para quem vê registros", async () => {
+    const u = s.users.pixel;
+    for (const bad of [undefined, "", "   ", 123, null] as unknown as string[]) {
+      expect(await statusOf(assertAccount(u, bad))).toBe(404);
+      expect(await statusOf(assertTransaction(u, bad))).toBe(404);
+      expect(await statusOf(assertTransactions(u, [s.transactions.pixel.id, bad]))).toBe(404);
+      expect(await statusOf(assertCompany(u, bad))).toBe(404);
+      expect(await statusOf(assertHolding(u, bad))).toBe(404);
+    }
+  });
+});

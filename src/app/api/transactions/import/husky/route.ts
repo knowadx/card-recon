@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/db";
+import { AccessError, assertAccount, guarded, requireUser } from "@/lib/access";
 import * as XLSX from "xlsx";
 
-export async function POST(request: Request) {
+export const POST = guarded(async (request: Request) => {
+  const user = await requireUser();
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
@@ -11,6 +13,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "file and accountId required" }, { status: 400 });
     }
 
+    await assertAccount(user, String(accountId)); // conta-alvo precisa ser minha — antes de gravar qualquer coisa
     const account = await prisma.account.findUnique({ where: { id: accountId } });
     if (!account) return Response.json({ error: "account not found" }, { status: 404 });
 
@@ -76,7 +79,8 @@ export async function POST(request: Request) {
       total: candidates.length,
     });
   } catch (e) {
+    if (e instanceof AccessError) throw e; // vira 404/401 no guarded, não "Erro interno"
     console.error("Husky import error:", e);
     console.error(e); return Response.json({ error: "Erro interno" }, { status: 500 });
   }
-}
+});

@@ -1,16 +1,23 @@
 import { prisma } from "@/lib/db";
+import { assertTransaction, guarded, requireUser } from "@/lib/access";
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export const GET = guarded(async (_req: Request, { params }: Ctx) => {
+  const user = await requireUser();
   const { id } = await params;
+  await assertTransaction(user, id);
   const splits = await prisma.accountingSplit.findMany({
     where: { transactionId: id },
     include: { accountingCategory: true },
   });
   return Response.json(splits);
-}
+});
 
-export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const PUT = guarded(async (request: Request, { params }: Ctx) => {
+  const user = await requireUser();
   const { id } = await params;
+  await assertTransaction(user, id);
   const body = await request.json();
   const splits: Array<{
     amount: number;
@@ -32,4 +39,4 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   });
 
   return Response.json({ count: created.count });
-}
+});

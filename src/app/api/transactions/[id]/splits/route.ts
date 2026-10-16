@@ -1,19 +1,30 @@
 import { prisma } from "@/lib/db";
+import { assertOperation, assertTransaction, guarded, requireUser } from "@/lib/access";
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export const GET = guarded(async (_req: Request, { params }: Ctx) => {
+  const user = await requireUser();
   const { id } = await params;
+  await assertTransaction(user, id);
   const splits = await prisma.transactionSplit.findMany({
     where: { transactionId: id },
     include: { managerialCategory: true, accountingCategory: true, operation: { select: { id: true, name: true } } },
   });
   return Response.json(splits);
-}
+});
 
-export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const PUT = guarded(async (request: Request, { params }: Ctx) => {
+  const user = await requireUser();
   const { id } = await params;
+  await assertTransaction(user, id);
   const body = await request.json();
   const splits: Array<{ amount: number; note?: string; accountingDate?: string; managerialCategoryId?: string; accountingCategoryId?: string; operationId?: string }> =
     body.splits;
+
+  // toda operação gravada (nos splits e, pelo 1º, na transação) precisa ser minha — antes de apagar qualquer coisa
+  const operationIds = new Set(splits.map((s) => s.operationId).filter(Boolean).map(String));
+  for (const operationId of operationIds) await assertOperation(user, operationId);
 
   await prisma.transactionSplit.deleteMany({ where: { transactionId: id } });
 
@@ -36,4 +47,4 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   });
 
   return Response.json({ count: created.count });
-}
+});

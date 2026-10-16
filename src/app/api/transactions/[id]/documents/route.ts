@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { assertTransaction, guarded, requireUser } from "@/lib/access";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 
@@ -9,13 +10,17 @@ function sanitizeFilename(name: string): string {
   return path.basename(name).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
 }
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+type Ctx = { params: Promise<{ id: string }> };
+
+export const POST = guarded(async (request: Request, { params }: Ctx) => {
+  const user = await requireUser();
   const { id } = await params;
 
   // Validate id to prevent path traversal
   if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
     return Response.json({ error: "Invalid transaction id" }, { status: 400 });
   }
+  await assertTransaction(user, id); // antes de gravar qualquer arquivo
 
   const formData = await request.formData();
   const file = formData.get("file") as File | null;
@@ -40,4 +45,4 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   } catch {
     return Response.json({ error: "Erro ao salvar documento" }, { status: 500 });
   }
-}
+});

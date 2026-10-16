@@ -21,6 +21,15 @@ export type AppUser = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
 
 const NONE = "__sem_escopo__"; // id que nunca existe: escopo vazio = não vê nada
 
+/**
+ * Id que veio do pedido precisa ser texto não vazio. Sem isso, um id `undefined` some do filtro do
+ * Prisma ({ id: undefined } é ignorado) e a checagem passaria se o usuário visse QUALQUER registro.
+ */
+function validId(id: unknown, what: string): string {
+  if (typeof id !== "string" || id.trim() === "") throw new AccessError(404, `${what} não encontrada`);
+  return id;
+}
+
 export async function requireUser(): Promise<AppUser> {
   const user = await getCurrentUser();
   if (!user) throw new AccessError(401, "não autenticado");
@@ -74,6 +83,7 @@ export async function accountIdsInScope(user: AppUser): Promise<string[] | "all"
 }
 
 export async function assertAccount(user: AppUser, accountId: string): Promise<void> {
+  validId(accountId, "conta");
   const found = await prisma.account.findFirst({
     where: { AND: [{ id: accountId }, await accountScope(user)] },
     select: { id: true },
@@ -82,6 +92,7 @@ export async function assertAccount(user: AppUser, accountId: string): Promise<v
 }
 
 export async function assertTransaction(user: AppUser, transactionId: string): Promise<void> {
+  validId(transactionId, "transação");
   const found = await prisma.transaction.findFirst({
     where: { AND: [{ id: transactionId }, await transactionScope(user)] },
     select: { id: true },
@@ -91,13 +102,14 @@ export async function assertTransaction(user: AppUser, transactionId: string): P
 
 /** Várias transações de uma vez (ações em lote): TODAS precisam estar no escopo. */
 export async function assertTransactions(user: AppUser, transactionIds: string[]): Promise<void> {
-  const ids = Array.from(new Set(transactionIds));
+  const ids = Array.from(new Set(transactionIds.map((id) => validId(id, "transação"))));
   if (ids.length === 0) return;
   const count = await prisma.transaction.count({ where: { AND: [{ id: { in: ids } }, await transactionScope(user)] } });
   if (count !== ids.length) throw new AccessError(404, "transação não encontrada");
 }
 
 export async function assertCompany(user: AppUser, companyId: string): Promise<void> {
+  validId(companyId, "empresa");
   const found = await prisma.company.findFirst({
     where: { AND: [{ id: companyId }, await companyScope(user)] },
     select: { id: true },
@@ -107,6 +119,7 @@ export async function assertCompany(user: AppUser, companyId: string): Promise<v
 
 /** Holding em que o usuário pode criar/mover coisas (superadmin: qualquer uma). */
 export async function assertHolding(user: AppUser, holdingId: string): Promise<void> {
+  validId(holdingId, "holding");
   if (isSuperadmin(user.role)) {
     const exists = await prisma.holding.findUnique({ where: { id: holdingId }, select: { id: true } });
     if (!exists) throw new AccessError(404, "holding não encontrada");
@@ -118,6 +131,7 @@ export async function assertHolding(user: AppUser, holdingId: string): Promise<v
 
 /** Operação que o usuário pode usar (mesmo critério de findAccessibleOperation). */
 export async function assertOperation(user: AppUser, operationId: string): Promise<void> {
+  validId(operationId, "operação");
   if (!(await findAccessibleOperation(user, operationId))) throw new AccessError(404, "operação não encontrada");
 }
 

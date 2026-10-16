@@ -1,9 +1,10 @@
 import { prisma } from "@/lib/db";
-import { sessionScopes } from "@/lib/auth";
+import { assertAccount, assertOperation, guarded, requireUser, transactionScope } from "@/lib/access";
 
 const PAGE_SIZE = 100;
 
-export async function GET(request: Request) {
+export const GET = guarded(async (request: Request) => {
+  const user = await requireUser();
   const { searchParams } = new URL(request.url);
   const accountId = searchParams.get("accountId");
   const companyId = searchParams.get("companyId");
@@ -71,23 +72,14 @@ export async function GET(request: Request) {
     } : {}),
   };
 
-  // Escopo do usuário: holdings (empresa da conta) OU operações (da transação OU da conta)
-  const sc = await sessionScopes();
-  if (!sc.isAdmin) {
-    const or: Record<string, unknown>[] = [];
-    if (sc.holdingIds.length) or.push({ account: { company: { holdingId: { in: sc.holdingIds } } } });
-    if (sc.operationIds.length) {
-      or.push({ operationId: { in: sc.operationIds } });
-      or.push({ account: { operationId: { in: sc.operationIds } } });
-    }
-    // sem nenhum escopo → não vê nada
-    where.AND = [...(where.AND ?? []), { OR: or.length ? or : [{ id: "__none__" }] }];
-  }
+  // Escopo do usuário (peça única em access.ts): holdings (empresa da conta) OU operações (da transação OU da conta).
+  // Vai em AND — o where já usa OR (busca/valor) e não pode ser sobrescrito.
+  where.AND = [...(where.AND ?? []), await transactionScope(user)];
 
   const findManyArgs = {
     where,
     include: {
-      account: { include: { company: true } },
+      account: { omit: { apiToken: true }, include: { company: true } }, // nunca devolve o token do banco
       splits: { include: { managerialCategory: true, accountingCategory: true, operation: { select: { id: true, name: true } } } },
       accountingSplits: { include: { accountingCategory: true } },
       documents: true,
@@ -110,10 +102,13 @@ export async function GET(request: Request) {
   const data = hasMore ? rows.slice(0, take) : rows;
 
   return Response.json({ data, total, hasMore });
-}
+});
 
-export async function POST(request: Request) {
+export const POST = guarded(async (request: Request) => {
+  const user = await requireUser();
   const body = await request.json();
+  await assertAccount(user, String(body.accountId ?? "")); // conta-alvo precisa ser minha
+  if (body.operationId) await assertOperation(user, String(body.operationId));
   const transaction = await prisma.transaction.create({
     data: {
       accountId: body.accountId,
@@ -124,10 +119,10 @@ export async function POST(request: Request) {
       reference: body.reference || null,
     },
     include: {
-      account: { include: { company: true } },
+      account: { omit: { apiToken: true }, include: { company: true } }, // nunca devolve o token do banco
       splits: true,
       documents: true,
     },
   });
   return Response.json(transaction, { status: 201 });
-}
+});

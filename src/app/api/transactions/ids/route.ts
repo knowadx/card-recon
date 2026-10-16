@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db";
+import { guarded, requireUser, transactionScope } from "@/lib/access";
 
-export async function GET(request: Request) {
+export const GET = guarded(async (request: Request) => {
+  const user = await requireUser();
   const { searchParams } = new URL(request.url);
   const accountId = searchParams.get("accountId");
   const companyId = searchParams.get("companyId");
@@ -44,6 +46,9 @@ export async function GET(request: Request) {
     } : {}),
   };
 
+  // só ids no escopo do usuário (em AND — o where já usa OR)
+  where.AND = [...(where.AND ?? []), await transactionScope(user)];
+
   const rows = await prisma.transaction.findMany({ where, select: { id: true } });
   return Response.json({ ids: rows.map((r) => r.id) });
-}
+});

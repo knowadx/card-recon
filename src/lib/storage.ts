@@ -74,7 +74,7 @@ export function safeFilename(name: string | null | undefined): string {
  * Chave do objeto: <escopo>/<aaaa>/<mm>/<uuid>-<nome>. O escopo é montado pelo SERVIDOR
  * (ex.: "tx/<transactionId>"), nunca vem do cliente — assim dá pra conferir depois a quem pertence.
  */
-export function buildKey(scope: string, filename: string, now = new Date(), id = randomUUID()): string {
+export function buildKey(scope: string, filename: string, now = new Date(), id: string = randomUUID()): string {
   const yyyy = String(now.getUTCFullYear());
   const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
   return `${scope}/${yyyy}/${mm}/${id}-${safeFilename(filename)}`;

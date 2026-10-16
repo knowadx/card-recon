@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { assertAccount, guarded, requireUser } from "@/lib/access";
 
 // Proper CSV parser that handles quoted fields (same as generic import)
 function parseCSV(text: string): Record<string, string>[] {
@@ -50,7 +51,8 @@ function parseDolafyDate(raw: string): Date {
   return new Date(raw);
 }
 
-export async function POST(request: Request) {
+export const POST = guarded(async (request: Request) => {
+  const user = await requireUser();
   const formData = await request.formData();
   const file = formData.get("file") as File | null;
   const accountId = formData.get("accountId") as string | null;
@@ -59,6 +61,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "file and accountId required" }, { status: 400 });
   }
 
+  await assertAccount(user, String(accountId)); // conta-alvo precisa ser minha — antes de gravar qualquer coisa
   const account = await prisma.account.findUnique({ where: { id: accountId } });
   if (!account) return Response.json({ error: "account not found" }, { status: 404 });
 
@@ -106,4 +109,4 @@ export async function POST(request: Request) {
   }
 
   return Response.json({ imported, skipped });
-}
+});
