@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 import { metaAuthorizeUrl } from "@/lib/meta";
 import { getCurrentUser, findAccessibleOperation } from "@/lib/auth";
@@ -22,8 +23,10 @@ export async function GET(request: Request) {
   if (!op) return NextResponse.json({ ok: false, error: "sem acesso a essa operação" }, { status: 403 });
 
   const redirectUri = process.env.META_REDIRECT_URI || `${url.origin}/api/meta/callback`;
-  const res = NextResponse.redirect(metaAuthorizeUrl(redirectUri, operationId));
-  res.cookies.set("cr_meta_op", operationId, {
+  // state = operação + código aleatório; o callback exige que volte idêntico ao cookie (anti-CSRF)
+  const state = `${operationId}:${randomBytes(16).toString("hex")}`;
+  const res = NextResponse.redirect(metaAuthorizeUrl(redirectUri, state));
+  res.cookies.set("cr_meta_op", state, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",

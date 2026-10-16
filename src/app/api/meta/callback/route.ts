@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { exchangeMetaCode, fetchMetaUser } from "@/lib/meta";
 import { getCurrentUser, findAccessibleOperation } from "@/lib/auth";
+import { escapeHtml } from "@/lib/html";
 
 export const dynamic = "force-dynamic";
 
@@ -16,11 +17,17 @@ export async function GET(request: NextRequest) {
   const url = request.nextUrl;
   const code = url.searchParams.get("code");
   const error = url.searchParams.get("error_description") || url.searchParams.get("error");
-  const operationId = url.searchParams.get("state") || request.cookies.get("cr_meta_op")?.value || null;
+  // anti-CSRF: o state que volta da Meta tem que ser IDÊNTICO ao cookie gravado pelo /api/meta/auth
+  // (operação + código aleatório). Sem cookie ou diferente = o pedido não começou neste navegador.
+  const state = url.searchParams.get("state");
+  const expected = request.cookies.get("cr_meta_op")?.value ?? null;
 
-  if (error) return html(`<h2>Autorização negada</h2><p>${error}</p>`, 400);
+  if (error) return html(`<h2>Autorização negada</h2><p>${escapeHtml(error)}</p>`, 400);
   if (!code) return html("<h2>Código ausente</h2>", 400);
-  if (!operationId) return html("<h2>Operação não identificada</h2><p>Cookie expirou. Conecte de novo.</p>", 400);
+  if (!expected || !state || state !== expected) {
+    return html("<h2>Conexão não reconhecida</h2><p>Esta autorização não foi iniciada aqui ou expirou. Conecte de novo pelo app.</p>", 400);
+  }
+  const operationId = expected.split(":")[0];
 
   // revalida acesso (o callback é público no middleware, mas o cookie de sessão chega aqui)
   const user = await getCurrentUser();
@@ -40,9 +47,9 @@ export async function GET(request: NextRequest) {
     } else {
       await prisma.credential.create({ data: { issuer: "meta", company: op.name, operationId: op.id, token, secrets } });
     }
-    const who = profile?.name ? ` como <strong>${profile.name}</strong>` : "";
-    return html(`<h2 style="color:#00b9a5">✓ Meta conectado (${op.name})${who}!</h2><p>Pode fechar esta aba. Rode "Sync contas Meta" na Checagem.</p>`);
+    const who = profile?.name ? ` como <strong>${escapeHtml(profile.name)}</strong>` : "";
+    return html(`<h2 style="color:#00b9a5">✓ Meta conectado (${escapeHtml(op.name)})${who}!</h2><p>Pode fechar esta aba. Rode "Sync contas Meta" na Checagem.</p>`);
   } catch (e) {
-    return html(`<h2>Erro ao conectar Meta</h2><pre style="white-space:pre-wrap">${(e as Error).message}</pre>`, 500);
+    return html(`<h2>Erro ao conectar Meta</h2><pre style="white-space:pre-wrap">${escapeHtml((e as Error).message)}</pre>`, 500);
   }
 }
