@@ -133,6 +133,9 @@ LIMPO="$(printf '%s\n' "$ATUAL" | grep -vF '#pixelfinance' || true)"
 printf '%s\n%s\n%s\n%s\n' "$LIMPO" "$BACKUP" "$ENSAIO" "$AUTO" | grep -v '^[[:space:]]*$' | crontab -
 
 dc "${PERFIS[@]}" ps --format 'table {{.Service}}\t{{.Status}}' || true
+
+# disco do VPS é apertado: apaga SÓ imagens antigas (sem tag) DO PixelFinance — nunca as do Hash
+docker image prune -f --filter "label=com.docker.compose.project=pixelfinance" >/dev/null 2>&1 || true
 log "PixelFinance no ar"
 
 # ÚLTIMO comando: a marca quer dizer "o deploy chegou ao fim" (saúde E crons)

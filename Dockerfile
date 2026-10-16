@@ -22,10 +22,18 @@ COPY . .
 # o build não conecta no banco; a URL só precisa existir para o Prisma gerar o cliente
 RUN DATABASE_URL="postgresql://build@localhost:5432/build" npm run build
 
+# Migrations: SÓ o Prisma CLI (e o dotenv que o prisma.config.ts importa), nas MESMAS versões
+# travadas no package-lock (fonte única) — nada de Next/React/gráficos. O disco do VPS é apertado.
 FROM ${NODE_IMAGE} AS migrate
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY package.json prisma.config.ts ./
+WORKDIR /migrate
+COPY package-lock.json /tmp/package-lock.json
+RUN set -e; \
+    P=$(node -p "require('/tmp/package-lock.json').packages['node_modules/prisma'].version"); \
+    D=$(node -p "require('/tmp/package-lock.json').packages['node_modules/dotenv'].version"); \
+    echo '{"private":true}' > package.json; \
+    npm install --no-audit --no-fund "prisma@$P" "dotenv@$D"; \
+    rm /tmp/package-lock.json
+COPY prisma.config.ts ./
 COPY prisma ./prisma
 CMD ["npx", "prisma", "migrate", "deploy"]
 
