@@ -15,3 +15,4 @@ tests
 coverage
 .claude
 vitest.config.ts
+site-hashads

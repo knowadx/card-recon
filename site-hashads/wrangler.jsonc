@@ -1,0 +1,15 @@
+// Site hashads.io (Hash Ads LLC) na Cloudflare — substitui o app BlogArbitrage/Vercel (2026-10-16).
+// Deploy: cd site-hashads && CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... npx wrangler@4 deploy
+// Os domínios hashads.io e www.hashads.io já estão ligados a este Worker (Workers → Domínios).
+{
+  "name": "hashads-site",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": false,
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "run_worker_first": true
+  }
+}
