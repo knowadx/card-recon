@@ -41,11 +41,11 @@ export function Sidebar() {
   // documentos vencidos + vencendo (selo no menu; muda de página → recarrega)
   const [docAlerts, setDocAlerts] = useState(0);
 
+  // Papel e selo: conferidos a cada troca de página. Falha momentânea (ex.: o app reiniciando num
+  // deploy) NÃO apaga o que já se sabia — senão o "Control" sumia até recarregar a página.
   useEffect(() => {
-    fetch("/api/me").then((r) => (r.ok ? r.json() : null)).then((me) => setIsSuperadmin(me?.role === "superadmin")).catch(() => {});
-  }, []);
-  useEffect(() => {
-    fetch("/api/documents?status=alerta").then((r) => (r.ok ? r.json() : null)).then((d) => setDocAlerts(d?.documents?.length ?? 0)).catch(() => {});
+    fetch("/api/me").then((r) => (r.ok ? r.json() : null)).then((me) => { if (me?.role) setIsSuperadmin(me.role === "superadmin"); }).catch(() => {});
+    fetch("/api/documents?status=alerta").then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.documents) setDocAlerts(d.documents.length); }).catch(() => {});
   }, [pathname]);
   useEffect(() => {
     const onAlertas = (e: Event) => setDocAlerts((e as CustomEvent<number>).detail);
