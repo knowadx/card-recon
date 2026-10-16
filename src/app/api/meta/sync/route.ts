@@ -71,9 +71,15 @@ export async function POST(request: Request) {
           fundingRaw: a.funding_source_details?.display_string ?? null,
           amountSpent: a.amount_spent != null ? Number(a.amount_spent) : null,
         };
+        // Dono da conta de anúncios (operação/empresa) não muda pela sincronização de OUTRO grupo:
+        // a mesma conta Meta pode aparecer no perfil de dois grupos, e as cobranças herdam este dono.
+        // Só o superadmin reatribui; os demais atualizam só os dados descritivos.
+        const current = await prisma.metaAdAccount.findUnique({ where: { accountId: a.account_id }, select: { operationId: true } });
+        const keepOwner = !isSuperadmin(user.role) && !!current?.operationId && current.operationId !== cred.operationId;
+        const update = keepOwner ? { ...data, company: undefined, operationId: undefined } : data;
         await prisma.metaAdAccount.upsert({
           where: { accountId: a.account_id },
-          update: data,
+          update,
           create: { accountId: a.account_id, ...data },
         });
       }

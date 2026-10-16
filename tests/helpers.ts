@@ -27,6 +27,7 @@ export async function wipe() {
   await prisma.transaction.deleteMany();
   await prisma.account.deleteMany();
   await prisma.company.deleteMany();
+  await prisma.metaAdAccount.deleteMany();
   await prisma.credential.deleteMany();
   await prisma.operationMembership.deleteMany();
   await prisma.membership.deleteMany();
