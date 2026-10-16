@@ -22,8 +22,16 @@ export const POST = guarded(async (request: Request) => {
   const { from, to } = body;
   const currencies = (body.currencies ?? ["EUR", "BRL", "CAD"]).filter(c => c !== "USD");
 
-  const key = process.env.WISE_API_KEY ?? process.env.WISE_API_KEY_ACTIVEVIEW_LLC;
-  if (!key) return Response.json({ error: "No WISE_API_KEY" }, { status: 500 });
+  // Cotação é dado público da Wise: serve qualquer chave Wise válida. Antes só lia a chave GLOBAL do
+  // .env (que não existe no servidor) e o câmbio nunca era preenchido — agora usa a já guardada no
+  // banco (chave de uma conta Wise ou credencial Wise). A chave nunca sai do servidor.
+  // `||` (não `??`): no .env do servidor essas chaves existem VAZIAS — vazio tem que cair pra próxima
+  const key =
+    process.env.WISE_API_KEY ||
+    process.env.WISE_API_KEY_ACTIVEVIEW_LLC ||
+    (await prisma.account.findFirst({ where: { bank: "Wise", apiToken: { not: null }, NOT: { apiToken: "" } }, select: { apiToken: true } }))?.apiToken ||
+    (await prisma.credential.findFirst({ where: { issuer: "wise", isActive: true, NOT: { token: "" } }, select: { token: true } }))?.token;
+  if (!key) return Response.json({ error: "nenhuma chave Wise no sistema (cadastre uma conta Wise com chave)" }, { status: 500 });
 
   const months = monthsBetween(from, to);
   let fetched = 0;
