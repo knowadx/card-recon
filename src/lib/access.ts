@@ -17,6 +17,13 @@ export class AccessError extends Error {
   }
 }
 
+/** Pedido inválido (dado errado, conflito, arquivo grande/tipo proibido, armazenamento fora). */
+export class RequestError extends Error {
+  constructor(public status: 400 | 409 | 413 | 415 | 503, message: string) {
+    super(message);
+  }
+}
+
 export type AppUser = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
 
 const NONE = "__sem_escopo__"; // id que nunca existe: escopo vazio = não vê nada
@@ -145,13 +152,13 @@ export async function assertOperation(user: AppUser, operationId: string): Promi
   if (!(await findAccessibleOperation(user, operationId))) throw new AccessError(404, "operação não encontrada");
 }
 
-/** Embrulha um handler de rota: AccessError vira resposta JSON com o status certo. */
+/** Embrulha um handler de rota: AccessError/RequestError vira resposta JSON com o status certo. */
 export function guarded<A extends unknown[]>(handler: (...args: A) => Promise<Response>) {
   return async (...args: A): Promise<Response> => {
     try {
       return await handler(...args);
     } catch (e) {
-      if (e instanceof AccessError) return Response.json({ error: e.message }, { status: e.status });
+      if (e instanceof AccessError || e instanceof RequestError) return Response.json({ error: e.message }, { status: e.status });
       throw e;
     }
   };

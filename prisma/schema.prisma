@@ -22,12 +22,12 @@ model Holding {
 // pertence a uma operação → as transações herdam a operação. Acesso pode ser por
 // operação (operador vê só a dele).
 model Operation {
-  id          String                @id @default(cuid())
-  name        String
-  type        String                @default("own") // "own" (própria) | "holding"
-  color       String                @default("#0ea5e9")
-  holdingId   String?
-  holding     Holding?              @relation(fields: [holdingId], references: [id])
+  id             String                @id @default(cuid())
+  name           String
+  type           String                @default("own") // "own" (própria) | "holding"
+  color          String                @default("#0ea5e9")
+  holdingId      String?
+  holding        Holding?              @relation(fields: [holdingId], references: [id])
   createdAt      DateTime              @default(now())
   accounts       Account[]
   transactions   Transaction[]
@@ -54,14 +54,15 @@ model OperationMembership {
 }
 
 model Company {
-  id        String    @id @default(cuid())
+  id        String     @id @default(cuid())
   name      String
-  cnpj      String?   @unique
-  color     String    @default("#6366f1")
+  cnpj      String?    @unique
+  color     String     @default("#6366f1")
   holdingId String?
-  holding   Holding?  @relation(fields: [holdingId], references: [id])
-  createdAt DateTime  @default(now())
+  holding   Holding?   @relation(fields: [holdingId], references: [id])
+  createdAt DateTime   @default(now())
   accounts  Account[]
+  documents Document[]
 
   @@index([holdingId])
 }
@@ -85,21 +86,21 @@ model Account {
 }
 
 model Category {
-  id               String               @id @default(cuid())
-  type             String
-  name             String
-  code             String?
-  parentId         String?
-  parent           Category?            @relation("CategoryChildren", fields: [parentId], references: [id])
-  children         Category[]           @relation("CategoryChildren")
-  color            String               @default("#6366f1")
-  isInternal       Boolean              @default(false)
-  plSection        String?
-  createdAt        DateTime             @default(now())
-  managerialSplits     TransactionSplit[]   @relation("ManagerialCategory")
-  accountingSplits     TransactionSplit[]   @relation("AccountingCategory")
-  accountingSplits2    AccountingSplit[]    @relation("AccountingSplitCategory")
-  chartLines       DashboardChartLine[]
+  id                String               @id @default(cuid())
+  type              String
+  name              String
+  code              String?
+  parentId          String?
+  parent            Category?            @relation("CategoryChildren", fields: [parentId], references: [id])
+  children          Category[]           @relation("CategoryChildren")
+  color             String               @default("#6366f1")
+  isInternal        Boolean              @default(false)
+  plSection         String?
+  createdAt         DateTime             @default(now())
+  managerialSplits  TransactionSplit[]   @relation("ManagerialCategory")
+  accountingSplits  TransactionSplit[]   @relation("AccountingCategory")
+  accountingSplits2 AccountingSplit[]    @relation("AccountingSplitCategory")
+  chartLines        DashboardChartLine[]
 }
 
 model Transaction {
@@ -180,15 +181,15 @@ model TransactionSplit {
 }
 
 model DashboardChart {
-  id        String               @id @default(cuid())
-  name      String
-  color     String               @default("#00b9a5")
-  order     Int                  @default(0)
-  lines        DashboardChartLine[]
-  seriesLinks  ChartSeriesLink[]
-  unit         String  @default("currency")
-  format       String  @default("auto")
-  createdAt DateTime             @default(now())
+  id          String               @id @default(cuid())
+  name        String
+  color       String               @default("#00b9a5")
+  order       Int                  @default(0)
+  lines       DashboardChartLine[]
+  seriesLinks ChartSeriesLink[]
+  unit        String               @default("currency")
+  format      String               @default("auto")
+  createdAt   DateTime             @default(now())
 }
 
 model DashboardChartLine {
@@ -206,29 +207,29 @@ model DashboardChartLine {
 }
 
 model PlanSeries {
-  id         String           @id @default(cuid())
-  name       String
-  color      String           @default("#f59e0b")
-  seriesType String           @default("line") // "line" | "bar"
-  unit       String           @default("currency") // "currency" | "percentage" | "index" | "time" | "count"
-  format     String           @default("auto") // "auto" | "thousands" | "millions" | "raw" | "percentage"
-  order      Int              @default(0)
-  values     PlanSeriesValue[]
-  chartLinks ChartSeriesLink[]
-  createdAt  DateTime         @default(now())
+  id               String            @id @default(cuid())
+  name             String
+  color            String            @default("#f59e0b")
+  seriesType       String            @default("line") // "line" | "bar"
+  unit             String            @default("currency") // "currency" | "percentage" | "index" | "time" | "count"
+  format           String            @default("auto") // "auto" | "thousands" | "millions" | "raw" | "percentage"
+  order            Int               @default(0)
+  values           PlanSeriesValue[]
+  chartLinks       ChartSeriesLink[]
+  createdAt        DateTime          @default(now())
   // Derived (formula) series
-  formulaOp        String?    // "+" | "-" | "*" | "/"
-  formulaSeriesAId String?    // PlanSeries id (mutually exclusive with formulaChartAId)
-  formulaSeriesBId String?    // PlanSeries id (mutually exclusive with formulaChartBId)
-  formulaChartAId  String?    // DashboardChart id
-  formulaChartBId  String?    // DashboardChart id
+  formulaOp        String? // "+" | "-" | "*" | "/"
+  formulaSeriesAId String? // PlanSeries id (mutually exclusive with formulaChartAId)
+  formulaSeriesBId String? // PlanSeries id (mutually exclusive with formulaChartBId)
+  formulaChartAId  String? // DashboardChart id
+  formulaChartBId  String? // DashboardChart id
 }
 
 model PlanSeriesValue {
   id       String     @id @default(cuid())
   seriesId String
   series   PlanSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
-  month    String     // "2026-01"
+  month    String // "2026-01"
   value    Float
 
   @@unique([seriesId, month])
@@ -262,30 +263,56 @@ model Setting {
 }
 
 model Document {
-  id            String      @id @default(cuid())
-  transactionId String
-  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  id            String        @id @default(cuid())
+  // Dono: EXATAMENTE um (CHECK no banco) — anexo de transação OU documento da empresa.
+  transactionId String?
+  transaction   Transaction?  @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  companyId     String?
+  company       Company?      @relation(fields: [companyId], references: [id], onDelete: Restrict)
   filename      String
-  path          String
+  path          String        @unique // "r2:<chave>" (anexos antigos: caminho no disco, perdido)
   mimetype      String?
   size          Int?
-  uploadedAt    DateTime    @default(now())
+  uploadedAt    DateTime      @default(now())
+  uploadedById  String?
+  uploadedBy    User?         @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  // Só documento de empresa (CHECK: empresa ⇒ tipo):
+  typeId        String?
+  type          DocumentType? @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  title         String?
+  issuedAt      DateTime?     @db.Date
+  expiresAt     DateTime?     @db.Date
+  // Renovação: o novo aponta pro que ele substitui; o antigo fica no histórico.
+  replacesId    String?       @unique
+  replaces      Document?     @relation("Renovacao", fields: [replacesId], references: [id], onDelete: SetNull)
+  replacedBy    Document?     @relation("Renovacao")
 
   @@index([transactionId])
+  @@index([companyId])
+  @@index([expiresAt])
+}
+
+/// Tipos de documento da empresa (contrato social, certidão…) — lista editável pelos admins.
+model DocumentType {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  createdAt DateTime   @default(now())
+  documents Document[]
 }
 
 // ===== Multi-usuário =====
 model User {
-  id           String       @id @default(cuid())
-  email        String       @unique
-  passwordHash String
-  name         String?
-  role         String       @default("member") // "admin" | "member"
+  id                   String                @id @default(cuid())
+  email                String                @unique
+  passwordHash         String
+  name                 String?
+  role                 String                @default("member") // "admin" | "member"
   isActive             Boolean               @default(true)
   createdAt            DateTime              @default(now())
   sessions             Session[]
   memberships          Membership[]
   operationMemberships OperationMembership[]
+  documentsUploaded    Document[]
 }
 
 model Session {
@@ -350,8 +377,8 @@ model MetaReceipt {
 
 // ===== Universo Meta controlado (contas + cartão de funding) =====
 model MetaAdAccount {
-  id               String   @id @default(cuid())
-  accountId        String   @unique // id numérico Meta
+  id               String     @id @default(cuid())
+  accountId        String     @unique // id numérico Meta
   name             String
   currency         String?
   accountStatus    Int?
@@ -364,7 +391,7 @@ model MetaAdAccount {
   fundingCardLast4 String?
   fundingRaw       String?
   amountSpent      Float? // gasto total (lifetime) reportado pelo Meta, em unidades menores da moeda
-  updatedAt        DateTime @updatedAt
+  updatedAt        DateTime   @updatedAt
 
   @@index([fundingCardLast4])
   @@index([operationId])
@@ -373,17 +400,17 @@ model MetaAdAccount {
 // Cobrança real de uma conta de anúncio (act_<id>/activities event=ad_account_billing_charge).
 // É a "Atividade de pagamento" do Business Suite — valor + data + conta/BM, por API.
 model MetaBillingCharge {
-  id            String   @id @default(cuid())
-  transactionId String   @unique // transaction_id do Meta (dedup)
-  accountId     String // act id numérico
-  accountName   String?
-  bmId          String?
-  bmName        String?
-  operationId   String?
-  amountUsd     Float // new_value/100 (na moeda do extra_data)
-  currency      String
-  chargedAt     DateTime
-  createdAt     DateTime @default(now())
+  id              String   @id @default(cuid())
+  transactionId   String   @unique // transaction_id do Meta (dedup)
+  accountId       String // act id numérico
+  accountName     String?
+  bmId            String?
+  bmName          String?
+  operationId     String?
+  amountUsd       Float // new_value/100 (na moeda do extra_data)
+  currency        String
+  chargedAt       DateTime
+  createdAt       DateTime @default(now())
   // nº de referência da cobrança — existia só em produção (coluna criada fora das migrations,
   // 960 valores em out/2026); preservado na migração para o Postgres. O código atual não usa.
   referenceNumber String?

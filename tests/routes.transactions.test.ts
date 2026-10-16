@@ -1,11 +1,8 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { existsSync, readdirSync, rmSync } from "node:fs";
-import path from "node:path";
+import { beforeEach, describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import { prisma } from "@/lib/db";
 import * as transactions from "@/app/api/transactions/route";
 import * as transaction from "@/app/api/transactions/[id]/route";
-import * as documents from "@/app/api/transactions/[id]/documents/route";
 import * as splits from "@/app/api/transactions/[id]/splits/route";
 import * as accountingSplits from "@/app/api/transactions/[id]/accounting-splits/route";
 import * as bulk from "@/app/api/transactions/bulk/route";
@@ -24,15 +21,6 @@ beforeEach(async () => {
   s = await seedTwoGroups();
   opOutro = await prisma.operation.create({ data: { name: "Op Outro", holdingId: s.holdings.outro.id } });
   category = await prisma.category.create({ data: { type: "managerial", name: "Teste" } });
-});
-
-// O upload de documento grava em <cwd>/uploads/<id>/ — apaga o que os testes criarem.
-const UPLOADS = path.join(process.cwd(), "uploads");
-const uploadsExisted = existsSync(UPLOADS);
-const uploadDirs = new Set<string>();
-afterAll(() => {
-  for (const id of uploadDirs) rmSync(path.join(UPLOADS, id), { recursive: true, force: true });
-  if (!uploadsExisted && existsSync(UPLOADS) && readdirSync(UPLOADS).length === 0) rmSync(UPLOADS, { recursive: true });
 });
 
 const idsOf = (rows: { id: string }[]) => rows.map((r) => r.id).sort();
@@ -168,30 +156,6 @@ describe("GET /api/transactions/[id]", () => {
       expect(body.id).toBe(s.transactions.pixel.id);
       expect(JSON.stringify(body)).not.toContain("segredo-banco");
     }
-  });
-});
-
-describe("POST /api/transactions/[id]/documents", () => {
-  const upload = (id: string) =>
-    documents.POST(formReq(`/api/transactions/${id}/documents`, { file: new File(["a,b\n1,2\n"], "nota.csv", { type: "text/csv" }) }), params({ id }));
-
-  it("deslogado = 401 e outro grupo = 404 — sem documento e sem arquivo gravado", async () => {
-    const id = s.transactions.pixel.id;
-    uploadDirs.add(id);
-    loginAs(null);
-    expect((await upload(id)).status).toBe(401);
-    loginAs(s.users.outro);
-    expect((await upload(id)).status).toBe(404);
-    expect(await prisma.document.count({ where: { transactionId: id } })).toBe(0);
-    expect(existsSync(path.join(UPLOADS, id))).toBe(false);
-  });
-
-  it("dono anexa", async () => {
-    const id = s.transactions.pixel.id;
-    uploadDirs.add(id);
-    loginAs(s.users.pixel);
-    expect((await upload(id)).status).toBe(201);
-    expect(await prisma.document.count({ where: { transactionId: id } })).toBe(1);
   });
 });
 

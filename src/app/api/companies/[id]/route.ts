@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { isSuperadmin } from "@/lib/auth";
-import { AccessError, assertCompany, assertHolding, guarded, requireUser } from "@/lib/access";
+import { AccessError, RequestError, assertCompany, assertHolding, guarded, requireUser } from "@/lib/access";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -30,6 +30,9 @@ export const DELETE = guarded(async (_req: Request, { params }: Ctx) => {
   const user = await requireUser();
   const { id } = await params;
   await assertCompany(user, id);
+  // documentos da empresa não somem junto (o banco também recusa): apague ou mova antes
+  const docs = await prisma.document.count({ where: { companyId: id } });
+  if (docs > 0) throw new RequestError(409, `a empresa tem ${docs} documento(s); apague-os antes`);
   await prisma.company.delete({ where: { id } });
   return new Response(null, { status: 204 });
 });
