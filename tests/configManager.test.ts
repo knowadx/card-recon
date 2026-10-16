@@ -6,11 +6,11 @@ import * as coverage from "@/app/api/coverage/route";
 import { loginAs, req, resetRequest, seedTwoGroups } from "./helpers";
 
 let s: Awaited<ReturnType<typeof seedTwoGroups>>;
-let admin: { id: string; role: string };
+let admin: { id: string; role: string; email: string };
 beforeEach(async () => {
   resetRequest();
   s = await seedTwoGroups();
-  admin = await prisma.user.create({ data: { email: "admin@teste.com", role: "admin", passwordHash: "x:y" } });
+  admin = await prisma.user.create({ data: { email: "admin@teste.com", role: "admin" } });
   await prisma.membership.create({ data: { userId: admin.id, holdingId: s.holdings.pixel.id } });
 });
 

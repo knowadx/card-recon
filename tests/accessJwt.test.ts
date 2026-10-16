@@ -84,7 +84,7 @@ describe("verifyAccessJwt", () => {
 describe("getCurrentUser com o login da Cloudflare", () => {
   it("LIGADO: o JWT conferido identifica o cadastro ativo; cookie antigo sozinho não entra", async () => {
     await wipe();
-    const u = await prisma.user.create({ data: { email: "pixel@teste.com", passwordHash: "x:y" } });
+    const u = await prisma.user.create({ data: { email: "pixel@teste.com" } });
     for (const [k, v] of Object.entries(ON)) vi.stubEnv(k, v);
 
     loginAs(u); // cookie antigo válido, mas sem JWT
@@ -96,7 +96,7 @@ describe("getCurrentUser com o login da Cloudflare", () => {
 
   it("LIGADO: e-mail sem cadastro, cadastro desativado e cabeçalho de e-mail sem JWT = ninguém", async () => {
     await wipe();
-    await prisma.user.create({ data: { email: "inativo@teste.com", passwordHash: "x:y", isActive: false } });
+    await prisma.user.create({ data: { email: "inativo@teste.com", isActive: false } });
     for (const [k, v] of Object.entries(ON)) vi.stubEnv(k, v);
 
     setRequestHeaders({ "cf-access-jwt-assertion": await token({ email: "desconhecido@teste.com" }) });
@@ -111,7 +111,7 @@ describe("getCurrentUser com o login da Cloudflare", () => {
 
   it("INCOMPLETO fecha: nem JWT válido nem cookie entram", async () => {
     await wipe();
-    const u = await prisma.user.create({ data: { email: "pixel@teste.com", passwordHash: "x:y" } });
+    const u = await prisma.user.create({ data: { email: "pixel@teste.com" } });
     vi.stubEnv("ACCESS_TEAM_DOMAIN", TEAM);
     vi.stubEnv("ACCESS_AUD", "");
     loginAs(u);
@@ -119,10 +119,12 @@ describe("getCurrentUser com o login da Cloudflare", () => {
     expect(await getCurrentUser()).toBeNull();
   });
 
-  it("DESLIGADO: o login antigo (cookie) continua valendo até a virada", async () => {
+  it("DESLIGADO (Cloudflare não configurada): ninguém entra — nem com JWT válido (o login por cookie foi removido)", async () => {
     await wipe();
-    const u = await prisma.user.create({ data: { email: "pixel@teste.com", passwordHash: "x:y" } });
-    loginAs(u);
-    expect((await getCurrentUser())?.id).toBe(u.id);
+    await prisma.user.create({ data: { email: "pixel@teste.com" } });
+    vi.stubEnv("ACCESS_TEAM_DOMAIN", "");
+    vi.stubEnv("ACCESS_AUD", "");
+    setRequestHeaders({ "cf-access-jwt-assertion": await token() });
+    expect(await getCurrentUser()).toBeNull();
   });
 });

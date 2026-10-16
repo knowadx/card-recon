@@ -27,7 +27,9 @@ dc() { docker compose "$@"; }
 
 [ -f .env ] || { echo "sem .env — copie deploy/env.exemplo para .env e preencha (deploy/README.md)"; exit 1; }
 grep -qE '^POSTGRES_PASSWORD=[A-Za-z0-9]{16,}$' .env || { echo "POSTGRES_PASSWORD ausente ou fraca no .env (16+ letras/números)"; exit 1; }
-grep -qE '^SESSION_SECRET=.{24,}$' .env || { echo "SESSION_SECRET ausente ou curto no .env (24+ caracteres)"; exit 1; }
+# login é SÓ pela Cloudflare: sem as duas, o app fecha pra todo mundo (503) — nem sobe
+grep -qE '^ACCESS_TEAM_DOMAIN=.+\.cloudflareaccess\.com$' .env || { echo "ACCESS_TEAM_DOMAIN ausente no .env (ex.: equipe.cloudflareaccess.com) — o login é pela Cloudflare"; exit 1; }
+grep -qE '^ACCESS_AUD=[0-9a-f]{32,}$' .env || { echo "ACCESS_AUD ausente no .env (Application Audience Tag do app no Zero Trust)"; exit 1; }
 
 # Túnel: só sobe o cloudflared quando o token existe (instalação nova pode subir sem ele)
 TUNEL=""

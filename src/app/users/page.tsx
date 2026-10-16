@@ -24,7 +24,6 @@ export default function UsersPage() {
 
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-  const [password, setPassword] = useState("");
   const [role, setRole] = useState("member");
   const [holdingIds, setHoldingIds] = useState<string[]>([]);
   const [operationIds, setOperationIds] = useState<string[]>([]);
@@ -43,11 +42,11 @@ export default function UsersPage() {
   async function create() {
     const res = await fetch("/api/users", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, name, password, role, holdingIds, operationIds }),
+      body: JSON.stringify({ email, name, role, holdingIds, operationIds }),
     });
     const j = await res.json();
     setMsg(j.ok ? `✅ ${email} criado` : `❌ ${j.error}`);
-    if (j.ok) { setEmail(""); setName(""); setPassword(""); setRole("member"); setHoldingIds([]); setOperationIds([]); load(); }
+    if (j.ok) { setEmail(""); setName(""); setRole("member"); setHoldingIds([]); setOperationIds([]); load(); }
   }
   async function patch(id: string, body: Record<string, unknown>) {
     await fetch(`/api/users/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -76,7 +75,6 @@ export default function UsersPage() {
         <div className="flex flex-wrap items-end gap-2">
           <input className={input} placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
           <input className={input} placeholder="Nome" value={name} onChange={(e) => setName(e.target.value)} />
-          <input className={input} placeholder="Senha" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
           <select className={input} value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="member">membro</option>
             <option value="admin">admin (gerencia a holding)</option>
@@ -107,7 +105,8 @@ export default function UsersPage() {
             </div>
           </div>
         )}
-        <button className={btn + " self-start"} onClick={create} disabled={!email || !password}>Criar</button>
+        <p className="text-xs text-slate-500">Sem senha: a pessoa entra pelo login da Cloudflare (código por e-mail). O e-mail também precisa estar na lista de acesso da Cloudflare (política “Equipe PixelFinance”).</p>
+        <button className={btn + " self-start"} onClick={create} disabled={!email}>Criar</button>
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-4 overflow-x-auto">

@@ -151,7 +151,7 @@ const importCalls: [string, () => Promise<Response>][] = [
 
 describe("importar CSV da Revolut e faturas (PDF) — admins também", () => {
   const adminDe = async (holdingId: string, email: string) => {
-    const u = await prisma.user.create({ data: { email, role: "admin", passwordHash: "x:y" } });
+    const u = await prisma.user.create({ data: { email, role: "admin" } });
     await prisma.membership.create({ data: { userId: u.id, holdingId } });
     return u;
   };
@@ -414,9 +414,9 @@ describe("integrações Revolut/Wise — só o administrador geral", () => {
 
 describe("PATCH/DELETE /api/users/[id] — admin de um grupo não toma conta de quem é de outro grupo", () => {
   async function seedUsers() {
-    const admin = await prisma.user.create({ data: { email: "adm@pixel.com", role: "admin", passwordHash: "a:b", memberships: { create: { holdingId: s.holdings.pixel.id } } } });
+    const admin = await prisma.user.create({ data: { email: "adm@pixel.com", role: "admin", memberships: { create: { holdingId: s.holdings.pixel.id } } } });
     const shared = await prisma.user.create({
-      data: { email: "dupla@teste.com", passwordHash: "orig:hash", memberships: { create: [{ holdingId: s.holdings.pixel.id }, { holdingId: s.holdings.outro.id }] } },
+      data: { email: "dupla@teste.com", memberships: { create: [{ holdingId: s.holdings.pixel.id }, { holdingId: s.holdings.outro.id }] } },
     });
     return { admin, shared };
   }
@@ -425,12 +425,11 @@ describe("PATCH/DELETE /api/users/[id] — admin de um grupo não toma conta de 
     const { admin, shared } = await seedUsers();
     loginAs(admin);
     const patch = (json: unknown) => userById.PATCH(req(`/api/users/${shared.id}`, { method: "PATCH", json }), params({ id: shared.id }));
-    expect((await patch({ password: "tomada" })).status).toBe(403);
     expect((await patch({ role: "admin" })).status).toBe(403);
     expect((await patch({ isActive: false })).status).toBe(403);
     expect((await userById.DELETE(req(`/api/users/${shared.id}`, { method: "DELETE" }), params({ id: shared.id }))).status).toBe(403);
     const after = await prisma.user.findUnique({ where: { id: shared.id } });
-    expect(after).toMatchObject({ passwordHash: "orig:hash", role: "member", isActive: true });
+    expect(after).toMatchObject({ role: "member", isActive: true });
   });
 
   it("vínculos continuam editáveis (preserva os de fora) e usuário só do grupo segue gerenciável", async () => {
@@ -442,10 +441,9 @@ describe("PATCH/DELETE /api/users/[id] — admin de um grupo não toma conta de 
     const hs = (await prisma.membership.findMany({ where: { userId: shared.id } })).map((m) => m.holdingId).sort();
     expect(hs).toEqual([s.holdings.pixel.id, s.holdings.outro.id].sort());
 
-    expect((await userById.PATCH(req(`/api/users/${solo.id}`, { method: "PATCH", json: { password: "nova" } }), params({ id: solo.id }))).status).toBe(200);
-    expect((await prisma.user.findUnique({ where: { id: solo.id } }))?.passwordHash).not.toBe("x:y");
+    expect((await userById.PATCH(req(`/api/users/${solo.id}`, { method: "PATCH", json: { isActive: true } }), params({ id: solo.id }))).status).toBe(200);
 
     loginAs(s.users.root);
-    expect((await userById.PATCH(req(`/api/users/${shared.id}`, { method: "PATCH", json: { password: "root" } }), params({ id: shared.id }))).status).toBe(200);
+    expect((await userById.PATCH(req(`/api/users/${shared.id}`, { method: "PATCH", json: { isActive: true } }), params({ id: shared.id }))).status).toBe(200);
   });
 });

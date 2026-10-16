@@ -35,14 +35,14 @@ describe("requireUser / requireSuperadmin", () => {
     expect(await statusOf(requireUser())).toBe(401);
   });
 
-  it("usuário desativado = 401, mesmo com cookie válido", async () => {
-    const u = await prisma.user.create({ data: { email: "inativo@teste.com", passwordHash: "x:y", isActive: false } });
+  it("usuário desativado = 401, mesmo com JWT válido", async () => {
+    const u = await prisma.user.create({ data: { email: "inativo@teste.com", isActive: false } });
     loginAs(u);
     expect(await statusOf(requireUser())).toBe(401);
   });
 
-  it("o papel vem do banco, não do cookie: cookie dizendo superadmin não promove ninguém", async () => {
-    loginAs({ id: s.users.pixel.id, role: "superadmin" });
+  it("o papel vem do banco, não do JWT: JWT dizendo superadmin não promove ninguém", async () => {
+    loginAs(s.users.pixel, { role: "superadmin" });
     expect(await statusOf(requireSuperadmin())).toBe(403);
   });
 

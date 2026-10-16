@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser, hashPassword, isManager, isSuperadmin, accessibleHoldingIds } from "@/lib/auth";
+import { getCurrentUser, isManager, isSuperadmin, accessibleHoldingIds } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -66,8 +66,9 @@ export async function POST(request: Request) {
   const me = await requireManager();
   if (!me) return Response.json({ error: "forbidden" }, { status: 403 });
   const scope = await manageScope(me);
-  const { email, password, name, role, holdingIds, operationIds } = await request.json().catch(() => ({}));
-  if (!email || !password) return Response.json({ error: "email e senha obrigatórios" }, { status: 400 });
+  // login é pela Cloudflare (por e-mail): sem senha aqui
+  const { email, name, role, holdingIds, operationIds } = await request.json().catch(() => ({}));
+  if (!email) return Response.json({ error: "e-mail obrigatório" }, { status: 400 });
 
   // só superadmin cria superadmin; admin cria member|admin
   const newRole = role === "superadmin" ? (scope.all ? "superadmin" : "member") : role === "admin" ? "admin" : "member";
@@ -84,7 +85,6 @@ export async function POST(request: Request) {
     const user = await prisma.user.create({
       data: {
         email: String(email).toLowerCase(),
-        passwordHash: hashPassword(String(password)),
         name: name ?? null,
         role: newRole,
         memberships: hIds.length ? { create: hIds.map((holdingId: string) => ({ holdingId })) } : undefined,

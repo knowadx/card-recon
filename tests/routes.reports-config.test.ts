@@ -99,7 +99,7 @@ beforeEach(async () => {
   f = await seedReports(s);
 });
 
-type U = { id: string; role: string } | null;
+type U = { id: string; email: string } | null;
 /** Chama o handler como `user` e devolve { status, body }. */
 async function call(user: U, fn: () => Promise<Response>) {
   loginAs(user);
@@ -518,7 +518,8 @@ describe("/api/settings/sync-period", () => {
 describe("/api/coverage (Control)", () => {
   it("member não vê (403, papel lido do banco: cookie forjado com role=superadmin não passa); deslogado = 401", async () => {
     expect((await call(s.users.pixel, () => coverage.GET())).status).toBe(403);
-    expect((await call({ id: s.users.pixel.id, role: "superadmin" }, () => coverage.GET())).status).toBe(403);
+    loginAs(s.users.pixel, { role: "superadmin" }); // JWT dizendo superadmin não promove: o papel vem do banco
+    expect((await coverage.GET()).status).toBe(403);
     expect((await call(null, () => coverage.GET())).status).toBe(401);
   });
 
@@ -527,7 +528,7 @@ describe("/api/coverage (Control)", () => {
     expect(root.status).toBe(200);
     expect(root.body.companies).toHaveLength(2);
 
-    const adminPixel = await prisma.user.create({ data: { email: "adm-px@teste.com", role: "admin", passwordHash: "x:y" } });
+    const adminPixel = await prisma.user.create({ data: { email: "adm-px@teste.com", role: "admin" } });
     await prisma.membership.create({ data: { userId: adminPixel.id, holdingId: s.holdings.pixel.id } });
     const px = await call(adminPixel, () => coverage.GET());
     expect(px.status).toBe(200);

@@ -41,7 +41,7 @@ describe("/api/accounts", () => {
     expect((await accounts.POST(req("/api/accounts", { method: "POST", json: { ...base, name: "nova" } }))).status).toBe(201);
     expect((await accounts.POST(req("/api/accounts", { method: "POST", json: { ...base, name: "com token", apiToken: "tok" } }))).status).toBe(403);
 
-    const admin = await prisma.user.create({ data: { email: "admin-cria@teste.com", role: "admin", passwordHash: "x:y" } });
+    const admin = await prisma.user.create({ data: { email: "admin-cria@teste.com", role: "admin" } });
     await prisma.membership.create({ data: { userId: admin.id, holdingId: s.holdings.pixel.id } });
     loginAs(admin);
     const res = await accounts.POST(req("/api/accounts", { method: "POST", json: { ...base, name: "com token", apiToken: "tok-secreto" } }));
@@ -120,7 +120,7 @@ describe("ligar a conta ao banco (token / ids da conta no banco): só superadmin
     expect((await account.PATCH(req(`/api/accounts/${id}`, { method: "PATCH", json: { syncConfig: { mercuryAccountId: "conta-de-outro" } } }), params({ id }))).status).toBe(403);
     expect((await prisma.account.findUnique({ where: { id } }))?.syncConfig).toBeNull();
 
-    const admin = await prisma.user.create({ data: { email: "admin-px@teste.com", role: "admin", passwordHash: "x:y" } });
+    const admin = await prisma.user.create({ data: { email: "admin-px@teste.com", role: "admin" } });
     await prisma.membership.create({ data: { userId: admin.id, holdingId: s.holdings.pixel.id } });
     loginAs(admin);
     expect((await account.PATCH(req(`/api/accounts/${id}`, { method: "PATCH", json: { syncConfig: { mercuryAccountId: "m-1" } } }), params({ id }))).status).toBe(200);

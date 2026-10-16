@@ -1,21 +1,26 @@
 import { prisma } from "@/lib/db";
-import { signSession, SESSION_COOKIE } from "@/lib/auth";
+import { ACCESS_JWT_HEADER } from "@/lib/accessJwt";
+import { signTestJwt } from "./accessTestKeys";
 
-type FakeRequestState = { cookies: Record<string, string>; headers: Record<string, string> };
+type FakeRequestState = { headers: Record<string, string> };
 const g = globalThis as unknown as { __fakeRequest: FakeRequestState };
 
-/** "Entra" como o usuário (cookie de sessão assinado, como o login antigo). null = deslogado. */
-export function loginAs(user: { id: string; role: string } | null) {
-  g.__fakeRequest.cookies = user ? { [SESSION_COOKIE]: signSession(user.id, user.role) } : {};
+/**
+ * "Entra" como o usuário pelo login da Cloudflare (o ÚNICO do app): põe no pedido um JWT da
+ * Cloudflare com o e-mail dele. `claims` extras só servem pra provar que o JWT não muda o papel
+ * (o papel vem do banco). null = deslogado.
+ */
+export function loginAs(user: { email: string } | null, claims: Record<string, unknown> = {}) {
+  const { [ACCESS_JWT_HEADER]: _antigo, ...resto } = g.__fakeRequest.headers;
+  g.__fakeRequest.headers = user ? { ...resto, [ACCESS_JWT_HEADER]: signTestJwt({ email: user.email, ...claims }) } : resto;
 }
 
-/** Cabeçalhos que o "navegador" manda (ex.: o JWT da Cloudflare). */
+/** Cabeçalhos que o "navegador" manda (troca todos — inclusive o JWT do loginAs). */
 export function setRequestHeaders(h: Record<string, string>) {
   g.__fakeRequest.headers = h;
 }
 
 export function resetRequest() {
-  g.__fakeRequest.cookies = {};
   g.__fakeRequest.headers = {};
 }
 
@@ -40,7 +45,7 @@ export async function wipe() {
 export async function seedTwoGroups() {
   await wipe();
   const mk = (email: string, role = "member") =>
-    prisma.user.create({ data: { email, role, passwordHash: "x:y", name: email.split("@")[0] } });
+    prisma.user.create({ data: { email, role, name: email.split("@")[0] } });
   const [root, pixel, outro, operador, semAcesso] = await Promise.all([
     mk("root@teste.com", "superadmin"),
     mk("pixel@teste.com"),

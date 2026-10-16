@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser, hashPassword, isManager, isSuperadmin, accessibleHoldingIds } from "@/lib/auth";
+import { getCurrentUser, isManager, isSuperadmin, accessibleHoldingIds } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -68,7 +68,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     data.role = body.role === "superadmin" ? (scope.all ? "superadmin" : "member") : body.role === "admin" ? "admin" : "member";
   }
   if (typeof body.isActive === "boolean") data.isActive = body.isActive;
-  if (body.password) data.passwordHash = hashPassword(String(body.password));
   if (Object.keys(data).length) await prisma.user.update({ where: { id }, data });
 
   if (Array.isArray(body.holdingIds)) {

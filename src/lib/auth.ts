@@ -1,105 +1,25 @@
-import { createHmac, scryptSync, randomBytes, timingSafeEqual } from "crypto";
-import { cookies, headers } from "next/headers";
+import { headers } from "next/headers";
 import { prisma } from "./db";
 import { ACCESS_JWT_HEADER, loginConfig, verifyAccessJwt } from "./accessJwt";
 import type { Prisma } from "@/generated/prisma/client";
 
 /**
- * Identidade de quem chama. Duas fontes, decididas por loginConfig() (src/lib/accessJwt.ts):
- *  - login da Cloudflare LIGADO: o JWT conferido diz o e-mail; o cadastro (User ativo) diz quem é.
- *  - DESLIGADO (até a virada): cookie de sessão ASSINADO (stateless),
- *    payload = userId.role.exp → cookie = base64url(payload).HMAC(secret,payload).
- * O papel e o escopo vêm SEMPRE do banco (getCurrentUser), nunca do cookie.
+ * Identidade de quem chama — SÓ pelo login da Cloudflare (decisão do dono em 2026-10-16: o login
+ * antigo por cookie/senha foi removido). O JWT conferido diz o e-mail; o cadastro (User ativo) diz
+ * quem é. Papel e escopo vêm SEMPRE do banco. Sem a Cloudflare configurada, ninguém entra.
  */
-
-const COOKIE = "cr_session";
-const MAX_AGE = 60 * 60 * 24 * 30; // 30 dias
-
-export function sessionSecret(): string {
-  const s = process.env.SESSION_SECRET || process.env.APP_PASSWORD;
-  if (s) return s;
-  // Em produção, sem segredo configurado ninguém entra (fecha). Só dev/teste usa o fixo.
-  if (process.env.NODE_ENV === "production") throw new Error("SESSION_SECRET não configurado");
-  return "pixelfinance-dev-secret";
-}
-const secret = sessionSecret;
-
-function b64url(s: string): string {
-  return Buffer.from(s).toString("base64url");
-}
-
-export function hashPassword(pw: string): string {
-  const salt = randomBytes(16).toString("hex");
-  const hash = scryptSync(pw, salt, 64).toString("hex");
-  return `${salt}:${hash}`;
-}
-
-export function verifyPassword(pw: string, stored: string): boolean {
-  const [salt, hash] = stored.split(":");
-  if (!salt || !hash) return false;
-  const calc = scryptSync(pw, salt, 64);
-  const known = Buffer.from(hash, "hex");
-  return calc.length === known.length && timingSafeEqual(calc, known);
-}
-
-export function signSession(userId: string, role: string): string {
-  const exp = Math.floor(Date.now() / 1000) + MAX_AGE;
-  const payload = `${userId}.${role}.${exp}`;
-  const sig = createHmac("sha256", secret()).update(payload).digest("hex");
-  return `${b64url(payload)}.${sig}`;
-}
-
-export interface SessionData {
-  userId: string;
-  role: string;
-}
-
-function verifyToken(token: string | undefined): SessionData | null {
-  if (!token) return null;
-  const dot = token.lastIndexOf(".");
-  if (dot < 0) return null;
-  const payloadB64 = token.slice(0, dot);
-  const sig = token.slice(dot + 1);
-  let payload: string;
-  try {
-    payload = Buffer.from(payloadB64, "base64url").toString();
-  } catch {
-    return null;
-  }
-  const expected = createHmac("sha256", secret()).update(payload).digest("hex");
-  if (sig.length !== expected.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
-  const [userId, role, expStr] = payload.split(".");
-  if (!userId || Number(expStr) < Math.floor(Date.now() / 1000)) return null;
-  return { userId, role };
-}
-
-export const SESSION_COOKIE = COOKIE;
-export const SESSION_MAX_AGE = MAX_AGE;
-
-/** Lê a sessão do cookie (server components / route handlers). */
-export async function getSession(): Promise<SessionData | null> {
-  const jar = await cookies();
-  return verifyToken(jar.get(COOKIE)?.value);
-}
 
 export async function getCurrentUser() {
   const cfg = loginConfig();
-  if (cfg.mode !== "desligado") {
-    if (cfg.mode === "incompleto") return null; // configuração errada fecha
-    let email: string;
-    try {
-      email = await verifyAccessJwt((await headers()).get(ACCESS_JWT_HEADER), cfg);
-    } catch {
-      return null;
-    }
-    const user = await prisma.user.findUnique({ where: { email } });
-    return user && user.isActive ? user : null;
+  if (cfg.mode !== "ligado") return null; // sem a Cloudflare configurada (ou mal configurada) fecha
+  let email: string;
+  try {
+    email = await verifyAccessJwt((await headers()).get(ACCESS_JWT_HEADER), cfg);
+  } catch {
+    return null;
   }
-  const s = await getSession();
-  if (!s) return null;
-  const user = await prisma.user.findUnique({ where: { id: s.userId } });
-  if (!user || !user.isActive) return null;
-  return user;
+  const user = await prisma.user.findUnique({ where: { email } });
+  return user && user.isActive ? user : null;
 }
 
 export async function scopes(userId: string) {
@@ -210,14 +130,3 @@ export async function sessionScopes(): Promise<{ isAdmin: boolean; holdingIds: s
   return { isAdmin: false, ...sc };
 }
 
-/** Garante 1 admin a partir das envs ADMIN_EMAIL/ADMIN_PASSWORD se não houver usuários. */
-export async function ensureSeedAdmin(): Promise<void> {
-  const count = await prisma.user.count();
-  if (count > 0) return;
-  const email = process.env.ADMIN_EMAIL;
-  const pw = process.env.ADMIN_PASSWORD;
-  if (!email || !pw) return;
-  await prisma.user.create({
-    data: { email: email.toLowerCase(), passwordHash: hashPassword(pw), role: "superadmin", name: "Admin" },
-  });
-}

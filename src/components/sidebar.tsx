@@ -154,11 +154,10 @@ export function Sidebar() {
         {!collapsed && (
           <p className="text-[11px] text-[#9ca3af]">PixelFinance <span className="text-[#d1d5db]">v{process.env.NEXT_PUBLIC_BUILD_ID ?? "dev"}</span></p>
         )}
-        <form action="/api/auth/logout" method="post" className="inline">
-          <button type="submit" title="Sair" className="p-2 rounded-lg text-[#9ca3af] hover:text-[#6b7280] hover:bg-[#f3f4f6] transition-all">
-            <LogOut className="w-4 h-4" />
-          </button>
-        </form>
+        {/* sair = encerrar a sessão da Cloudflare (o único login do app) */}
+        <a href="/cdn-cgi/access/logout" title="Sair" className="p-2 rounded-lg text-[#9ca3af] hover:text-[#6b7280] hover:bg-[#f3f4f6] transition-all">
+          <LogOut className="w-4 h-4" />
+        </a>
         <button
           onClick={() => setSettingsOpen((v) => !v)}
           title="Settings"

@@ -29,16 +29,16 @@ function stubR2Network() {
 }
 
 let s: Awaited<ReturnType<typeof seedTwoGroups>>;
-let adminPixel: { id: string; role: string };
-let adminOutro: { id: string; role: string };
+let adminPixel: { id: string; role: string; email: string };
+let adminOutro: { id: string; role: string; email: string };
 let certidao: { id: string };
 let contrato: { id: string };
 
 beforeEach(async () => {
   resetRequest();
   s = await seedTwoGroups();
-  adminPixel = await prisma.user.create({ data: { email: "admin-pixel@teste.com", role: "admin", passwordHash: "x:y" } });
-  adminOutro = await prisma.user.create({ data: { email: "admin-outro@teste.com", role: "admin", passwordHash: "x:y" } });
+  adminPixel = await prisma.user.create({ data: { email: "admin-pixel@teste.com", role: "admin" } });
+  adminOutro = await prisma.user.create({ data: { email: "admin-outro@teste.com", role: "admin" } });
   await prisma.membership.create({ data: { userId: adminPixel.id, holdingId: s.holdings.pixel.id } });
   await prisma.membership.create({ data: { userId: adminOutro.id, holdingId: s.holdings.outro.id } });
   certidao = await prisma.documentType.create({ data: { name: "Certidão" } });

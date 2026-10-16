@@ -16,9 +16,9 @@ export default defineConfig({
     fileParallelism: false,
     env: {
       DATABASE_URL: testDatabaseUrl(),
-      SESSION_SECRET: "segredo-de-teste",
-      ACCESS_TEAM_DOMAIN: "",
-      ACCESS_AUD: "",
+      // login SÓ pela Cloudflare: os testes usam uma equipe/AUD de teste (chave em tests/accessTestKeys.ts)
+      ACCESS_TEAM_DOMAIN: "pixel-teste.cloudflareaccess.com",
+      ACCESS_AUD: "aud-de-teste",
     },
   },
 });

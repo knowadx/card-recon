@@ -37,7 +37,7 @@ async function abre(): Promise<"abriu" | "voltou pro Dashboard"> {
 describe("/control com o login da Cloudflare (Access ligado)", () => {
   it("superadmin e admin abrem; member e sem login voltam pro Dashboard", async () => {
     await wipe();
-    const mk = (email: string, role: string) => prisma.user.create({ data: { email, role, passwordHash: "x:y" } });
+    const mk = (email: string, role: string) => prisma.user.create({ data: { email, role } });
     await mk("dono@teste.com", "superadmin");
     await mk("admin@teste.com", "admin");
     await mk("membro@teste.com", "member");
@@ -54,10 +54,12 @@ describe("/control com o login da Cloudflare (Access ligado)", () => {
     expect(await abre()).toBe("voltou pro Dashboard");
   });
 
-  it("login antigo (cookie, Access desligado) continua funcionando", async () => {
+  it("sem a Cloudflare configurada nem o superadmin abre (o login antigo por cookie foi removido)", async () => {
     await wipe();
-    const dono = await prisma.user.create({ data: { email: "dono@teste.com", role: "superadmin", passwordHash: "x:y" } });
-    loginAs(dono);
-    expect(await abre()).toBe("abriu");
+    await prisma.user.create({ data: { email: "dono@teste.com", role: "superadmin" } });
+    vi.stubEnv("ACCESS_TEAM_DOMAIN", "");
+    vi.stubEnv("ACCESS_AUD", "");
+    setRequestHeaders({ "cf-access-jwt-assertion": await jwt("dono@teste.com") });
+    expect(await abre()).toBe("voltou pro Dashboard");
   });
 });

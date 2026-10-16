@@ -29,6 +29,8 @@ const ORDEM = [
 ];
 // sessões do login antigo não servem no novo (o login passa a ser pela Cloudflare)
 const PULAR = new Set(["Session"]);
+// colunas do login antigo que não existem mais no destino (senha) — não copiar, e não parar por elas
+const COLUNAS_IGNORADAS = { User: ["passwordHash"] };
 const LOTE = 500;
 
 const log = (...a) => console.log(...a);
@@ -107,7 +109,7 @@ try {
     const colsFonte = (await fonte.execute(`PRAGMA table_info("${t}")`)).rows.map((r) => String(r.name));
     const tipos = colunasAlvo[t];
     const comuns = colsFonte.filter((c) => c in tipos);
-    const soNaFonte = colsFonte.filter((c) => !(c in tipos));
+    const soNaFonte = colsFonte.filter((c) => !(c in tipos) && !(COLUNAS_IGNORADAS[t] ?? []).includes(c));
     for (const c of soNaFonte) {
       const n = Number((await fonte.execute(`SELECT count(*) n FROM "${t}" WHERE "${c}" IS NOT NULL`)).rows[0].n);
       if (n > 0) throw new Error(`${t}.${c} tem ${n} valor(es) e não existe no destino — dado seria perdido`);
