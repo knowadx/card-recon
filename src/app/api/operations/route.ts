@@ -32,8 +32,13 @@ export async function GET() {
     operations.map(({ credentials, ...rest }) => {
       const meta = credentials[0];
       let metaProfile: string | null = null;
-      try { metaProfile = meta?.secrets ? (JSON.parse(meta.secrets).metaUserName ?? null) : null; } catch { /* ignore */ }
-      return { ...rest, metaConnected: !!meta?.isActive, metaUpdatedAt: meta?.updatedAt ?? null, metaProfile };
+      let metaVia: string | null = null; // "login" | "token" (colado: usuário do sistema); antigas = null
+      try {
+        const s = meta?.secrets ? JSON.parse(meta.secrets) : {};
+        metaProfile = s.metaUserName ?? null;
+        metaVia = s.via ?? null;
+      } catch { /* ignore */ }
+      return { ...rest, metaConnected: !!meta?.isActive, metaUpdatedAt: meta?.updatedAt ?? null, metaProfile, metaVia };
     }),
   );
 }

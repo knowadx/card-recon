@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { META_PERMISSOES } from "@/lib/metaPermissoes";
 
 type Holding = { id: string; name: string };
 type Operation = {
@@ -11,6 +12,7 @@ type Operation = {
   metaConnected?: boolean;
   metaUpdatedAt?: string | null;
   metaProfile?: string | null;
+  metaVia?: string | null;
 };
 
 export default function OperationsPage() {
@@ -22,6 +24,10 @@ export default function OperationsPage() {
   const [name, setName] = useState("");
   const [type, setType] = useState("own");
   const [holdingId, setHoldingId] = useState("");
+  // "colar token" (usuário do sistema da Meta): qual operação está com o campo aberto
+  const [tokenOp, setTokenOp] = useState<string | null>(null);
+  const [tokenMeta, setTokenMeta] = useState("");
+  const [salvandoToken, setSalvandoToken] = useState(false);
 
   async function load() {
     const ops = await fetch("/api/operations");
@@ -50,6 +56,20 @@ export default function OperationsPage() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ operationId: id }),
     });
+    load();
+  }
+
+  async function conectarComToken(o: Operation) {
+    setSalvandoToken(true);
+    const j = await fetch("/api/meta/token", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ operationId: o.id, token: tokenMeta }),
+    }).then((r) => r.json()).catch(() => ({ ok: false, error: "sem resposta do servidor" }));
+    setSalvandoToken(false);
+    setTokenMeta(""); // o token não fica na tela, nem quando dá erro
+    if (!j.ok) { setMsg(`❌ ${j.error}`); return; }
+    setMsg(`✅ Meta conectado (${j.operacao})${j.perfil ? ` como ${j.perfil}` : ""} · ${j.expiraEm ? `vale até ${j.expiraEm.split("-").reverse().join("/")}` : "não vence"}`);
+    setTokenOp(null);
     load();
   }
 
@@ -95,6 +115,7 @@ export default function OperationsPage() {
                 {o.metaConnected ? (
                   <span className="text-xs text-emerald-700">
                     Meta conectado ✓{o.metaProfile ? <span className="text-slate-500"> · {o.metaProfile}</span> : ""}
+                    {o.metaVia === "token" && <span className="text-slate-400"> · por token</span>}
                   </span>
                 ) : (
                   <span className="text-xs text-slate-400">Meta não conectado</span>
@@ -103,11 +124,27 @@ export default function OperationsPage() {
                   <a className="text-xs text-indigo-600 hover:underline" href={`/api/meta/auth?operationId=${o.id}`}>
                     {o.metaConnected ? "reconectar Meta" : "Conectar Meta"}
                   </a>
+                  <button className="text-xs text-indigo-600 hover:underline" onClick={() => { setTokenOp(tokenOp === o.id ? null : o.id); setTokenMeta(""); }}>
+                    colar token
+                  </button>
                   {o.metaConnected && (
                     <button className="text-xs text-red-600 hover:underline" onClick={() => disconnectMeta(o.id)}>desconectar</button>
                   )}
                 </div>
               </div>
+              {tokenOp === o.id && (
+                <div className="flex flex-col gap-2 rounded-md bg-slate-50 p-2">
+                  <p className="text-xs text-slate-500">
+                    Token do <strong>usuário do sistema</strong> (Gerenciador de Negócios → Usuários do sistema → Gerar token), gerado para o
+                    app desta instalação com {META_PERMISSOES.join(", ")} e sem expiração.
+                    O sistema confere na Meta antes de gravar e nunca mostra o token de volta.
+                  </p>
+                  <div className="flex gap-2">
+                    <input type="password" autoComplete="off" className={input + " flex-1"} placeholder="Cole o token aqui" value={tokenMeta} onChange={(e) => setTokenMeta(e.target.value)} />
+                    <button className={btn} onClick={() => conectarComToken(o)} disabled={!tokenMeta.trim() || salvandoToken}>{salvandoToken ? "Conferindo…" : "Conectar"}</button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

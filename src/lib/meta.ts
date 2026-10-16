@@ -4,6 +4,10 @@
  * de cada uma (funding_source_details) — base da checagem anti-vazamento.
  */
 
+import { META_PERMISSOES } from "@/lib/metaPermissoes";
+
+export { META_PERMISSOES };
+
 const GRAPH = "https://graph.facebook.com";
 
 function version(): string {
@@ -17,13 +21,11 @@ export function metaAuthorizeUrl(redirectUri: string, state: string): string {
   u.searchParams.set("client_id", process.env.META_APP_ID ?? "");
   u.searchParams.set("redirect_uri", redirectUri);
   // App do tipo Business (Facebook Login for Business): as permissões ficam numa "configuração" criada
-  // no painel do app e o link manda só o ID dela — a Meta desaconselha mandar `scope` junto.
-  // A configuração precisa ter ads_read, ads_management e business_management (as mesmas do scope abaixo).
+  // no painel do app (com as META_PERMISSOES) e o link manda só o ID dela — a Meta desaconselha mandar
+  // `scope` junto. App clássico (Facebook Login): manda as META_PERMISSOES no scope.
   const configId = process.env.META_LOGIN_CONFIG_ID;
   if (configId) u.searchParams.set("config_id", configId);
-  // App clássico (Facebook Login): ads_management é necessário p/ act_<id>/activities expor os eventos
-  // de cobrança (event_type=ad_account_billing_charge) — a "Atividade de pagamento" do Business Suite.
-  else u.searchParams.set("scope", "ads_read,ads_management,business_management");
+  else u.searchParams.set("scope", META_PERMISSOES.join(","));
   u.searchParams.set("response_type", "code");
   u.searchParams.set("state", state);
   return u.toString();
@@ -58,24 +60,52 @@ export async function exchangeMetaCode(code: string, redirectUri: string): Promi
   return longJson.access_token as string;
 }
 
-/**
- * O token Meta ainda vale? Pergunta à própria Meta (debug_token com o token do APP).
- * { valido, expiraEm (AAAA-MM-DD | null = não expira), erro }. Sem rede/sem app = valido null.
- */
-export async function metaTokenStatus(token: string): Promise<{ valido: boolean | null; expiraEm: string | null; erro: string | null }> {
+export type InspecaoTokenMeta =
+  | { consultou: false; erro: string } // sem app configurado ou sem rede: não dá pra dizer nada
+  | {
+      consultou: true;
+      valido: boolean;
+      appId: string | null; // app para o qual o token foi gerado
+      tipo: string | null; // "USER" | "SYSTEM_USER" | ...
+      permissoes: string[];
+      expiraEm: string | null; // AAAA-MM-DD | null = não expira
+      erro: string | null;
+    };
+
+/** Tudo que a própria Meta diz sobre um token (debug_token com o token do APP). */
+export async function inspecionarTokenMeta(token: string): Promise<InspecaoTokenMeta> {
   const appId = process.env.META_APP_ID;
   const secret = process.env.META_APP_SECRET;
-  if (!appId || !secret) return { valido: null, expiraEm: null, erro: "META_APP_ID/META_APP_SECRET ausentes no servidor" };
+  if (!appId || !secret) return { consultou: false, erro: "META_APP_ID/META_APP_SECRET ausentes no servidor" };
   try {
     const u = new URL(`${GRAPH}/${version()}/debug_token`);
     u.searchParams.set("input_token", token);
     u.searchParams.set("access_token", `${appId}|${secret}`);
-    const d = ((await (await fetch(u)).json()) as { data?: { is_valid?: boolean; expires_at?: number; error?: { message?: string } } }).data ?? {};
-    const exp = typeof d.expires_at === "number" && d.expires_at > 0 ? new Date(d.expires_at * 1000).toISOString().slice(0, 10) : null;
-    return { valido: d.is_valid === true, expiraEm: exp, erro: d.is_valid ? null : (d.error?.message ?? "token inválido") };
+    const d = ((await (await fetch(u)).json()) as {
+      data?: { is_valid?: boolean; app_id?: string; type?: string; scopes?: string[]; expires_at?: number; error?: { message?: string } };
+    }).data ?? {};
+    return {
+      consultou: true,
+      valido: d.is_valid === true,
+      appId: d.app_id != null ? String(d.app_id) : null,
+      tipo: d.type ?? null,
+      permissoes: Array.isArray(d.scopes) ? d.scopes : [],
+      expiraEm: typeof d.expires_at === "number" && d.expires_at > 0 ? new Date(d.expires_at * 1000).toISOString().slice(0, 10) : null,
+      erro: d.is_valid ? null : (d.error?.message ?? "token inválido"),
+    };
   } catch (e) {
-    return { valido: null, expiraEm: null, erro: `não deu pra consultar a Meta: ${(e as Error).message}` };
+    return { consultou: false, erro: `não deu pra consultar a Meta: ${(e as Error).message}` };
   }
+}
+
+/**
+ * O token Meta ainda vale? { valido, expiraEm (AAAA-MM-DD | null = não expira), erro }.
+ * Sem rede/sem app = valido null.
+ */
+export async function metaTokenStatus(token: string): Promise<{ valido: boolean | null; expiraEm: string | null; erro: string | null }> {
+  const i = await inspecionarTokenMeta(token);
+  if (!i.consultou) return { valido: null, expiraEm: null, erro: i.erro };
+  return { valido: i.valido, expiraEm: i.expiraEm, erro: i.erro };
 }
 
 /** Perfil (usuário) Meta dono do token — { id, name }. Usado p/ exibir qual perfil conectou. */
