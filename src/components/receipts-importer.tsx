@@ -27,6 +27,7 @@ export default function ReceiptsImporter({ month, onImported }: { month?: string
   const [progress, setProgress] = useState({ done: 0, total: 0, errors: 0 });
   const [rows, setRows] = useState<Row[]>([]);
   const [result, setResult] = useState<string | null>(null);
+  const [lote, setLote] = useState<string>("");
 
   useEffect(() => {
     if (inputRef.current) { inputRef.current.setAttribute("webkitdirectory", ""); inputRef.current.setAttribute("directory", ""); }
@@ -34,6 +35,9 @@ export default function ReceiptsImporter({ month, onImported }: { month?: string
 
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const all = Array.from(e.target.files ?? []).filter((f) => f.name.toLowerCase().endsWith(".pdf"));
+    // nome da pasta escolhida (vai pro histórico de importações)
+    const rel = (all[0] as File & { webkitRelativePath?: string } | undefined)?.webkitRelativePath ?? "";
+    setLote(rel.includes("/") ? `pasta ${rel.split("/")[0]} (${all.length} PDFs)` : `${all.length} PDFs`);
     if (all.length === 0) { setResult("Nenhum PDF encontrado na pasta."); return; }
     setPhase("reading"); setResult(null); setProgress({ done: 0, total: all.length, errors: 0 }); setRows([]);
 
@@ -70,7 +74,7 @@ export default function ReceiptsImporter({ month, onImported }: { month?: string
   async function importar() {
     setPhase("importing"); setResult(null);
     try {
-      const res = await fetch("/api/admin/import-receipts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(toImport) });
+      const res = await fetch("/api/admin/import-receipts", { method: "POST", headers: { "Content-Type": "application/json", "x-filename": encodeURIComponent(lote || `${toImport.length} PDFs`) }, body: JSON.stringify(toImport) });
       const j = await res.json();
       setResult(res.ok
         ? `✅ Importado e cruzado! · recibos: ${j.recebidos} · no banco: ${j.inseridos} · COM fatura: ${j.comFatura} · SEM fatura: ${j.metaSemFatura}`
