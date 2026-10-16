@@ -151,6 +151,8 @@ describe("/api/admin/* — só o administrador geral", () => {
 
 /** Configura sync (Mercury) nas contas: Pixel (da operação), Pixel 2 (só da holding) e Outro. */
 async function seedSync() {
+  // credencial Mercury da PRÓPRIA empresa Pixel: membro nunca sincroniza pela chave global (KEY_MAP)
+  await prisma.credential.create({ data: { issuer: "mercury", company: s.companies.pixel.name, token: "tok-pixel-cred" } });
   await prisma.account.update({ where: { id: s.accounts.pixel.id }, data: { syncConfig: JSON.stringify({ mercuryAccountId: "merc-pixel" }) } });
   await prisma.account.update({ where: { id: s.accounts.outro.id }, data: { syncConfig: JSON.stringify({ mercuryAccountId: "merc-outro" }) } });
   const pixel2 = await prisma.account.create({
