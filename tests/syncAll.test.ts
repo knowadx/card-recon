@@ -211,6 +211,32 @@ describe("POST /api/sync/all — mesma implementação das rotas por banco", () 
     expect(new Set(fake.calls.map((c) => c.auth))).toEqual(new Set(["Bearer tok-merc-pixel", "Bearer tok-wise-pixel"]));
   });
 
+  it("uma conta só (accountId): sincroniza só ela; conta de outro grupo = 404 sem chamar banco", async () => {
+    loginAs(s.users.pixel);
+    const fake = installFakeBanks(banks());
+    const { status, body } = await runAll({ from: FROM, accountId: acc.wise.id });
+    expect(status).toBe(200);
+    expect(body.accounts.map((a) => a.accountId)).toEqual([acc.wise.id]);
+    const outra = await prisma.account.findFirstOrThrow({ where: { companyId: s.companies.outro.id } });
+    const chamadas = fake.calls.length;
+    const res = await syncAll.POST(req("/api/sync/all", { method: "POST", json: { accountId: outra.id } }));
+    expect(res.status).toBe(404);
+    expect(fake.calls.length).toBe(chamadas);
+  });
+
+  it("depois do sync, 'Possui Fatura' é recalculado: cobrança cujo PDF já estava aqui sai casada", async () => {
+    loginAs(s.users.pixel);
+    installFakeBanks(banks());
+    const tx = await prisma.transaction.create({
+      data: { accountId: acc.mercury.id, date: new Date("2026-10-02"), description: "FACEBK *zzz111", amount: -5, currency: "USD", reference: "pre-existente", isMetaCharge: true, metaRef: "zzz111", hasReceipt: false },
+    });
+    await prisma.metaReceipt.create({ data: { transactionId: "pdf-zzz", referenceNumber: "ZZZ111" } });
+    const { status, body } = await runAll({ from: FROM });
+    expect(status).toBe(200);
+    expect((await prisma.transaction.findUniqueOrThrow({ where: { id: tx.id } })).hasReceipt).toBe(true);
+    expect((body as unknown as { faturas: { comFatura: number } }).faturas.comFatura).toBeGreaterThanOrEqual(1);
+  });
+
   it("empresa de outro grupo = 404, sem chamar banco nenhum", async () => {
     loginAs(s.users.pixel);
     const fake = installFakeBanks(banks());

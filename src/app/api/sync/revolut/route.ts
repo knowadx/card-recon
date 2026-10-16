@@ -1,5 +1,6 @@
 import { syncRevolutAccount } from "@/lib/sync/revolut";
 import { guarded, requireUser } from "@/lib/access";
+import { recomputeHasReceipt } from "@/lib/receipts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -17,5 +18,7 @@ export const POST = guarded(async (request: Request) => {
 
   // assertAccount (outro grupo = 404) + token OAuth da própria empresa acontecem dentro do sync (src/lib/sync/revolut.ts)
   const { status, body: result } = await syncRevolutAccount({ user, accountId, revolutAccountId, from, saveSyncConfig: true });
+  // transação nova cuja fatura (PDF) já está no sistema já sai "com fatura" — a ordem dos passos deixa de importar
+  if (status === 200) await recomputeHasReceipt();
   return Response.json(result, { status });
 });

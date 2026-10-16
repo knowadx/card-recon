@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/db";
 import { getSyncPeriod } from "@/lib/settings";
-import { accountScope, assertCompany, guarded, requireUser, type AppUser } from "@/lib/access";
+import { accountScope, assertAccount, assertCompany, guarded, requireUser, type AppUser } from "@/lib/access";
 import { mapLimit, type SyncOutcome } from "@/lib/sync/common";
+import { recomputeHasReceipt } from "@/lib/receipts";
 import { syncMercuryAccount } from "@/lib/sync/mercury";
 import { syncWiseAccount } from "@/lib/sync/wise";
 import { syncRevolutAccount } from "@/lib/sync/revolut";
@@ -72,10 +73,13 @@ export const POST = guarded(async (request: Request) => {
   const from: string = body.from || period.from;
   const company: string | undefined = body.company || undefined; // escopo de empresa (companyId)
   if (company) await assertCompany(user, company); // empresa de outro grupo = 404
+  // uma conta só (botão "Sincronizar" da linha no Fechamento Meta) — mesmo caminho, mesmo escopo
+  const accountId: string | undefined = typeof body.accountId === "string" && body.accountId ? body.accountId : undefined;
+  if (accountId) await assertAccount(user, accountId); // conta de outro grupo = 404
 
   // só as contas do escopo do usuário (superadmin = todas)
   const accounts = await prisma.account.findMany({
-    where: { AND: [{ syncConfig: { not: null }, ...(company ? { companyId: company } : {}) }, await accountScope(user)] },
+    where: { AND: [{ syncConfig: { not: null }, ...(company ? { companyId: company } : {}), ...(accountId ? { id: accountId } : {}) }, await accountScope(user)] },
     select: { id: true, name: true, syncConfig: true },
   });
 
@@ -93,5 +97,7 @@ export const POST = guarded(async (request: Request) => {
   const totalImported = results.reduce((s, r) => s + r.imported, 0);
   const totalSkipped = results.reduce((s, r) => s + r.skipped, 0);
 
-  return Response.json({ imported: totalImported, skipped: totalSkipped, accounts: results });
+  // re-cruza "Possui Fatura" depois de trazer transações (se o PDF já estava aqui, a cobrança nova já sai casada)
+  const faturas = await recomputeHasReceipt();
+  return Response.json({ imported: totalImported, skipped: totalSkipped, accounts: results, faturas });
 });
