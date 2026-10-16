@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { getChartMonthlyValues } from "@/lib/chartData";
-import { guarded, requireSuperadmin, requireUser, transactionScope } from "@/lib/access";
+import { guarded, requireManager, requireUser, transactionScope } from "@/lib/access";
 
 // GET ?from=2026-01&to=2026-12
 // Séries do plano são números GLOBAIS (não pertencem a conta/empresa): qualquer usuário logado lê.
@@ -99,7 +99,7 @@ export const GET = guarded(async (request: Request) => {
 
 // POST — batch upsert { values: [{ seriesId, month, value }] } — plano é configuração global: só superadmin
 export const POST = guarded(async (request: Request) => {
-  await requireSuperadmin();
+  await requireManager();
   const { values } = await request.json() as {
     values: Array<{ seriesId: string; month: string; value: number | null }>;
   };

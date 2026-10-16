@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { guarded, requireSuperadmin, requireUser } from "@/lib/access";
+import { guarded, requireManager, requireUser } from "@/lib/access";
 import { getSyncPeriod, setSyncPeriod } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -10,9 +10,9 @@ export const GET = guarded(async () => {
   return NextResponse.json(await getSyncPeriod());
 });
 
-/** POST { from, to } → salva o período. Vale pra TODOS os syncs e o piso da Checagem → configuração global: só o administrador geral. */
+/** POST { from, to } → salva o período. Vale pra TODOS os syncs e o piso da Checagem → configuração global: superadmin e admins. */
 export const POST = guarded(async (request: Request) => {
-  await requireSuperadmin();
+  await requireManager();
   const { from, to } = (await request.json().catch(() => ({}))) as { from?: string; to?: string };
   if (!from || !/^\d{4}-\d{2}-\d{2}$/.test(from)) {
     return NextResponse.json({ error: "from inválido (use YYYY-MM-DD)" }, { status: 400 });

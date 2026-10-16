@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
-import { guarded, requireSuperadmin, requireUser, transactionScope } from "@/lib/access";
+import { guarded, requireManager, requireUser, transactionScope } from "@/lib/access";
 
-// Câmbio = configuração global: qualquer usuário logado lê; só o administrador geral altera.
+// Câmbio = configuração global: qualquer usuário logado lê; superadmin e admins alteram (member só lê).
 
 // GET — list all exchange rates + currencies actually in use
 export const GET = guarded(async () => {
@@ -28,7 +28,7 @@ export const GET = guarded(async () => {
 
 // POST — upsert batch: [{ currency, month, rateToUsd }]
 export const POST = guarded(async (request: Request) => {
-  await requireSuperadmin();
+  await requireManager();
   const { rates } = await request.json() as {
     rates: Array<{ currency: string; month: string; rateToUsd: number }>;
   };

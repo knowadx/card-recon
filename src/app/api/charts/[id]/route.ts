@@ -1,11 +1,11 @@
 import { prisma } from "@/lib/db";
-import { guarded, requireSuperadmin } from "@/lib/access";
+import { guarded, requireManager } from "@/lib/access";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// Gráficos = configuração global: só o administrador geral altera.
+// Gráficos = configuração global: superadmin e admins alteram (member só lê).
 export const PUT = guarded(async (request: Request, { params }: Ctx) => {
-  await requireSuperadmin();
+  await requireManager();
   const { id } = await params;
   const { name, color, unit, format, lines } = await request.json();
   await prisma.dashboardChartLine.deleteMany({ where: { chartId: id } });
@@ -31,7 +31,7 @@ export const PUT = guarded(async (request: Request, { params }: Ctx) => {
 });
 
 export const DELETE = guarded(async (_req: Request, { params }: Ctx) => {
-  await requireSuperadmin();
+  await requireManager();
   const { id } = await params;
   await prisma.dashboardChart.delete({ where: { id } });
   return Response.json({ ok: true });

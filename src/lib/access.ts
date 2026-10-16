@@ -1,6 +1,6 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "./db";
-import { findAccessibleOperation, getCurrentUser, isSuperadmin, scopes } from "./auth";
+import { findAccessibleOperation, getCurrentUser, isManager, isSuperadmin, scopes } from "./auth";
 
 /**
  * Permissão por grupo — a peça ÚNICA que as rotas usam. Regras:
@@ -39,6 +39,16 @@ export async function requireUser(): Promise<AppUser> {
 export async function requireSuperadmin(): Promise<AppUser> {
   const user = await requireUser();
   if (!isSuperadmin(user.role)) throw new AccessError(403, "só o administrador geral pode fazer isso");
+  return user;
+}
+
+/**
+ * Gestor = superadmin ou "admin" da equipe. Altera a configuração do app (categorias, gráficos,
+ * plano, câmbio, período de sincronização). "member" só lê. Decisão do dono em 2026-10-15.
+ */
+export async function requireManager(): Promise<AppUser> {
+  const user = await requireUser();
+  if (!isManager(user.role)) throw new AccessError(403, "só administradores alteram a configuração");
   return user;
 }
 

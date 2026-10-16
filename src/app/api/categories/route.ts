@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
-import { guarded, requireSuperadmin, requireUser } from "@/lib/access";
+import { guarded, requireManager, requireUser } from "@/lib/access";
 
-// Categorias = configuração global: qualquer usuário logado lê; só o administrador geral altera.
+// Categorias = configuração global: qualquer usuário logado lê; superadmin e admins alteram (member só lê).
 export const GET = guarded(async (request: Request) => {
   await requireUser();
   const { searchParams } = new URL(request.url);
@@ -15,7 +15,7 @@ export const GET = guarded(async (request: Request) => {
 });
 
 export const POST = guarded(async (request: Request) => {
-  await requireSuperadmin();
+  await requireManager();
   const body = await request.json();
   const category = await prisma.category.create({
     data: {

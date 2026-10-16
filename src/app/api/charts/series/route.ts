@@ -1,11 +1,11 @@
 import { prisma } from "@/lib/db";
-import { guarded, requireSuperadmin } from "@/lib/access";
+import { guarded, requireManager } from "@/lib/access";
 
-// Vínculo gráfico↔série = configuração global: só o administrador geral altera.
+// Vínculo gráfico↔série = configuração global: superadmin e admins alteram (member só lê).
 
 // POST — link a series to a chart  { chartId, seriesId }
 export const POST = guarded(async (request: Request) => {
-  await requireSuperadmin();
+  await requireManager();
   const { chartId, seriesId } = await request.json();
   const count = await prisma.chartSeriesLink.count({ where: { chartId } });
   const link = await prisma.chartSeriesLink.create({
@@ -17,7 +17,7 @@ export const POST = guarded(async (request: Request) => {
 
 // PATCH — update link fields { chartId, seriesId, yAxis }
 export const PATCH = guarded(async (request: Request) => {
-  await requireSuperadmin();
+  await requireManager();
   const { chartId, seriesId, yAxis } = await request.json();
   const link = await prisma.chartSeriesLink.update({
     where: { chartId_seriesId: { chartId, seriesId } },
@@ -29,7 +29,7 @@ export const PATCH = guarded(async (request: Request) => {
 
 // DELETE — unlink { chartId, seriesId }
 export const DELETE = guarded(async (request: Request) => {
-  await requireSuperadmin();
+  await requireManager();
   const { chartId, seriesId } = await request.json();
   await prisma.chartSeriesLink.deleteMany({ where: { chartId, seriesId } });
   return Response.json({ ok: true });

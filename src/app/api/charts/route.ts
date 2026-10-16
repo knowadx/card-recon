@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
-import { guarded, requireSuperadmin, requireUser } from "@/lib/access";
+import { guarded, requireManager, requireUser } from "@/lib/access";
 
-// Gráficos = configuração global: qualquer usuário logado lê; só o administrador geral altera.
+// Gráficos = configuração global: qualquer usuário logado lê; superadmin e admins alteram (member só lê).
 export const GET = guarded(async () => {
   await requireUser();
   const charts = await prisma.dashboardChart.findMany({
@@ -16,14 +16,14 @@ export const GET = guarded(async () => {
 
 // PATCH /api/charts — reorder: { ids: string[] } in desired order
 export const PATCH = guarded(async (request: Request) => {
-  await requireSuperadmin();
+  await requireManager();
   const { ids } = await request.json() as { ids: string[] };
   await Promise.all(ids.map((id, i) => prisma.dashboardChart.update({ where: { id }, data: { order: i } })));
   return Response.json({ ok: true });
 });
 
 export const POST = guarded(async (request: Request) => {
-  await requireSuperadmin();
+  await requireManager();
   const { name, color, unit, format, lines } = await request.json();
   const count = await prisma.dashboardChart.count();
   const chart = await prisma.dashboardChart.create({
