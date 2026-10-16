@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import ReceiptsImporter from "@/components/receipts-importer";
 
 type Passo = { feito: boolean };
@@ -27,15 +28,11 @@ type Data = {
   resultado?: { totalMeta: number; semFatura: number; comFatura: number };
 };
 type Msg = { tipo: "ok" | "aviso" | "erro"; linhas: string[] };
-type Opcao = { id: string | null; label: string; entity?: string };
-type Config = { conta: Conta; opcoes: Opcao[] | null; escolha: string; erro?: string };
 type J = Record<string, unknown>;
 
 const br = (d: string | null | undefined) => (d ? d.split("-").reverse().join("/") : "—");
 const num = (v: unknown) => (typeof v === "number" ? v : 0);
-const lista = (v: unknown) => (Array.isArray(v) ? (v as unknown[]).map(String) : []);
 const dinheiro = (v: number, moeda: string) => `${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${moeda}`;
-const chave = (s: string) => s.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && !["llc", "ltd", "ltda", "inc", "ou", "oy", "gmbh", "eireli"].includes(w)).join("");
 
 // ── respostas das rotas → frases (nada de JSON na tela) ──────────────────────
 /** Erro cru do banco → o que fazer. Mantém o original curto entre parênteses quando não reconhece. */
@@ -47,33 +44,12 @@ function erroBanco(e: unknown): string {
   if (/\b50[0234]\b|timeout|fetch failed|econn/i.test(t)) return `o banco não respondeu agora — tente de novo (${t.slice(0, 60)})`;
   return t.length > 180 ? `${t.slice(0, 180)}…` : t;
 }
-function msgSync(j: J): Msg {
-  const contas = (j.accounts as J[] | undefined) ?? [];
-  const falhas = contas.filter((c) => c.error);
-  const novas = contas.filter((c) => num(c.imported) > 0).map((c) => `${c.accountName}: ${num(c.imported)}`);
-  const linhas = [`Bancos: ${num(j.imported)} transação(ões) nova(s) · ${num(j.skipped)} já existiam.`];
-  if (novas.length) linhas.push(`Novas por conta — ${novas.join(" · ")}.`);
-  for (const f of falhas) linhas.push(`⚠️ ${f.accountName}: ${erroBanco(f.error)}`);
-  return { tipo: falhas.length ? "aviso" : "ok", linhas };
-}
-function msgSyncConta(nome: string, j: J): Msg {
-  const ja = num(j.skipped ?? j.alreadyExisted);
-  return { tipo: "ok", linhas: [`${nome}: ${num(j.imported)} transação(ões) nova(s)${ja ? ` · ${ja} já existiam` : ""}. Configurada — da próxima vez entra no "Sincronizar todas".`] };
-}
 function msgCsv(j: J): Msg {
   const linhas = [`CSV da Revolut: ${num(j.metaRefGravados)} código(s) gravado(s) · ${num(j.jaTinhamOMesmoCodigo)} já tinham.`];
   const falta = num(j.semTransacaoNoBanco);
   const gap = j.gapPeriodo as { de?: string; ate?: string } | null;
   if (falta) linhas.push(`⚠️ ${falta} cobrança(s) do CSV ainda não estão no banco${gap?.de ? ` (${br(gap.de.slice(0, 10))} a ${br(gap.ate?.slice(0, 10))})` : ""} — sincronize a Revolut no passo 1 e suba o CSV de novo.`);
   return { tipo: falta ? "aviso" : "ok", linhas };
-}
-function msgMeta(j: J): Msg {
-  const linhas = [`Meta: ${num(j.charges)} cobrança(s) lida(s) · ${num(j.contasOk)} de ${num(j.contasTotal)} contas de anúncio.`];
-  const semAcesso = lista(j.semAcesso), falharam = lista(j.falharam), gap = lista(j.accessGap);
-  if (semAcesso.length) linhas.push(`⚠️ Sem acesso (precisa de permissão no Meta): ${semAcesso.join(", ")}.`);
-  if (falharam.length) linhas.push(`⚠️ Falharam (rode de novo): ${falharam.join(", ")}.`);
-  if (gap.length) linhas.push(`⚠️ BMs sem conta visível: ${gap.join(", ")}.`);
-  return { tipo: semAcesso.length || falharam.length ? "aviso" : "ok", linhas };
 }
 
 export default function FechamentoPage() {
@@ -82,7 +58,6 @@ export default function FechamentoPage() {
   const [company, setCompany] = useState(""); // "" = todas as empresas do escopo
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<Msg | null>(null);
-  const [config, setConfig] = useState<Config | null>(null);
   const [verTodas, setVerTodas] = useState(false);
 
   // recarregar = bump do contador; o efeito abaixo busca de novo (mês/empresa/contador)
@@ -122,51 +97,14 @@ export default function FechamentoPage() {
       setMsg({ tipo: "erro", linhas: [`${label}: ${(e as Error).message}`] });
     } finally { setBusy(null); }
   }
-  const post = (url: string, body: unknown) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
-  const syncTodas = () => run("Sincronizar todas", () => post("/api/sync/all", { company: company || undefined }), msgSync);
-  const syncConta = (c: Conta) => run(`Sincronizar ${c.nome}`, () => post("/api/sync/all", { accountId: c.id }), msgSync);
-  function syncMeta() {
-    const [y, mo] = month.split("-").map(Number);
-    const to = `${month}-${String(new Date(y, mo, 0).getDate()).padStart(2, "0")}`;
-    return run("Sincronizar Meta", () => post("/api/meta/sync", { from: `${month}-01`, to }), msgMeta);
-  }
   const onCsv = async (file: File) => run("CSV da Revolut", async () => fetch("/api/admin/import-revolut-csv", { method: "POST", headers: { "Content-Type": "text/csv" }, body: await file.text() }), msgCsv);
 
-  /** 1ª vez de uma conta: lista as opções do banco (sub-conta Mercury, perfil Wise, conta Revolut). */
-  async function abrirConfig(c: Conta) {
-    setConfig({ conta: c, opcoes: null, escolha: "" });
-    const url = c.banco === "Mercury" ? `/api/sync/mercury/accounts?accountId=${c.id}` : c.banco === "Wise" ? `/api/sync/wise/accounts?accountId=${c.id}` : `/api/revolut/accounts?accountId=${c.id}`;
-    try {
-      const r = await fetch(url);
-      const j = await r.json();
-      if (!r.ok || !Array.isArray(j)) throw new Error((j as J)?.error ? String((j as J).error) : `erro ${r.status}`);
-      let opcoes: Opcao[];
-      if (c.banco === "Mercury") opcoes = (j as J[]).map((a) => ({ id: String(a.id), label: `${a.name ?? a.id}${a.kind ? ` (${a.kind})` : ""}`, entity: a.entity ? String(a.entity) : undefined }));
-      else if (c.banco === "Wise") opcoes = (j as J[]).map((p) => ({ id: String(p.id), label: String(p.label) }));
-      else opcoes = [{ id: null, label: "Todas as contas da empresa" }, ...(j as J[]).map((a) => ({ id: String(a.id), label: `${a.name ?? a.id} ${a.currency ?? ""}`.trim() }))];
-      // Wise: já deixa escolhido o perfil com o nome da empresa (o servidor recusa outro)
-      const sugestao = c.banco === "Wise" ? opcoes.find((o) => chave(o.label) === chave(c.empresa))?.id ?? "" : opcoes[0]?.id ?? "";
-      setConfig({ conta: c, opcoes, escolha: sugestao ?? "" });
-    } catch (e) {
-      setConfig({ conta: c, opcoes: [], escolha: "", erro: c.banco === "Revolut" ? "configurar a Revolut é com o administrador geral" : erroBanco((e as Error).message) });
-    }
-  }
-  function confirmarConfig() {
-    if (!config) return;
-    const { conta, escolha, opcoes } = config;
-    const op = opcoes?.find((o) => (o.id ?? "") === escolha);
-    const body =
-      conta.banco === "Mercury" ? { accountId: conta.id, mercuryAccountId: escolha, entity: op?.entity }
-      : conta.banco === "Wise" ? { accountId: conta.id, profileId: escolha }
-      : { accountId: conta.id, revolutAccountId: escolha || null };
-    setConfig(null);
-    return run(`Configurar ${conta.nome}`, () => post(`/api/sync/${conta.banco.toLowerCase()}`, body), (j) => msgSyncConta(conta.nome, j));
-  }
 
   const p = data?.passos;
   const btn = "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50";
   const btnSm = "rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium hover:bg-slate-50 disabled:opacity-50";
+  const link = "text-indigo-600 hover:underline";
   const msgCor = msg?.tipo === "erro" ? "border-red-200 bg-red-50 text-red-800" : msg?.tipo === "aviso" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-900";
   const pend = data?.pendentes;
   const mostradas = verTodas ? pend?.lista ?? [] : (pend?.lista ?? []).slice(0, 30);
@@ -177,7 +115,7 @@ export default function FechamentoPage() {
         <div>
           <h1 className="text-xl font-semibold">Fechamento Meta do mês</h1>
           <p className="text-sm text-slate-700 mb-1"><strong>Só cobranças da Meta (Facebook):</strong> confere cada cobrança da Meta no extrato dos bancos contra a fatura (PDF) da Meta. A Meta cobra várias vezes por dia — por isso este fechamento existe. Outras despesas e receitas <strong>não</strong> entram aqui.</p>
-          <p className="text-sm text-slate-500">Passos na ordem, de cima pra baixo — tudo nesta tela. Escopo: <strong>{company ? (data?.companies?.find((c) => c.id === company)?.name ?? "empresa") : "todas as empresas"}</strong> · <strong>{month || "—"}</strong>. O PDF importa <strong>só o mês selecionado</strong> — não mexe nos outros.</p>
+          <p className="text-sm text-slate-500">Passos na ordem, de cima pra baixo. <strong>Sincronizar</strong> é nas abas <Link href="/accounts" className="text-indigo-600 hover:underline">Accounts</Link> (bancos) e <Link href="/cobrancas-meta" className="text-indigo-600 hover:underline">Cobranças Meta</Link> (Meta); aqui você confere e importa o CSV e os PDFs. Escopo: <strong>{company ? (data?.companies?.find((c) => c.id === company)?.name ?? "empresa") : "todas as empresas"}</strong> · <strong>{month || "—"}</strong>. O PDF importa <strong>só o mês selecionado</strong> — não mexe nos outros.</p>
         </div>
         <div className="flex items-end gap-2">
           <label className="flex flex-col gap-1 text-xs text-slate-500">empresa
@@ -202,46 +140,25 @@ export default function FechamentoPage() {
 
       <Step n={1} title="Bancos (Wise / Revolut / Mercury)" feito={p?.bancos.feito} status={`${p?.bancos.transacoesMeta ?? 0} cobranças Meta no extrato de ${month || "—"}`}>
         <div className="flex flex-col gap-2">
-          <div><button className={btn} disabled={busy !== null} onClick={syncTodas}>{busy === "Sincronizar todas" ? "Sincronizando…" : "Sincronizar todas"}</button>
-            <span className="ml-2 text-xs text-slate-400">as já configuradas; as outras, uma a uma abaixo</span></div>
+          <div className="text-xs text-slate-500">Transações novas entram pela aba <Link href="/accounts" className={link}>Accounts</Link> (sincronizar). Aqui só confere se cada conta já tem dados do mês.</div>
           <table className="w-full text-sm">
-            <thead><tr className="text-left text-xs text-slate-400"><th className="py-1 font-medium">Conta</th><th className="font-medium">Dados até</th><th className="font-medium">Meta no mês</th><th></th></tr></thead>
+            <thead><tr className="text-left text-xs text-slate-400"><th className="py-1 font-medium">Conta</th><th className="font-medium">Dados até</th><th className="font-medium">Meta no mês</th><th className="font-medium text-right">Situação</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {(data?.contas ?? []).map((c) => (
                 <tr key={c.id}>
                   <td className="py-1.5"><span className="text-slate-800">{c.banco}</span> <span className="text-slate-500">· {c.nome}</span></td>
                   <td className="tabular-nums text-slate-600">{br(c.ultimaTransacao)}</td>
                   <td className="tabular-nums text-slate-600">{c.cobrancasMetaNoMes}</td>
-                  <td className="text-right">
-                    {c.manual ? <span className="text-xs text-slate-400">planilha (manual)</span>
-                      : !c.temChave ? <span className="text-xs text-amber-700">sem chave do banco</span>
-                      : c.configurada ? <button className={btnSm} disabled={busy !== null} onClick={() => syncConta(c)}>{busy === `Sincronizar ${c.nome}` ? "Sincronizando…" : "Sincronizar"}</button>
-                      : <button className={btnSm} disabled={busy !== null} onClick={() => abrirConfig(c)}>Configurar e sincronizar</button>}
+                  <td className="text-right text-xs">
+                    {c.manual ? <span className="text-slate-400">planilha (manual)</span>
+                      : !c.temChave ? <span className="text-amber-700">sem chave do banco</span>
+                      : !c.configurada ? <span className="text-amber-700">nunca sincronizada</span>
+                      : <span className="text-slate-400">ok</span>}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {config && (
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm flex flex-col gap-2">
-              <div className="font-medium text-slate-700">1ª sincronização: {config.conta.banco} · {config.conta.nome}</div>
-              {config.erro ? <div className="text-red-700">{config.erro}</div>
-                : config.opcoes === null ? <div className="text-slate-500">Buscando no banco…</div>
-                : config.opcoes.length === 0 ? <div className="text-red-700">O banco não devolveu nenhuma opção para esta chave.</div>
-                : (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-slate-500">{config.conta.banco === "Wise" ? "Perfil:" : "Conta no banco:"}</span>
-                    <select className="rounded-md border border-slate-300 px-2 py-1 text-sm" value={config.escolha} onChange={(e) => setConfig({ ...config, escolha: e.target.value })}>
-                      {config.conta.banco === "Wise" && <option value="">— escolha —</option>}
-                      {config.opcoes.map((o) => <option key={o.id ?? "todas"} value={o.id ?? ""}>{o.label}</option>)}
-                    </select>
-                    <button className={btnSm} disabled={busy !== null || (config.conta.banco !== "Revolut" && !config.escolha)} onClick={confirmarConfig}>Sincronizar</button>
-                    {config.conta.banco === "Wise" && <span className="text-xs text-slate-400">só aceita o perfil com o nome da empresa ({config.conta.empresa})</span>}
-                  </div>
-                )}
-              <button className="self-start text-xs text-slate-500 hover:underline" onClick={() => setConfig(null)}>cancelar</button>
-            </div>
-          )}
         </div>
       </Step>
 
@@ -270,7 +187,7 @@ export default function FechamentoPage() {
               )}
             </div>
           ))}
-          <div><button className={btn} disabled={busy !== null || !month} onClick={syncMeta}>{busy === "Sincronizar Meta" ? "Sincronizando…" : "Sincronizar Meta"}</button></div>
+          <div className="text-xs text-slate-500">As cobranças da Meta são sincronizadas na aba <Link href="/cobrancas-meta" className={link}>Cobranças Meta</Link> (escolha o mês lá).</div>
         </div>
       </Step>
 
