@@ -31,15 +31,17 @@ Cobranças Meta **sem cartão** (transferências/wires) aparecem numa seção pr
 
 ## Stack
 
-Next.js 16 (App Router, TS) · Tailwind · Prisma 7 + libSQL (SQLite local / Turso em prod).
+Next.js 16 (App Router, TS) · Tailwind · Prisma 7 + **Postgres 16** (padrão do Hash: VPS + Docker + túnel da Cloudflare).
+Login pela Cloudflare Access (`src/lib/accessJwt.ts`), permissão por grupo (`src/lib/access.ts`), arquivos no Cloudflare R2 (`src/lib/storage.ts`).
 
 ## Rodando local
 
 ```bash
-cp .env.example .env       # preencha os tokens
+cp .env.example .env       # preencha os tokens; DATABASE_URL=postgresql://...
 npm install
-npx prisma migrate dev     # cria o dev.db
+npx prisma migrate deploy  # aplica prisma/migrations (começa em 0001_init_postgres)
 npm run dev                # http://localhost:3007
+npm test                   # sobe sozinho um Postgres descartável em Docker (127.0.0.1:54329)
 ```
 
 No dashboard: botões **Sync** (Meta / Mercury / Wise / Revolut / Tudo) + seletor de mês.
@@ -72,10 +74,8 @@ devolve um Client ID por empresa. O redirect OAuth precisa ser **HTTPS** em prod
 - `/charges` — cobranças (filtro por banco / só-Meta).
 - `/settings` — tolerância, regex Meta, credenciais por empresa, consentimento Revolut.
 
-## Deploy (Vercel + Turso)
+## Deploy
 
-1. Crie um DB Turso → `DATABASE_URL` (`libsql://…`) + `DATABASE_AUTH_TOKEN`.
-2. `npx prisma migrate deploy` contra o Turso.
-3. Importe o repo na Vercel; configure as env vars (ver `.env.example`), incluindo
-   `REVOLUT_PRIVATE_KEY` (conteúdo do PEM com `\n`) e `REVOLUT_REDIRECT_URI` HTTPS.
-4. O adapter libSQL é selecionado automaticamente quando `DATABASE_URL` é `libsql://`.
+Em migração de Vercel + Turso para o padrão do Hash (VPS + Docker + Postgres + túnel da Cloudflare).
+O roteiro de produção fica em `deploy/` quando estiver pronto. As migrations antigas do SQLite ficaram
+em `prisma/migrations_sqlite_legado/` só como histórico (ver o LEIA-ME de lá).

@@ -9,8 +9,6 @@ vi.mock("@/lib/mercury", () => ({
   KEY_MAP: { activeview: "chave-global-mercury-teste", "4ads": undefined },
 }));
 
-import * as addMetaref from "@/app/api/admin/add-metaref-column/route";
-import * as applyIndexes from "@/app/api/admin/apply-indexes/route";
 import * as cleanOrphan from "@/app/api/admin/clean-orphan-charges/route";
 import * as cleanStale from "@/app/api/admin/clean-stale-accounts/route";
 import * as findDuplicates from "@/app/api/admin/find-duplicates/route";
@@ -89,7 +87,8 @@ async function seedAdminData() {
 
 async function snapshot() {
   return {
-    schema: await prisma.$queryRawUnsafe(`SELECT type, name, sql FROM sqlite_master ORDER BY type, name`),
+    schema: await prisma.$queryRawUnsafe(`SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' ORDER BY table_name, column_name`),
+    indexes: await prisma.$queryRawUnsafe(`SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public' ORDER BY indexname`),
     tx: await prisma.transaction.findMany({ orderBy: { id: "asc" } }),
     metaAd: await prisma.metaAdAccount.findMany({ orderBy: { id: "asc" } }),
     charges: await prisma.metaBillingCharge.findMany({ orderBy: { id: "asc" } }),
@@ -98,8 +97,6 @@ async function snapshot() {
 }
 
 const adminCalls: Array<[string, () => Promise<Response>]> = [
-  ["add-metaref-column GET", () => addMetaref.GET()],
-  ["apply-indexes GET", () => applyIndexes.GET()],
   ["clean-orphan-charges GET ?apply=1", () => cleanOrphan.GET(req("/api/admin/clean-orphan-charges?apply=1"))],
   ["clean-stale-accounts GET ?apply=1", () => cleanStale.GET(req("/api/admin/clean-stale-accounts?apply=1"))],
   ["find-duplicates GET", () => findDuplicates.GET()],

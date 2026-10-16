@@ -30,9 +30,16 @@ export function transactionFilterWhere(sp: URLSearchParams): Prisma.TransactionW
   // Filtros de coluna
   if (get("colAccount")) and.push({ accountId: get("colAccount") });
   if (get("colCompany")) and.push({ account: { companyId: get("colCompany") } });
-  // SQLite/libSQL não tem mode:"insensitive" — contains já ignora caixa em ASCII
+  // Busca sem diferenciar maiúsculas (no Postgres, contains sozinho diferencia)
   const search = get("search");
-  if (search) and.push({ OR: [{ description: { contains: search } }, { reference: { contains: search } }] });
+  if (search) {
+    and.push({
+      OR: [
+        { description: { contains: search, mode: "insensitive" } },
+        { reference: { contains: search, mode: "insensitive" } },
+      ],
+    });
+  }
 
   const colStatus = get("colStatus");
   if (colStatus === "categorized") and.push({ splits: { some: { managerialCategoryId: { not: null } } } });

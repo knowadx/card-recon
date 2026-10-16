@@ -72,3 +72,11 @@ describe("cada filtro vale junto com os outros (antes um sobrescrevia o outro)",
     expect(await descriptions("search=Facebk")).toEqual([]);
   });
 });
+
+describe("busca não diferencia maiúsculas (no Postgres o padrão diferencia)", () => {
+  it("'facebk' acha 'Facebk anuncio …'", async () => {
+    loginAs(s.users.pixel);
+    expect((await descriptions("search=facebk")).length).toBe(3);
+    expect((await descriptions("search=FACEBK")).length).toBe(3);
+  });
+});

@@ -4,7 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 // Holding agrupa empresas. O acesso multi-usuário é concedido no nível do Holding.

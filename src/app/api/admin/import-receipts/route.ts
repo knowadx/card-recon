@@ -18,27 +18,11 @@ type Row = {
 
 /**
  * POST /api/admin/import-receipts — recebe o receipts-parsed.json (array) e carrega em
- * MetaReceipt. Cria a tabela se não existir. Aditivo/idempotente (skipDuplicates por
+ * MetaReceipt (a tabela nasce na migration). Aditivo/idempotente (skipDuplicates por
  * transactionId). Só o administrador geral (superadmin).
  */
 export const POST = guarded(async (request: Request) => {
   await requireSuperadmin();
-
-  // garante a tabela em prod (idempotente)
-  await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "MetaReceipt" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "transactionId" TEXT NOT NULL,
-    "referenceNumber" TEXT,
-    "accountId" TEXT,
-    "accountName" TEXT,
-    "cardLast4" TEXT,
-    "amountUsd" REAL,
-    "date" DATETIME,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-  )`);
-  await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "MetaReceipt_transactionId_key" ON "MetaReceipt"("transactionId")`);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MetaReceipt_referenceNumber_idx" ON "MetaReceipt"("referenceNumber")`);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MetaReceipt_accountId_idx" ON "MetaReceipt"("accountId")`);
 
   const rows = (await request.json()) as Row[];
   if (!Array.isArray(rows)) return NextResponse.json({ error: "esperado um array" }, { status: 400 });

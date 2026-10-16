@@ -19,21 +19,14 @@ export function resetRequest() {
   g.__fakeRequest.headers = {};
 }
 
-/** Apaga tudo (ordem respeita as chaves estrangeiras). */
+/** Apaga tudo: TRUNCATE de todas as tabelas do banco de TESTE (nunca a de migrations). */
 export async function wipe() {
-  await prisma.document.deleteMany();
-  await prisma.accountingSplit.deleteMany();
-  await prisma.transactionSplit.deleteMany();
-  await prisma.transaction.deleteMany();
-  await prisma.account.deleteMany();
-  await prisma.company.deleteMany();
-  await prisma.metaAdAccount.deleteMany();
-  await prisma.credential.deleteMany();
-  await prisma.operationMembership.deleteMany();
-  await prisma.membership.deleteMany();
-  await prisma.operation.deleteMany();
-  await prisma.holding.deleteMany();
-  await prisma.user.deleteMany();
+  const rows = await prisma.$queryRawUnsafe<{ tablename: string }[]>(
+    `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`,
+  );
+  if (rows.length) {
+    await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${rows.map((r) => `"${r.tablename}"`).join(", ")} RESTART IDENTITY CASCADE`);
+  }
 }
 
 /**
