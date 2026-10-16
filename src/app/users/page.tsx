@@ -12,6 +12,18 @@ type U = {
   holdings: Item[];
   operations: Item[];
 };
+/** Mesmo formato de src/lib/cloudflareAccess.ts (ResultadoAcesso). */
+type Acesso =
+  | { status: "desligado" }
+  | { status: "em_dia"; emails: string[] }
+  | { status: "divergente"; incluir: string[]; remover: string[] }
+  | { status: "atualizado"; incluidos: string[]; removidos: string[] }
+  | { status: "erro"; erro: string };
+
+/** Aviso curto depois de criar/ativar/desativar/remover: só fala da Cloudflare quando deu errado. */
+const avisoCloudflare = (c?: Acesso) =>
+  c?.status === "erro" ? ` — ⚠️ mas a lista da Cloudflare NÃO foi atualizada (${c.erro})` :
+  c?.status === "desligado" ? " — inclua o e-mail na Cloudflare à mão (sincronização desligada)" : "";
 
 export default function UsersPage() {
   const [users, setUsers] = useState<U[]>([]);
@@ -20,6 +32,8 @@ export default function UsersPage() {
   const [forbidden, setForbidden] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [myRole, setMyRole] = useState("");
+  const [acesso, setAcesso] = useState<Acesso | null>(null);
+  const [sincronizando, setSincronizando] = useState(false);
   const isSuper = myRole === "superadmin";
 
   const [email, setEmail] = useState("");
@@ -36,6 +50,7 @@ export default function UsersPage() {
     setUsers(await r.json());
     setHoldings(await fetch("/api/holdings").then((x) => x.json()));
     setOperations(await fetch("/api/operations").then((x) => x.json().then((d) => Array.isArray(d) ? d : [])));
+    setAcesso(await fetch("/api/users/acesso-cloudflare").then((x) => x.ok ? x.json() : null).catch(() => null));
   }
   useEffect(() => { load(); }, []);
 
@@ -45,16 +60,25 @@ export default function UsersPage() {
       body: JSON.stringify({ email, name, role, holdingIds, operationIds }),
     });
     const j = await res.json();
-    setMsg(j.ok ? `✅ ${email} criado` : `❌ ${j.error}`);
+    setMsg(j.ok ? `✅ ${email} criado${avisoCloudflare(j.cloudflare)}` : `❌ ${j.error}`);
     if (j.ok) { setEmail(""); setName(""); setRole("member"); setHoldingIds([]); setOperationIds([]); load(); }
   }
   async function patch(id: string, body: Record<string, unknown>) {
-    await fetch(`/api/users/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await fetch(`/api/users/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((x) => x.json()).catch(() => ({}));
+    if (j.cloudflare) setMsg(`${body.isActive ? "✅ Ativado" : "✅ Desativado"}${avisoCloudflare(j.cloudflare)}`);
     load();
   }
   async function del(id: string) {
     if (!confirm("Remover usuário?")) return;
-    await fetch(`/api/users/${id}`, { method: "DELETE" });
+    const j = await fetch(`/api/users/${id}`, { method: "DELETE" }).then((x) => x.json()).catch(() => ({}));
+    if (j.ok) setMsg(`✅ Removido${avisoCloudflare(j.cloudflare)}`);
+    load();
+  }
+  async function sincronizar() {
+    setSincronizando(true);
+    const j: Acesso = await fetch("/api/users/acesso-cloudflare", { method: "POST" }).then((x) => x.json()).catch(() => ({ status: "erro", erro: "sem resposta do servidor" }));
+    setSincronizando(false);
+    setMsg(j.status === "erro" ? `❌ Cloudflare: ${j.erro}` : "✅ Lista da Cloudflare atualizada");
     load();
   }
 
@@ -69,6 +93,19 @@ export default function UsersPage() {
       <h1 className="text-xl font-semibold">Usuários (operadores)</h1>
       <p className="text-sm text-slate-500">Acesso por <strong>Holding</strong> (vê o holding todo) e/ou por <strong>Operação</strong> (vê só as contas daquela operação).</p>
       {msg && <div className="rounded-md bg-slate-900 px-3 py-2 text-sm text-white">{msg}</div>}
+      {acesso && (
+        <div className={`flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm ${acesso.status === "em_dia" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+          <span>
+            {acesso.status === "em_dia" && <>✓ Acesso pela Cloudflare em dia: os {acesso.emails.length} usuários ativos entram, e só eles.</>}
+            {acesso.status === "divergente" && <>⚠️ A lista da Cloudflare está diferente dos usuários ativos.{acesso.incluir.length > 0 && <> Falta: {acesso.incluir.join(", ")}.</>}{acesso.remover.length > 0 && <> Sobra: {acesso.remover.join(", ")}.</>}</>}
+            {acesso.status === "erro" && <>⚠️ Não consegui conferir a lista da Cloudflare: {acesso.erro}</>}
+            {acesso.status === "desligado" && <>Sincronização com a Cloudflare desligada (falta configurar no servidor): inclua e tire os e-mails à mão na política “Equipe PixelFinance”.</>}
+          </span>
+          {(acesso.status === "divergente" || acesso.status === "erro") && (
+            <button className={btn} onClick={sincronizar} disabled={sincronizando}>{sincronizando ? "Sincronizando..." : "Sincronizar agora"}</button>
+          )}
+        </div>
+      )}
 
       <section className="rounded-lg border border-slate-200 bg-white p-4 flex flex-col gap-3">
         <h2 className="font-medium">Novo usuário</h2>
@@ -105,7 +142,7 @@ export default function UsersPage() {
             </div>
           </div>
         )}
-        <p className="text-xs text-slate-500">Sem senha: a pessoa entra pelo login da Cloudflare (código por e-mail). O e-mail também precisa estar na lista de acesso da Cloudflare (política “Equipe PixelFinance”).</p>
+        <p className="text-xs text-slate-500">Sem senha: a pessoa entra pelo login da Cloudflare (código por e-mail). Criar, desativar ou remover aqui já inclui ou tira o e-mail da lista de acesso da Cloudflare.</p>
         <button className={btn + " self-start"} onClick={create} disabled={!email}>Criar</button>
       </section>
 

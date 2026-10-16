@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, isManager, isSuperadmin, accessibleHoldingIds } from "@/lib/auth";
+import { sincronizarAcessoCloudflare } from "@/lib/cloudflareAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -91,7 +92,8 @@ export async function POST(request: Request) {
         operationMemberships: oIds.length ? { create: oIds.map((operationId: string) => ({ operationId })) } : undefined,
       },
     });
-    return NextResponse.json({ ok: true, id: user.id });
+    // a pessoa só passa pela Cloudflare se o e-mail estiver na política de acesso
+    return NextResponse.json({ ok: true, id: user.id, cloudflare: await sincronizarAcessoCloudflare() });
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 400 });
   }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, isManager, isSuperadmin, accessibleHoldingIds } from "@/lib/auth";
+import { sincronizarAcessoCloudflare } from "@/lib/cloudflareAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +82,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     await prisma.operationMembership.deleteMany({ where: { userId: id, ...(scope.all ? {} : { operationId: { in: scope.operationIds } }) } });
     if (ids.length) await prisma.operationMembership.createMany({ data: ids.map((operationId: string) => ({ userId: id, operationId })) });
   }
+  // ativar/desativar muda quem passa pela Cloudflare; papel e vínculos não
+  if (typeof body.isActive === "boolean") return NextResponse.json({ ok: true, cloudflare: await sincronizarAcessoCloudflare() });
   return NextResponse.json({ ok: true });
 }
 
@@ -93,5 +96,5 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   if (!(await canManageTarget(scope, id))) return Response.json({ error: "sem acesso a esse usuário" }, { status: 403 });
   if (!(await fullyInScope(scope, id))) return Response.json({ error: "sem acesso a esse usuário" }, { status: 403 });
   await prisma.user.delete({ where: { id } });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, cloudflare: await sincronizarAcessoCloudflare() });
 }
