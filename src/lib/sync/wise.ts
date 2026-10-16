@@ -8,6 +8,69 @@ import { mapLimit, type SyncOutcome } from "./common";
 
 const WISE_BASE = "https://api.wise.com";
 
+/** Perfil Wise como a API v2 devolve (só o que usamos pra nomear). */
+export interface WiseProfile {
+  id: number | string;
+  type?: string;
+  fullName?: string;
+  businessName?: string;
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  details?: { name?: string; businessName?: string; firstName?: string; lastName?: string };
+}
+
+/** Nome do perfil — a MESMA regra pra tela (lista de perfis) e pra conferência do dono. */
+export function wiseProfileLabel(p: WiseProfile): string {
+  return (
+    p.details?.businessName ||
+    p.details?.name ||
+    p.businessName ||
+    p.fullName ||
+    p.name ||
+    [p.details?.firstName ?? p.firstName, p.details?.lastName ?? p.lastName].filter(Boolean).join(" ") ||
+    `Perfil ${p.id}`
+  );
+}
+
+// sufixos societários não contam na comparação ("PubViews OÜ" = "PubViews")
+const LEGAL_SUFFIX = new Set(["llc", "ltd", "ltda", "inc", "ou", "oy", "gmbh", "eireli"]);
+
+/** Chave de comparação de nome de empresa: sem acento, sem caixa, sem pontuação e sem sufixo societário. */
+export function companyKey(name: string): string {
+  return name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w && !LEGAL_SUFFIX.has(w))
+    .join("");
+}
+
+/**
+ * A mesma chave Wise enxerga perfis de VÁRIAS empresas (inclusive de outro grupo). Antes de importar:
+ *  - o perfil tem que ser da empresa da conta (nome igual, ignorando sufixo societário);
+ *  - o perfil não pode já estar ligado a OUTRA conta (o sync traz o perfil inteiro → duplicaria).
+ * Devolve o motivo da recusa, ou null se pode sincronizar. Falha fechada: sem lista de perfis, não sincroniza.
+ */
+export async function wiseProfileProblem(key: string, profileId: string, accountId: string, companyName: string): Promise<string | null> {
+  const res = await fetch(`${WISE_BASE}/v2/profiles`, { headers: { Authorization: `Bearer ${key}` } });
+  if (!res.ok) return `a Wise não listou os perfis (${res.status}) — não sincronizei`;
+  const profiles = (await res.json().catch(() => [])) as WiseProfile[];
+  const p = Array.isArray(profiles) ? profiles.find((x) => String(x.id) === String(profileId)) : undefined;
+  if (!p) return `o perfil Wise ${profileId} não aparece para a chave desta conta`;
+  const label = wiseProfileLabel(p);
+  if (companyKey(label) !== companyKey(companyName)) {
+    return `o perfil Wise "${label}" não é da empresa "${companyName}" — não sincronizei (evita misturar empresas)`;
+  }
+  const dup = await prisma.account.findFirst({
+    where: { id: { not: accountId }, bank: "Wise", syncConfig: { contains: `"wiseProfileId":"${profileId}"` } },
+    select: { name: true },
+  });
+  if (dup) return `o perfil Wise "${label}" já é sincronizado na conta "${dup.name}" — sincronizar aqui duplicaria as transações`;
+  return null;
+}
+
 interface WiseActivity {
   id: string;
   type: string;
@@ -227,6 +290,9 @@ export async function syncWiseAccount(opts: {
     const msg = isSuperadmin(user.role) ? "Token Wise não cadastrado nesta conta" : NO_OWN_TOKEN_MESSAGE;
     return { status: 400, body: { error: msg } };
   }
+
+  const problema = await wiseProfileProblem(key, profileId, accountId, account.company.name);
+  if (problema) return { status: 400, body: { error: problema } };
 
   const period = await getSyncPeriod();
   const end = to ? `${to}T23:59:59.999Z` : new Date().toISOString(); // sempre até HOJE (o "até" do período não trava)

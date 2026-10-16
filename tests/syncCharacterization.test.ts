@@ -181,6 +181,7 @@ describe("POST /api/sync/wise (caracterização)", () => {
       "/v1/transfers/70001",
       "/v1/transfers/70002",
       "/v1/transfers/70003",
+      "/v2/profiles", // conferência: o perfil é da empresa da conta e não está em outra conta
       "/v3/profiles/wise-prof-1/card-transactions/ct-901", // a atividade repetida busca o detalhe 2x
       "/v3/profiles/wise-prof-1/card-transactions/ct-901",
       "/v3/profiles/wise-prof-1/quotes/q-uuid-1", // cotação só na transferência de SAÍDA

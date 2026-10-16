@@ -95,7 +95,7 @@ const emptyWise = () => ({ ownRecipientId: 1, pages: [[]], transfers: {}, quotes
 /** Mesmos dados nos bancos falsos para as contas da Pixel e as do outro grupo (se forem tentadas, funcionam). */
 const banks = (): FakeBanks => ({
   mercury: { [MERCURY_ACCT]: mercuryFixture(), "merc-outro": mercuryFixture(), "merc-pixel-sem-token": { pages: [[]], cards: [] } },
-  wise: { [WISE_PROFILE]: wiseFixture(), "wise-prof-outro": wiseFixture(), "wise-sem-token": emptyWise() },
+  wise: { [WISE_PROFILE]: wiseFixture(), "wise-prof-outro": { ...wiseFixture(), profileName: "Outra Empresa LTDA" }, "wise-sem-token": { ...emptyWise(), profileName: "Pixel Ads LLC" } },
   revolut: { [REVOLUT_TOKEN]: revolutFixture(), [OUTRO_REVOLUT_TOKEN]: revolutFixture() },
 });
 

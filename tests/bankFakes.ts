@@ -22,6 +22,7 @@ export interface WiseFake {
   quotes: Record<string, Json>;
   cardTransactions: Record<string, Json>;
   failPage?: number;
+  profileName?: string; // nome do perfil em /v2/profiles (o sync confere com a empresa da conta)
 }
 export interface RevolutFake { cards: Json[]; pages: Json[][]; failPage?: number }
 
@@ -63,6 +64,9 @@ export function installFakeBanks(banks: FakeBanks) {
 
   function wise(u: URL): Response | null {
     const p = u.pathname;
+    if (p === "/v2/profiles") {
+      return Response.json(Object.entries(banks.wise ?? {}).map(([id, f]) => ({ id, type: "BUSINESS", businessName: f.profileName ?? "?" })));
+    }
     if (p === "/v1/borderless-accounts") {
       const f = banks.wise?.[u.searchParams.get("profileId") ?? ""];
       return f ? Response.json([{ id: 1, profileId: Number(u.searchParams.get("profileId")) || 0, recipientId: f.ownRecipientId }]) : null;
@@ -229,6 +233,7 @@ export function wiseFixture(): WiseFake {
     primaryAmount: "55.10 USD", createdOn: "2026-10-05T12:00:00.000Z",
   });
   return {
+    profileName: "Pixel Ads LLC", // a conta Wise de teste é da Pixel (seedBankAccounts)
     ownRecipientId: 31337,
     pages: [
       [

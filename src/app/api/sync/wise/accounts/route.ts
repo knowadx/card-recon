@@ -1,16 +1,7 @@
 import { prisma } from "@/lib/db";
 import { assertAccount, guarded, requireSuperadmin, requireUser } from "@/lib/access";
+import { wiseProfileLabel, type WiseProfile } from "@/lib/sync/wise";
 
-interface WiseProfile {
-  id: number;
-  type: string;
-  fullName?: string;
-  businessName?: string;
-  firstName?: string;
-  lastName?: string;
-  name?: string;
-  details?: { name?: string; businessName?: string; firstName?: string; lastName?: string };
-}
 
 /** GET /api/sync/wise/accounts?accountId= — lista profiles BUSINESS usando o token DA CONTA. */
 export const GET = guarded(async (request: Request) => {
@@ -36,14 +27,7 @@ export const GET = guarded(async (request: Request) => {
     .filter((p) => p.type === "BUSINESS")
     .map((p) => ({
       id: String(p.id),
-      label:
-        p.details?.businessName ||
-        p.details?.name ||
-        p.businessName ||
-        p.fullName ||
-        p.name ||
-        [p.details?.firstName ?? p.firstName, p.details?.lastName ?? p.lastName].filter(Boolean).join(" ") ||
-        `Business ${p.id}`,
+      label: wiseProfileLabel(p),
     }));
 
   return Response.json(business);
