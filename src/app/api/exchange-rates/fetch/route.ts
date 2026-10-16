@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
 const WISE_BASE = "https://api.wise.com";
 
@@ -14,7 +15,9 @@ function monthsBetween(from: string, to: string): string[] {
   return result;
 }
 
-export async function POST(request: Request) {
+// Busca câmbio na Wise e grava (configuração global): só o administrador geral.
+export const POST = guarded(async (request: Request) => {
+  await requireSuperadmin();
   const body = await request.json() as { currencies?: string[]; from: string; to: string };
   const { from, to } = body;
   const currencies = (body.currencies ?? ["EUR", "BRL", "CAD"]).filter(c => c !== "USD");
@@ -73,4 +76,4 @@ export async function POST(request: Request) {
   }
 
   return Response.json({ fetched, failed, errors, total: jobs.length });
-}
+});

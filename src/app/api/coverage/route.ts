@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSession, isSuperadmin } from "@/lib/auth";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
-export async function GET() {
-  const session = await getSession();
-  if (!session || !isSuperadmin(session.role)) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+// Cobertura de TODAS as empresas: só o administrador geral (papel lido do banco, nunca do cookie).
+export const GET = guarded(async () => {
+  await requireSuperadmin();
   try {
   const companies = await prisma.company.findMany({
     include: {
@@ -88,4 +86,4 @@ export async function GET() {
     console.error("Coverage error:", e);
     console.error(e); return Response.json({ error: "Erro interno" }, { status: 500 });
   }
-}
+});

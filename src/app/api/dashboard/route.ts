@@ -1,11 +1,16 @@
 import { prisma } from "@/lib/db";
 import { loadRateMap, toUsd } from "@/lib/exchangeRates";
+import { assertCompany, guarded, requireUser, transactionScope } from "@/lib/access";
 
-export async function GET(request: Request) {
+export const GET = guarded(async (request: Request) => {
+  const user = await requireUser();
   const { searchParams } = new URL(request.url);
   const companyId = searchParams.get("companyId");
   const year = parseInt(searchParams.get("year") || String(new Date().getFullYear()));
   const convertToUsd = searchParams.get("usd") === "true";
+
+  if (companyId) await assertCompany(user, companyId); // empresa fora do escopo = 404
+  const scope = await transactionScope(user); // só soma transações do grupo do usuário
 
   const whereAccount = companyId ? { account: { companyId } } : {};
 
@@ -15,7 +20,7 @@ export async function GET(request: Request) {
   const [splits, transactions, rateMap] = await Promise.all([
     prisma.transactionSplit.findMany({
       where: {
-        transaction: { ...whereAccount, ignored: false },
+        transaction: { ...whereAccount, ignored: false, AND: [scope] },
         OR: [
           { accountingDate: { gte: yearStart, lte: yearEnd } },
           { accountingDate: null, transaction: { date: { gte: yearStart, lte: yearEnd } } },
@@ -31,6 +36,7 @@ export async function GET(request: Request) {
       where: {
         ...whereAccount,
         ignored: false,
+        AND: [scope],
         date: { gte: new Date(`${year}-01-01`), lte: new Date(`${year}-12-31`) },
       },
       include: { account: { include: { company: true } } },
@@ -85,4 +91,4 @@ export async function GET(request: Request) {
   }
 
   return Response.json({ managerialByMonth, accountingByMonth, byAccount, year, convertedToUsd: convertToUsd });
-}
+});

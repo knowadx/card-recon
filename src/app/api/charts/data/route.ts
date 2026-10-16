@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
-import { loadRateMap, toUsd } from "@/lib/exchangeRates";
 import { getChartMonthlyValues } from "@/lib/chartData";
+import { loadRateMap, toUsd } from "@/lib/exchangeRates";
+import { assertCompany, guarded, requireUser, transactionScope } from "@/lib/access";
 
 function monthsBetween(from: string, to: string): string[] {
   const result: string[] = [];
@@ -14,10 +15,14 @@ function monthsBetween(from: string, to: string): string[] {
   return result;
 }
 
-export async function GET(request: Request) {
+export const GET = guarded(async (request: Request) => {
+  const user = await requireUser();
   const { searchParams } = new URL(request.url);
   const companyId = searchParams.get("companyId") || null;
   const convertToUsd = searchParams.get("usd") === "true";
+
+  if (companyId) await assertCompany(user, companyId); // empresa fora do escopo = 404
+  const scope = await transactionScope(user); // gráficos (configuração) são globais; os NÚMEROS, só do grupo
 
   const now = new Date();
   const defaultFrom = `${now.getFullYear() - 1}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -61,6 +66,7 @@ export async function GET(request: Request) {
       transaction: {
         ignored: false,
         ...(companyId ? { account: { companyId } } : {}),
+        AND: [scope],
       },
       OR: [
         { accountingDate: { gte: rangeStart, lte: rangeEnd } },
@@ -109,7 +115,7 @@ export async function GET(request: Request) {
   const chartOperandMap: Record<string, Record<string, number>> = {};
   await Promise.all(
     Array.from(formulaChartIds).map(async chartId => {
-      chartOperandMap[chartId] = await getChartMonthlyValues(chartId, from, to, convertToUsd);
+      chartOperandMap[chartId] = await getChartMonthlyValues(chartId, from, to, convertToUsd, scope);
     })
   );
 
@@ -168,4 +174,4 @@ export async function GET(request: Request) {
   });
 
   return Response.json({ charts: result, months });
-}
+});

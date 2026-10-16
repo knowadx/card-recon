@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { scopedCompanyIds } from "@/lib/auth";
+import { accountScope, assertAccount, assertCompany, companyScope, guarded, requireUser, transactionScope } from "@/lib/access";
 import { getSyncPeriod } from "@/lib/settings";
 import { loadRateMap, toUsd } from "@/lib/exchangeRates";
 
@@ -14,18 +14,19 @@ export const dynamic = "force-dynamic";
  *   semCodigo   → sem código facebk 🔴
  * O lado Meta entra só como DADO BRUTO (contas/cobranças/total), SEM correlação com o banco.
  */
-export async function GET(request: Request) {
-  const scope = await scopedCompanyIds();
+export const GET = guarded(async (request: Request) => {
+  const user = await requireUser();
   const params = new URL(request.url).searchParams;
   const company = params.get("company");
   const account = params.get("account");
+  // empresa/conta fora do escopo = 404 (não confirma que existe)
+  if (company) await assertCompany(user, company);
+  if (account) await assertAccount(user, account);
   const accountWhere = account
     ? { id: account }
     : company
       ? { companyId: company }
-      : scope === "all"
-        ? null
-        : { companyId: { in: scope } };
+      : null;
 
   // JANELA DE ANÁLISE = início/fim do período (o "fim" limita só a VISÃO, não os syncs).
   const period = await getSyncPeriod();
@@ -51,15 +52,16 @@ export async function GET(request: Request) {
   }
   mesesDisponiveis.reverse();
 
-  const base = { isMetaCharge: true, date: dateRange, ...(accountWhere ? { account: accountWhere } : {}) };
+  // só as transações do grupo do usuário (superadmin = todas)
+  const base = { isMetaCharge: true, date: dateRange, AND: [await transactionScope(user)], ...(accountWhere ? { account: accountWhere } : {}) };
 
   const [bank, companies, accounts, rateMap] = await Promise.all([
     prisma.transaction.findMany({
       where: base,
       select: { date: true, amount: true, currency: true, billAmount: true, billCurrency: true, metaRef: true, hasReceipt: true, cardLast4: true, account: { select: { bank: true } } },
     }),
-    prisma.company.findMany({ where: scope === "all" ? {} : { id: { in: scope } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    prisma.account.findMany({ where: scope === "all" ? {} : { companyId: { in: scope } }, select: { id: true, name: true, company: { select: { name: true } } }, orderBy: { name: "asc" } }),
+    prisma.company.findMany({ where: await companyScope(user), select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.account.findMany({ where: await accountScope(user), select: { id: true, name: true, company: { select: { name: true } } }, orderBy: { name: "asc" } }),
     loadRateMap(),
   ]);
 
@@ -106,4 +108,4 @@ export async function GET(request: Request) {
       porCartao: [...porCartaoMap.entries()].map(([cartao, v]) => ({ cartao, bank: v.bank, qtde: v.qtde, usd: round2(v.usd) })).sort((a, b) => b.usd - a.usd),
     },
   });
-}
+});

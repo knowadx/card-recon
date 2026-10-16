@@ -1,15 +1,20 @@
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { loadRateMap, toUsd } from "@/lib/exchangeRates";
 
 /**
  * Returns a month→value map for a DashboardChart's actual transaction totals.
  * Applies line factors (+/-) just like the charts/data API does.
+ *
+ * `scope` (OBRIGATÓRIO): escopo de transações do usuário (transactionScope em access.ts). Sem ele a
+ * soma pegaria as transações de TODOS os grupos. Única implementação — charts/data e plan/values usam esta.
  */
 export async function getChartMonthlyValues(
   chartId: string,
   from: string,
   to: string,
-  convertToUsd = false,
+  convertToUsd: boolean,
+  scope: Prisma.TransactionWhereInput,
 ): Promise<Record<string, number>> {
   const rangeStart = new Date(`${from}-01T00:00:00.000Z`);
   const rangeEnd = new Date(`${to}-01T00:00:00.000Z`);
@@ -31,7 +36,7 @@ export async function getChartMonthlyValues(
   const splits = await prisma.transactionSplit.findMany({
     where: {
       managerialCategoryId: { in: categoryIds },
-      transaction: { ignored: false },
+      transaction: { ignored: false, AND: [scope] },
       OR: [
         { accountingDate: { gte: rangeStart, lte: rangeEnd } },
         { accountingDate: null, transaction: { date: { gte: rangeStart, lte: rangeEnd } } },

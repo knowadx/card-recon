@@ -1,6 +1,11 @@
 import { prisma } from "@/lib/db";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
-export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+type Ctx = { params: Promise<{ id: string }> };
+
+// Categorias = configuração global: só o administrador geral altera.
+export const PUT = guarded(async (request: Request, { params }: Ctx) => {
+  await requireSuperadmin();
   const { id } = await params;
   const body = await request.json();
   const category = await prisma.category.update({
@@ -8,10 +13,11 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     data: { name: body.name, code: body.code || null, parentId: body.parentId || null, color: body.color, plSection: body.plSection ?? null },
   });
   return Response.json(category);
-}
+});
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = guarded(async (_req: Request, { params }: Ctx) => {
+  await requireSuperadmin();
   const { id } = await params;
   await prisma.category.delete({ where: { id } });
   return new Response(null, { status: 204 });
-}
+});

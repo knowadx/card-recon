@@ -1,6 +1,11 @@
 import { prisma } from "@/lib/db";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
-export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+type Ctx = { params: Promise<{ id: string }> };
+
+// Gráficos = configuração global: só o administrador geral altera.
+export const PUT = guarded(async (request: Request, { params }: Ctx) => {
+  await requireSuperadmin();
   const { id } = await params;
   const { name, color, unit, format, lines } = await request.json();
   await prisma.dashboardChartLine.deleteMany({ where: { chartId: id } });
@@ -23,10 +28,11 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     include: { lines: { include: { category: true } }, seriesLinks: { include: { series: true } } },
   });
   return Response.json(chart);
-}
+});
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = guarded(async (_req: Request, { params }: Ctx) => {
+  await requireSuperadmin();
   const { id } = await params;
   await prisma.dashboardChart.delete({ where: { id } });
   return Response.json({ ok: true });
-}
+});

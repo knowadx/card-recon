@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { loadRateMap, toUsd } from "@/lib/exchangeRates";
-import { sessionScopes } from "@/lib/auth";
+import { assertCompany, assertHolding, assertOperation, guarded, requireUser, transactionScope } from "@/lib/access";
 
 function monthsBetween(from: string, to: string): string[] {
   const result: string[] = [];
@@ -14,11 +14,18 @@ function monthsBetween(from: string, to: string): string[] {
   return result;
 }
 
-export async function GET(request: Request) {
+export const GET = guarded(async (request: Request) => {
+  const user = await requireUser();
   const { searchParams } = new URL(request.url);
   const companyId = searchParams.get("companyId") || null;
   const holdingId = searchParams.get("holdingId") || null;
   const operationId = searchParams.get("operationId") || null;
+
+  // filtro fora do escopo = 404 (não confirma que existe)
+  if (companyId) await assertCompany(user, companyId);
+  if (holdingId) await assertHolding(user, holdingId);
+  if (operationId) await assertOperation(user, operationId);
+
   const now = new Date();
   const from = searchParams.get("from") || `${now.getFullYear()}-01`;
   const to = searchParams.get("to") || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -33,20 +40,14 @@ export async function GET(request: Request) {
   if (companyId) accountWhere.companyId = companyId;
   if (holdingId) accountWhere.company = { holdingId };
 
-  // Escopo de acesso (operador só vê holdings/operações dele; admin = tudo)
-  const sc = await sessionScopes();
-  const scopeOR: Record<string, unknown>[] | null = sc.isAdmin
-    ? null
-    : [
-        ...(sc.holdingIds.length ? [{ account: { company: { holdingId: { in: sc.holdingIds } } } }] : []),
-        ...(sc.operationIds.length ? [{ operationId: { in: sc.operationIds } }, { account: { operationId: { in: sc.operationIds } } }] : []),
-      ];
+  // Escopo de acesso (holdings/operações do usuário; superadmin = tudo) — peça única em @/lib/access
+  const scope = await transactionScope(user);
 
   // where de transação compartilhado (conta + escopo)
   const txWhere = {
     ignored: false,
     ...(Object.keys(accountWhere).length ? { account: accountWhere } : {}),
-    ...(scopeOR ? { OR: scopeOR.length ? scopeOR : [{ id: "__none__" }] } : {}),
+    AND: [scope],
   };
 
   const [splits, categories, uncategorized, rateMap] = await Promise.all([
@@ -124,4 +125,4 @@ export async function GET(request: Request) {
   } : null;
 
   return Response.json({ months, rows, uncategorizedRow });
-}
+});

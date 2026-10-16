@@ -1,14 +1,18 @@
 import { prisma } from "@/lib/db";
+import { guarded, requireSuperadmin, requireUser, transactionScope } from "@/lib/access";
+
+// Câmbio = configuração global: qualquer usuário logado lê; só o administrador geral altera.
 
 // GET — list all exchange rates + currencies actually in use
-export async function GET() {
+export const GET = guarded(async () => {
+  const user = await requireUser();
   const [rates, currencyGroups] = await Promise.all([
     prisma.exchangeRate.findMany({
       orderBy: [{ currency: "asc" }, { month: "desc" }],
     }),
     prisma.transaction.groupBy({
       by: ["currency"],
-      where: { ignored: false },
+      where: { ignored: false, AND: [await transactionScope(user)] }, // moedas em uso: só as do grupo do usuário
       _count: true,
     }),
   ]);
@@ -20,10 +24,11 @@ export async function GET() {
     .sort();
 
   return Response.json({ rates, currencies: usedCurrencies });
-}
+});
 
 // POST — upsert batch: [{ currency, month, rateToUsd }]
-export async function POST(request: Request) {
+export const POST = guarded(async (request: Request) => {
+  await requireSuperadmin();
   const { rates } = await request.json() as {
     rates: Array<{ currency: string; month: string; rateToUsd: number }>;
   };
@@ -38,4 +43,4 @@ export async function POST(request: Request) {
   }
 
   return Response.json({ ok: true });
-}
+});

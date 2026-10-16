@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/db";
+import { guarded, requireSuperadmin, requireUser } from "@/lib/access";
 
-export async function GET(request: Request) {
+// Categorias = configuração global: qualquer usuário logado lê; só o administrador geral altera.
+export const GET = guarded(async (request: Request) => {
+  await requireUser();
   const { searchParams } = new URL(request.url);
   const type = searchParams.get("type");
   const categories = await prisma.category.findMany({
@@ -9,9 +12,10 @@ export async function GET(request: Request) {
     orderBy: { name: "asc" },
   });
   return Response.json(categories);
-}
+});
 
-export async function POST(request: Request) {
+export const POST = guarded(async (request: Request) => {
+  await requireSuperadmin();
   const body = await request.json();
   const category = await prisma.category.create({
     data: {
@@ -23,4 +27,4 @@ export async function POST(request: Request) {
     },
   });
   return Response.json(category, { status: 201 });
-}
+});

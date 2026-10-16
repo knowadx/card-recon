@@ -1,6 +1,11 @@
 import { prisma } from "@/lib/db";
+import { guarded, requireSuperadmin } from "@/lib/access";
 
-export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+type Ctx = { params: Promise<{ id: string }> };
+
+// Séries do plano = configuração global: só o administrador geral altera.
+export const PUT = guarded(async (request: Request, { params }: Ctx) => {
+  await requireSuperadmin();
   const { id } = await params;
   const { name, color, seriesType, unit, format, formulaOp, formulaSeriesAId, formulaSeriesBId, formulaChartAId, formulaChartBId } = await request.json();
   const series = await prisma.planSeries.update({
@@ -15,10 +20,11 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     },
   });
   return Response.json(series);
-}
+});
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = guarded(async (_req: Request, { params }: Ctx) => {
+  await requireSuperadmin();
   const { id } = await params;
   await prisma.planSeries.delete({ where: { id } });
   return Response.json({ ok: true });
-}
+});

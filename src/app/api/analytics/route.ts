@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { guarded, requireUser, transactionScope } from "@/lib/access";
 
 function monthsBetween(from: string, to: string): string[] {
   const result: string[] = [];
@@ -12,7 +13,8 @@ function monthsBetween(from: string, to: string): string[] {
   return result;
 }
 
-export async function GET(request: Request) {
+export const GET = guarded(async (request: Request) => {
+  const user = await requireUser();
   const { searchParams } = new URL(request.url);
   const categoryId = searchParams.get("categoryId");
   const from = searchParams.get("from") || "";
@@ -28,7 +30,7 @@ export async function GET(request: Request) {
   const splits = await prisma.transactionSplit.findMany({
     where: {
       managerialCategoryId: categoryId,
-      transaction: { ignored: false },
+      transaction: { ignored: false, AND: [await transactionScope(user)] }, // só transações do grupo do usuário
       OR: [
         { accountingDate: { gte: rangeStart, lte: rangeEnd } },
         { accountingDate: null, transaction: { date: { gte: rangeStart, lte: rangeEnd } } },
@@ -63,4 +65,4 @@ export async function GET(request: Request) {
     .sort((a, b) => b.total - a.total);
 
   return Response.json({ rows, months });
-}
+});

@@ -1,14 +1,18 @@
 import { prisma } from "@/lib/db";
+import { guarded, requireSuperadmin, requireUser } from "@/lib/access";
 
-export async function GET() {
+// Séries do plano = configuração global: qualquer usuário logado lê; só o administrador geral altera.
+export const GET = guarded(async () => {
+  await requireUser();
   const series = await prisma.planSeries.findMany({
     include: { chartLinks: { include: { chart: { select: { id: true, name: true } } } } },
     orderBy: { order: "asc" },
   });
   return Response.json(series);
-}
+});
 
-export async function POST(request: Request) {
+export const POST = guarded(async (request: Request) => {
+  await requireSuperadmin();
   const { name, color, seriesType, unit, format, formulaOp, formulaSeriesAId, formulaSeriesBId, formulaChartAId, formulaChartBId } = await request.json();
   const count = await prisma.planSeries.count();
   const series = await prisma.planSeries.create({
@@ -27,4 +31,4 @@ export async function POST(request: Request) {
     },
   });
   return Response.json(series, { status: 201 });
-}
+});

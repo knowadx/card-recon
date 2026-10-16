@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { sessionScopes } from "@/lib/auth";
+import { isSuperadmin, scopes } from "@/lib/auth";
+import { guarded, requireUser } from "@/lib/access";
 import { getSyncPeriod } from "@/lib/settings";
 import { loadRateMap, toUsd } from "@/lib/exchangeRates";
 
@@ -12,8 +13,11 @@ export const dynamic = "force-dynamic";
  * PDFs salvos (MetaReceipt) → "Possui PDF" + o código facebk do PDF (pra correlação futura).
  * NÃO cruza com o banco (isso é a Guia 1). Filtros: month, account, pdf (com|sem).
  */
-export async function GET(request: Request) {
-  const sc = await sessionScopes();
+export const GET = guarded(async (request: Request) => {
+  const user = await requireUser();
+  // Escopo por OPERAÇÃO (como antes): superadmin vê tudo; os demais, só as operações em que são membros.
+  const seeAll = isSuperadmin(user.role);
+  const operationIds = seeAll ? [] : (await scopes(user.id)).operationIds;
   const params = new URL(request.url).searchParams;
   const month = params.get("month");
   const account = params.get("account");
@@ -36,13 +40,13 @@ export async function GET(request: Request) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const where: any = { chargedAt: dateRange };
-  if (!sc.isAdmin) where.operationId = { in: sc.operationIds };
+  if (!seeAll) where.operationId = { in: operationIds };
   if (account) where.accountId = account;
 
   const [charges, receipts, contasCtrl, rateMap] = await Promise.all([
     prisma.metaBillingCharge.findMany({ where, select: { transactionId: true, accountId: true, accountName: true, bmName: true, bmId: true, amountUsd: true, currency: true, chargedAt: true }, orderBy: { chargedAt: "desc" }, take: 5000 }),
     prisma.metaReceipt.findMany({ where: { referenceNumber: { not: null } }, select: { transactionId: true, referenceNumber: true } }),
-    prisma.metaAdAccount.findMany({ where: sc.isAdmin ? {} : { operationId: { in: sc.operationIds } }, select: { accountId: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.metaAdAccount.findMany({ where: seeAll ? {} : { operationId: { in: operationIds } }, select: { accountId: true, name: true }, orderBy: { name: "asc" } }),
     loadRateMap(),
   ]);
   const refByTx = new Map(receipts.map((r) => [r.transactionId, r.referenceNumber!]));
@@ -90,4 +94,4 @@ export async function GET(request: Request) {
     },
     rows,
   });
-}
+});

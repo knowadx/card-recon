@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/db";
+import { guarded, requireSuperadmin, requireUser } from "@/lib/access";
 
-export async function GET() {
+// Gráficos = configuração global: qualquer usuário logado lê; só o administrador geral altera.
+export const GET = guarded(async () => {
+  await requireUser();
   const charts = await prisma.dashboardChart.findMany({
     include: {
       lines: { include: { category: true }, orderBy: { order: "asc" } },
@@ -9,16 +12,18 @@ export async function GET() {
     orderBy: { order: "asc" },
   });
   return Response.json(charts);
-}
+});
 
 // PATCH /api/charts — reorder: { ids: string[] } in desired order
-export async function PATCH(request: Request) {
+export const PATCH = guarded(async (request: Request) => {
+  await requireSuperadmin();
   const { ids } = await request.json() as { ids: string[] };
   await Promise.all(ids.map((id, i) => prisma.dashboardChart.update({ where: { id }, data: { order: i } })));
   return Response.json({ ok: true });
-}
+});
 
-export async function POST(request: Request) {
+export const POST = guarded(async (request: Request) => {
+  await requireSuperadmin();
   const { name, color, unit, format, lines } = await request.json();
   const count = await prisma.dashboardChart.count();
   const chart = await prisma.dashboardChart.create({
@@ -40,4 +45,4 @@ export async function POST(request: Request) {
     include: { lines: { include: { category: true } }, seriesLinks: { include: { series: true } } },
   });
   return Response.json(chart, { status: 201 });
-}
+});

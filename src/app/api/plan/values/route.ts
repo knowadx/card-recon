@@ -1,8 +1,12 @@
 import { prisma } from "@/lib/db";
 import { getChartMonthlyValues } from "@/lib/chartData";
+import { guarded, requireSuperadmin, requireUser, transactionScope } from "@/lib/access";
 
 // GET ?from=2026-01&to=2026-12
-export async function GET(request: Request) {
+// Séries do plano são números GLOBAIS (não pertencem a conta/empresa): qualquer usuário logado lê.
+// Mas o operando "gráfico" de uma série-fórmula soma transações → só as do grupo do usuário.
+export const GET = guarded(async (request: Request) => {
+  const user = await requireUser();
   const { searchParams } = new URL(request.url);
   const from = searchParams.get("from") || "";
   const to = searchParams.get("to") || "";
@@ -41,9 +45,10 @@ export async function GET(request: Request) {
     });
     for (const c of chartMeta) chartNameMap[c.id] = c.name;
     if (from && to) {
+      const scope = await transactionScope(user);
       await Promise.all(
         Array.from(chartIds).map(async chartId => {
-          chartValueMap[chartId] = await getChartMonthlyValues(chartId, from, to, true);
+          chartValueMap[chartId] = await getChartMonthlyValues(chartId, from, to, true, scope);
         })
       );
     }
@@ -90,10 +95,11 @@ export async function GET(request: Request) {
   });
 
   return Response.json(result);
-}
+});
 
-// POST — batch upsert { values: [{ seriesId, month, value }] }
-export async function POST(request: Request) {
+// POST — batch upsert { values: [{ seriesId, month, value }] } — plano é configuração global: só superadmin
+export const POST = guarded(async (request: Request) => {
+  await requireSuperadmin();
   const { values } = await request.json() as {
     values: Array<{ seriesId: string; month: string; value: number | null }>;
   };
@@ -111,4 +117,4 @@ export async function POST(request: Request) {
   }
 
   return Response.json({ ok: true });
-}
+});
