@@ -35,11 +35,18 @@ describe("/api/accounts", () => {
     expect(await prisma.account.count({ where: { name: "invasora" } })).toBe(0);
   });
 
-  it("cria conta na própria empresa, sem devolver o token", async () => {
+  it("member cria conta na própria empresa sem token; com token só admin — e o token nunca volta", async () => {
     loginAs(s.users.pixel);
-    const res = await accounts.POST(req("/api/accounts", { method: "POST", json: { companyId: s.companies.pixel.id, bank: "Wise", currency: "USD", name: "nova", apiToken: "tok" } }));
+    const base = { companyId: s.companies.pixel.id, bank: "Wise", currency: "USD" };
+    expect((await accounts.POST(req("/api/accounts", { method: "POST", json: { ...base, name: "nova" } }))).status).toBe(201);
+    expect((await accounts.POST(req("/api/accounts", { method: "POST", json: { ...base, name: "com token", apiToken: "tok" } }))).status).toBe(403);
+
+    const admin = await prisma.user.create({ data: { email: "admin-cria@teste.com", role: "admin", passwordHash: "x:y" } });
+    await prisma.membership.create({ data: { userId: admin.id, holdingId: s.holdings.pixel.id } });
+    loginAs(admin);
+    const res = await accounts.POST(req("/api/accounts", { method: "POST", json: { ...base, name: "com token", apiToken: "tok-secreto" } }));
     expect(res.status).toBe(201);
-    expect(JSON.stringify(await res.json())).not.toContain("tok\"");
+    expect(JSON.stringify(await res.json())).not.toContain("tok-secreto");
   });
 });
 
@@ -101,5 +108,21 @@ describe("/api/companies/[id]", () => {
     expect((await company.PUT(req(`/api/companies/${id}`, { method: "PUT", json: { name: "P", holdingId: s.holdings.outro.id } }), params({ id }))).status).toBe(404);
     expect((await company.PUT(req(`/api/companies/${id}`, { method: "PUT", json: { name: "P", holdingId: null } }), params({ id }))).status).toBe(403);
     expect((await prisma.company.findUnique({ where: { id } }))?.holdingId).toBe(s.holdings.pixel.id);
+  });
+});
+
+describe("ligar a conta ao banco (token / ids da conta no banco): só superadmin e admins", () => {
+  it("member edita o nome da própria conta, mas não o token nem o syncConfig; admin pode", async () => {
+    const id = s.accounts.pixel.id;
+    loginAs(s.users.pixel); // member
+    expect((await account.PUT(req(`/api/accounts/${id}`, { method: "PUT", json: { name: "Só o nome" } }), params({ id }))).status).toBe(200);
+    expect((await account.PUT(req(`/api/accounts/${id}`, { method: "PUT", json: { name: "x", apiToken: "tok" } }), params({ id }))).status).toBe(403);
+    expect((await account.PATCH(req(`/api/accounts/${id}`, { method: "PATCH", json: { syncConfig: { mercuryAccountId: "conta-de-outro" } } }), params({ id }))).status).toBe(403);
+    expect((await prisma.account.findUnique({ where: { id } }))?.syncConfig).toBeNull();
+
+    const admin = await prisma.user.create({ data: { email: "admin-px@teste.com", role: "admin", passwordHash: "x:y" } });
+    await prisma.membership.create({ data: { userId: admin.id, holdingId: s.holdings.pixel.id } });
+    loginAs(admin);
+    expect((await account.PATCH(req(`/api/accounts/${id}`, { method: "PATCH", json: { syncConfig: { mercuryAccountId: "m-1" } } }), params({ id }))).status).toBe(200);
   });
 });

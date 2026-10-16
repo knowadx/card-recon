@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
-import { KEY_MAP } from "@/lib/mercury";
 import { getValidAccessToken } from "@/lib/revolut";
-import { getCredentialToken } from "@/lib/credentials";
+import { resolveBankToken } from "@/lib/credentials";
+import { isSuperadmin } from "@/lib/auth";
 import { accountScope, guarded, requireUser } from "@/lib/access";
 
 const MERCURY_BASE = "https://api.mercury.com/api/v1";
@@ -46,11 +46,7 @@ export const GET = guarded(async () => {
       const bank = account.bank;
 
       if (bank === "Mercury" || bank === "Wise") {
-        const token =
-          account.apiToken ||
-          (await getCredentialToken(bank.toLowerCase(), account.company.name)) ||
-          (bank === "Mercury" ? KEY_MAP.activeview || process.env.MERCURY_API_KEY : process.env.WISE_API_KEY) ||
-          undefined;
+        const token = await resolveBankToken(bank === "Mercury" ? "mercury" : "wise", account, { allowGlobal: isSuperadmin(user.role) });
         if (!token) return { accountId: account.id, ok: false, label: "Chave não configurada" };
         if (!cache.has(token)) cache.set(token, await (bank === "Mercury" ? checkMercury(token) : checkWise(token)));
         return { accountId: account.id, ...cache.get(token)! };

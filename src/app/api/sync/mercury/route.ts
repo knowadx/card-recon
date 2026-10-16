@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
-import { KEY_MAP } from "@/lib/mercury";
 import { isMetaMerchant, extractMetaRef } from "@/lib/metaCheck";
-import { getCredentialToken } from "@/lib/credentials";
+import { NO_OWN_TOKEN_MESSAGE, resolveBankToken } from "@/lib/credentials";
+import { isSuperadmin } from "@/lib/auth";
 import { getSyncPeriod } from "@/lib/settings";
 import { assertAccount, guarded, requireUser } from "@/lib/access";
 
@@ -106,12 +106,11 @@ export const POST = guarded(async (request: Request) => {
   if (!account) return Response.json({ error: "account not found" }, { status: 404 });
 
   // Token: 1º o da própria CONTA (1 token por conta), depois fallbacks legados
-  const key =
-    account.apiToken ||
-    (await getCredentialToken("mercury", account.company?.name)) ||
-    KEY_MAP[entity ?? "activeview"] ||
-    process.env.MERCURY_API_KEY;
-  if (!key) return Response.json({ error: "Token Mercury não cadastrado nesta conta" }, { status: 400 });
+  const key = await resolveBankToken("mercury", account, { allowGlobal: isSuperadmin(user.role), mercuryEntity: entity });
+  if (!key) {
+    const msg = isSuperadmin(user.role) ? "Token Mercury não cadastrado nesta conta" : NO_OWN_TOKEN_MESSAGE;
+    return Response.json({ error: msg }, { status: 400 });
+  }
 
   const period = await getSyncPeriod();
   const end = to || new Date().toISOString().slice(0, 10); // sempre até HOJE (o "até" do período não trava)

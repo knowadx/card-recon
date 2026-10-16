@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
-import { accountScope, assertCompany, assertOperation, guarded, requireUser } from "@/lib/access";
+import { AccessError, accountScope, assertCompany, assertOperation, guarded, requireUser } from "@/lib/access";
+import { isManager } from "@/lib/auth";
 
 export const GET = guarded(async () => {
   const user = await requireUser();
@@ -19,6 +20,9 @@ export const POST = guarded(async (request: Request) => {
   const body = await request.json();
   await assertCompany(user, body.companyId);
   if (body.operationId) await assertOperation(user, body.operationId);
+  if (body.apiToken && !isManager(user.role)) {
+    throw new AccessError(403, "só administradores cadastram o token do banco");
+  }
   const { apiToken, ...account } = await prisma.account.create({
     data: {
       companyId: body.companyId,

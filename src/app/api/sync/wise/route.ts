@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { isMetaMerchant, extractMetaRef } from "@/lib/metaCheck";
-import { getCredentialToken } from "@/lib/credentials";
+import { NO_OWN_TOKEN_MESSAGE, resolveBankToken } from "@/lib/credentials";
+import { isSuperadmin } from "@/lib/auth";
 import { getSyncPeriod } from "@/lib/settings";
 import { AccessError, assertAccount, guarded, requireUser } from "@/lib/access";
 
@@ -229,12 +230,11 @@ export const POST = guarded(async (request: Request) => {
     if (!account) return Response.json({ error: "account not found" }, { status: 404 });
 
     // Token: 1º o da própria CONTA, depois fallbacks legados
-    const key =
-      account.apiToken ||
-      (await getCredentialToken("wise", account.company?.name)) ||
-      process.env.WISE_API_KEY ||
-      process.env.WISE_API_KEY_ACTIVEVIEW_LLC;
-    if (!key) return Response.json({ error: "Token Wise não cadastrado nesta conta" }, { status: 400 });
+    const key = await resolveBankToken("wise", account, { allowGlobal: isSuperadmin(user.role) });
+    if (!key) {
+      const msg = isSuperadmin(user.role) ? "Token Wise não cadastrado nesta conta" : NO_OWN_TOKEN_MESSAGE;
+      return Response.json({ error: msg }, { status: 400 });
+    }
 
     const period = await getSyncPeriod();
     const end = to ? `${to}T23:59:59.999Z` : new Date().toISOString(); // sempre até HOJE (o "até" do período não trava)
