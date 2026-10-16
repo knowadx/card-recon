@@ -53,6 +53,26 @@ export async function exchangeMetaCode(code: string, redirectUri: string): Promi
   return longJson.access_token as string;
 }
 
+/**
+ * O token Meta ainda vale? Pergunta à própria Meta (debug_token com o token do APP).
+ * { valido, expiraEm (AAAA-MM-DD | null = não expira), erro }. Sem rede/sem app = valido null.
+ */
+export async function metaTokenStatus(token: string): Promise<{ valido: boolean | null; expiraEm: string | null; erro: string | null }> {
+  const appId = process.env.META_APP_ID;
+  const secret = process.env.META_APP_SECRET;
+  if (!appId || !secret) return { valido: null, expiraEm: null, erro: "META_APP_ID/META_APP_SECRET ausentes no servidor" };
+  try {
+    const u = new URL(`${GRAPH}/${version()}/debug_token`);
+    u.searchParams.set("input_token", token);
+    u.searchParams.set("access_token", `${appId}|${secret}`);
+    const d = ((await (await fetch(u)).json()) as { data?: { is_valid?: boolean; expires_at?: number; error?: { message?: string } } }).data ?? {};
+    const exp = typeof d.expires_at === "number" && d.expires_at > 0 ? new Date(d.expires_at * 1000).toISOString().slice(0, 10) : null;
+    return { valido: d.is_valid === true, expiraEm: exp, erro: d.is_valid ? null : (d.error?.message ?? "token inválido") };
+  } catch (e) {
+    return { valido: null, expiraEm: null, erro: `não deu pra consultar a Meta: ${(e as Error).message}` };
+  }
+}
+
 /** Perfil (usuário) Meta dono do token — { id, name }. Usado p/ exibir qual perfil conectou. */
 export async function fetchMetaUser(token: string): Promise<{ id: string; name: string } | null> {
   try {

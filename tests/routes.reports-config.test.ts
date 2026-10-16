@@ -293,6 +293,36 @@ describe("/api/fechamento", () => {
     expect(body.month).toBe(atual);
   });
 
+  it("passo 1: só as contas do grupo, com config/chave/última data — e nunca a chave do banco", async () => {
+    await prisma.account.update({ where: { id: s.accounts.pixel.id }, data: { apiToken: "segredo-merc", syncConfig: JSON.stringify({ mercuryAccountId: "m1" }) } });
+    const r = await call(s.users.pixel, get());
+    expect(r.body.contas.map((c: { id: string }) => c.id)).toEqual([s.accounts.pixel.id]);
+    const ultima = (await prisma.transaction.aggregate({ where: { accountId: s.accounts.pixel.id }, _max: { date: true } }))._max.date!.toISOString().slice(0, 10);
+    expect(r.body.contas[0]).toMatchObject({ banco: "Mercury", configurada: true, temChave: true, manual: false, ultimaTransacao: ultima });
+    expect(JSON.stringify(r.body)).not.toContain("segredo-merc");
+  });
+
+  it("passo 3: conexão Meta por operação do escopo (sem credencial = desconectado)", async () => {
+    await prisma.credential.create({ data: { issuer: "meta", company: "Op Pixel", operationId: s.operations.pixel.id, token: "tok-meta" } });
+    const r = await call(s.users.pixel, get());
+    expect(r.body.metaConexoes).toEqual([
+      expect.objectContaining({ operationId: s.operations.pixel.id, operacao: "Op Pixel", conectado: true }),
+    ]);
+    expect(JSON.stringify(r.body)).not.toContain("tok-meta");
+  });
+
+  it("resultado: cobranças Meta do mês SEM fatura, com o motivo; outro grupo e as já casadas não entram", async () => {
+    const meta = (accountId: string, ref: string, extra: Record<string, unknown>) =>
+      prisma.transaction.create({ data: { accountId, date: new Date("2026-09-10"), description: "FACEBK", amount: -20, currency: "USD", reference: ref, isMetaCharge: true, ...extra } });
+    await meta(s.accounts.pixel.id, "p-semcod", { metaRef: null });
+    await meta(s.accounts.pixel.id, "p-cod", { metaRef: "abc123xyz" });
+    await meta(s.accounts.pixel.id, "p-ok", { metaRef: "def456uvw", hasReceipt: true });
+    await meta(s.accounts.outro.id, "o-semcod", { metaRef: null });
+    const r = await call(s.users.pixel, () => fechamento.GET(req("/api/fechamento?month=2026-09")));
+    expect(r.body.pendentes).toMatchObject({ total: 2, semCodigo: 1, codigoSemPdf: 1 });
+    expect(r.body.pendentes.lista.map((t: { codigo: string | null }) => t.codigo).sort()).toEqual(["abc123xyz", null].sort());
+  });
+
   it("empresa de outro grupo = 404; deslogado = 401", async () => {
     expect((await call(s.users.pixel, get(`&company=${s.companies.outro.id}`))).status).toBe(404);
     expect((await call(s.users.pixel, get(`&company=${s.companies.pixel.id}`))).body.passos.bancos.transacoesMeta).toBe(1);

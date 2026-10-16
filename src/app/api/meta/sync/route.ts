@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { fetchControlledAccounts, parseFundingDisplay } from "@/lib/meta";
-import { getCurrentUser, isSuperadmin, accessibleHoldingIds } from "@/lib/auth";
+import { getCurrentUser, isSuperadmin, accessibleOperationsWhere } from "@/lib/auth";
 import { syncBillingCharges } from "@/lib/metaCharges";
 import { getSyncPeriod } from "@/lib/settings";
 
@@ -20,20 +20,8 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ ok: false, error: "não autenticado" }, { status: 401 });
 
     // superadmin sincroniza todas; admin = ops da(s) holding(s) dele ou que é membro; member = as que é membro
-    let where: Record<string, unknown> = { issuer: "meta", isActive: true };
-    if (!isSuperadmin(user.role)) {
-      const holdings = await accessibleHoldingIds(user.id, user.role);
-      const hids = holdings === "all" ? [] : holdings;
-      where = {
-        ...where,
-        operation: {
-          OR: [
-            ...(hids.length ? [{ holdingId: { in: hids } }] : []),
-            { memberships: { some: { userId: user.id } } },
-          ],
-        },
-      };
-    }
+    const opScope = await accessibleOperationsWhere(user);
+    const where = { issuer: "meta", isActive: true, ...(opScope ? { operation: opScope } : {}) };
     const { from, to } = await request.json().catch(() => ({}));
     const period = await getSyncPeriod();
     const since = from || period.from;

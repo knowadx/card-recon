@@ -2,6 +2,7 @@ import { createHmac, scryptSync, randomBytes, timingSafeEqual } from "crypto";
 import { cookies, headers } from "next/headers";
 import { prisma } from "./db";
 import { ACCESS_JWT_HEADER, loginConfig, verifyAccessJwt } from "./accessJwt";
+import type { Prisma } from "@/generated/prisma/client";
 
 /**
  * Identidade de quem chama. Duas fontes, decididas por loginConfig() (src/lib/accessJwt.ts):
@@ -119,26 +120,29 @@ export function isManager(role: string): boolean {
 }
 
 /**
- * A operação está no escopo do usuário? superadmin = qualquer uma; admin = as da(s)
- * holding(s) dele ou que é membro; member = só as que é membro. Retorna a operação ou null.
+ * Operações no escopo do usuário — a regra ÚNICA: superadmin = todas (null = sem filtro);
+ * admin = as da(s) holding(s) dele ou que é membro; member = só as que é membro.
  */
+export async function accessibleOperationsWhere(user: { id: string; role: string }): Promise<Prisma.OperationWhereInput | null> {
+  if (isSuperadmin(user.role)) return null;
+  const holdings = await accessibleHoldingIds(user.id, user.role);
+  const hids = holdings === "all" ? [] : holdings;
+  return {
+    OR: [
+      ...(hids.length ? [{ holdingId: { in: hids } }] : []),
+      { memberships: { some: { userId: user.id } } },
+    ],
+  };
+}
+
+/** A operação está no escopo do usuário (accessibleOperationsWhere)? Retorna a operação ou null. */
 export async function findAccessibleOperation(
   user: { id: string; role: string },
   operationId: string,
 ): Promise<{ id: string; name: string } | null> {
-  if (isSuperadmin(user.role)) {
-    return prisma.operation.findUnique({ where: { id: operationId }, select: { id: true, name: true } });
-  }
-  const holdings = await accessibleHoldingIds(user.id, user.role);
-  const hids = holdings === "all" ? [] : holdings;
+  const scope = await accessibleOperationsWhere(user);
   return prisma.operation.findFirst({
-    where: {
-      id: operationId,
-      OR: [
-        ...(hids.length ? [{ holdingId: { in: hids } }] : []),
-        { memberships: { some: { userId: user.id } } },
-      ],
-    },
+    where: { AND: [{ id: operationId }, ...(scope ? [scope] : [])] },
     select: { id: true, name: true },
   });
 }
