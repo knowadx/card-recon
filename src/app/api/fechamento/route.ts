@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { isSuperadmin, scopes } from "@/lib/auth";
 import { assertCompany, companyScope, guarded, requireUser, transactionScope } from "@/lib/access";
-import { getSyncPeriod } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -17,11 +16,18 @@ export const GET = guarded(async (request: Request) => {
   const companyParam = params.get("company") || "";
   if (companyParam) await assertCompany(user, companyParam);
 
-  const period = await getSyncPeriod();
-  const floor = new Date(`${period.from}T00:00:00.000Z`);
-  const ceiling = period.to ? new Date(`${period.to}T23:59:59.999Z`) : new Date();
+  // Meses do seletor: do 1º mês com cobrança Meta (no escopo do usuário) até o mês atual. NÃO depende
+  // do "período de análise" da Checagem — escolhe-se o mês aqui mesmo (pedido do dono em 2026-10-16;
+  // antes, com o período em 01/06–30/06, só junho aparecia).
+  const primeira = await prisma.transaction.findFirst({
+    where: { isMetaCharge: true, AND: [await transactionScope(user)] },
+    orderBy: { date: "asc" },
+    select: { date: true },
+  });
+  const agora = new Date();
+  const inicio = primeira?.date ?? agora;
   const meses: string[] = [];
-  for (let d = new Date(Date.UTC(floor.getUTCFullYear(), floor.getUTCMonth(), 1)); d <= ceiling; d.setUTCMonth(d.getUTCMonth() + 1)) meses.push(d.toISOString().slice(0, 7));
+  for (let d = new Date(Date.UTC(inicio.getUTCFullYear(), inicio.getUTCMonth(), 1)); d <= agora; d.setUTCMonth(d.getUTCMonth() + 1)) meses.push(d.toISOString().slice(0, 7));
   meses.reverse();
 
   // empresas que o usuário enxerga (pra o seletor de escopo)

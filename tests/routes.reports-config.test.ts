@@ -279,6 +279,20 @@ describe("/api/fechamento", () => {
     expect(root.body.passos.meta.cobrancas).toBe(2);
   });
 
+  it("meses do seletor: do 1º mês com cobrança Meta até o mês atual, mesmo com o período de análise travado em junho", async () => {
+    await prisma.setting.upsert({ where: { key: "sync.from" }, update: { value: "2026-06-01" }, create: { key: "sync.from", value: "2026-06-01" } });
+    await prisma.setting.upsert({ where: { key: "sync.to" }, update: { value: "2026-06-30" }, create: { key: "sync.to", value: "2026-06-30" } });
+    await prisma.transaction.create({
+      data: { accountId: s.accounts.pixel.id, date: new Date("2026-05-20"), description: "FACEBK *antiga", amount: -10, currency: "USD", reference: "px-antiga", isMetaCharge: true },
+    });
+    const body = (await call(s.users.pixel, () => fechamento.GET(req("/api/fechamento")))).body;
+    const atual = new Date().toISOString().slice(0, 7);
+    expect(body.mesesDisponiveis[0]).toBe(atual);
+    expect(body.mesesDisponiveis.at(-1)).toBe("2026-05");
+    expect(body.mesesDisponiveis).toContain("2026-07");
+    expect(body.month).toBe(atual);
+  });
+
   it("empresa de outro grupo = 404; deslogado = 401", async () => {
     expect((await call(s.users.pixel, get(`&company=${s.companies.outro.id}`))).status).toBe(404);
     expect((await call(s.users.pixel, get(`&company=${s.companies.pixel.id}`))).body.passos.bancos.transacoesMeta).toBe(1);
