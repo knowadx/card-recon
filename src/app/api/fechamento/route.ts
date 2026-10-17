@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import type { Prisma } from "@/generated/prisma/client";
 import { accessibleOperationsWhere, isSuperadmin, scopes } from "@/lib/auth";
 import { accountScope, assertCompany, companyScope, guarded, requireUser, transactionScope } from "@/lib/access";
 import { metaTokenStatus } from "@/lib/meta";
 import { statusDoMes } from "@/lib/importStatus";
+import { cobrancasDoMes, ondeCobrancasDoMes, resumoPorCartao, totaisDoMes } from "@/lib/cobrancasMeta";
 
 export const dynamic = "force-dynamic";
 
@@ -60,31 +60,31 @@ export const GET = guarded(async (request: Request) => {
     });
   }
 
-  // escopo: 1 empresa selecionada (já conferida acima) e, sempre, só as transações do grupo do usuário
-  const accountWhere = companyParam ? { companyId: { in: [companyParam] } } : undefined;
-
   const mStart = new Date(`${month}-01T00:00:00.000Z`);
   const mEnd = new Date(mStart); mEnd.setUTCMonth(mEnd.getUTCMonth() + 1);
   const dateRange = { gte: mStart, lt: mEnd };
 
-  const bankBase = { isMetaCharge: true, date: dateRange, AND: [await transactionScope(user)], ...(accountWhere ? { account: accountWhere } : {}) };
+  // escopo: 1 empresa selecionada (já conferida acima) e, sempre, só as transações do grupo do usuário.
+  // TODOS os números do extrato saem da MESMA lista (src/lib/cobrancasMeta.ts): topo, passos e resumo por cartão.
+  const bankBase = await ondeCobrancasDoMes(user, month, companyParam);
   // cobranças Meta: por operação (como antes) — superadmin vê todas; os demais, só as das operações em que são membros
   const metaScope = isSuperadmin(user.role) ? {} : { operationId: { in: (await scopes(user.id)).operationIds } };
 
-  const [bancoMeta, revolutSemCodigo, comFatura, semFatura, metaCobrancas] = await Promise.all([
-    prisma.transaction.count({ where: bankBase }),
-    prisma.transaction.count({ where: { ...bankBase, metaRef: null, account: { ...(accountWhere ?? {}), bank: "Revolut" } } }),
-    prisma.transaction.count({ where: { ...bankBase, hasReceipt: true } }),
-    prisma.transaction.count({ where: { ...bankBase, hasReceipt: false } }),
+  const [cobrancas, metaCobrancas, contas, metaConexoes, importacoes] = await Promise.all([
+    cobrancasDoMes(bankBase),
     prisma.metaBillingCharge.count({ where: { chargedAt: dateRange, ...metaScope } }),
-  ]);
-
-  const [contas, metaConexoes, pendentes, importacoes] = await Promise.all([
     contasDoPasso1(user, companyParam, dateRange),
     conexoesMeta(user),
-    semFaturaDoMes({ ...bankBase, hasReceipt: false }),
     importacoesDoMes(user, dateRange),
   ]);
+  const totais = totaisDoMes(cobrancas); // checado × pendente em quantidade e valor (por moeda)
+  const bancoMeta = totais.total.qtd;
+  const comFatura = totais.checado.qtd;
+  const semFatura = totais.pendente.qtd;
+  const revolutSemCodigo = cobrancas.filter((c) => c.situacao === "sem_codigo" && c.banco === "Revolut").length;
+  // sem código: a Revolut não manda o código pela API → sobe o CSV do mês (passo 2);
+  // com código e sem PDF: importe as faturas (passo das faturas)
+  const pendentes = { total: semFatura, semCodigo: totais.semCodigo.qtd, codigoSemPdf: totais.semPdf.qtd };
 
   return NextResponse.json({
     mesesDisponiveis: meses,
@@ -92,6 +92,8 @@ export const GET = guarded(async (request: Request) => {
     contas,
     metaConexoes,
     pendentes,
+    totais,
+    cartoes: resumoPorCartao(cobrancas),
     importacoes,
     companies,
     company: companyParam || null,
@@ -162,41 +164,6 @@ async function conexoesMeta(user: AppUserLike) {
 }
 
 /** Resultado: as cobranças Meta do mês ainda SEM fatura — com o motivo (sem código × código sem PDF). */
-async function semFaturaDoMes(where: Prisma.TransactionWhereInput) {
-  const LIMITE = 500;
-  const [lista, total, semCodigo] = await Promise.all([
-    prisma.transaction.findMany({
-      where,
-      select: {
-        id: true, date: true, description: true, amount: true, currency: true, billAmount: true, billCurrency: true,
-        metaRef: true, cardLast4: true, cardLabel: true, account: { select: { name: true, bank: true, company: { select: { name: true } } } },
-      },
-      orderBy: { date: "desc" },
-      take: LIMITE,
-    }),
-    prisma.transaction.count({ where }),
-    prisma.transaction.count({ where: { AND: [where, { metaRef: null }] } }),
-  ]);
-  return {
-    total,
-    semCodigo, // a Revolut não manda o código pela API → sobe o CSV do mês (passo 2)
-    codigoSemPdf: total - semCodigo, // tem código mas o PDF não está aqui → importe as faturas (passo 4)
-    limite: LIMITE,
-    lista: lista.map((t) => ({
-      id: t.id,
-      data: dia(t.date),
-      banco: t.account.bank,
-      conta: t.account.name,
-      empresa: t.account.company.name,
-      cartao: t.cardLast4 ? `${t.cardLabel ? `${t.cardLabel} ` : ""}··${t.cardLast4}` : null,
-      descricao: t.description,
-      valor: t.billAmount ?? Math.abs(t.amount),
-      moeda: t.billAmount != null ? (t.billCurrency ?? t.currency) : t.currency,
-      codigo: t.metaRef,
-    })),
-  };
-}
-
 /** Histórico do mês: importações (CSV Revolut, faturas PDF) cujo conteúdo cobre o mês. Escopo: empresas visíveis. */
 async function importacoesDoMes(user: AppUserLike, dateRange: { gte: Date; lt: Date }) {
   const ultimoDia = new Date(dateRange.lt.getTime() - 1);

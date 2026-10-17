@@ -345,7 +345,8 @@ describe("/api/fechamento", () => {
     await meta(s.accounts.outro.id, "o-semcod", { metaRef: null });
     const r = await call(s.users.pixel, () => fechamento.GET(req("/api/fechamento?month=2026-09")));
     expect(r.body.pendentes).toMatchObject({ total: 2, semCodigo: 1, codigoSemPdf: 1 });
-    expect(r.body.pendentes.lista.map((t: { codigo: string | null }) => t.codigo).sort()).toEqual(["abc123xyz", null].sort());
+    // as transações agora vêm POR CARTÃO (src/lib/cobrancasMeta.ts): só as do grupo dele; a casada conta como checada
+    expect(r.body.cartoes).toEqual([expect.objectContaining({ contaId: s.accounts.pixel.id, total: 3, ok: 1, semPdf: 1, semCodigo: 1 })]);
   });
 
   it("empresa de outro grupo = 404; deslogado = 401", async () => {

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, AlertCircle, XCircle, Circle, ChevronDown, ChevronRight, Upload } from "lucide-react";
+import { CheckCircle2, AlertCircle, XCircle, Circle, ChevronDown, ChevronRight, Upload, Download } from "lucide-react";
 import ReceiptsImporter from "@/components/receipts-importer";
 
 type Passo = { feito: boolean };
@@ -12,7 +12,15 @@ type Conta = {
   cobrancasMetaNoMes: number; semCodigoNoMes: number;
 };
 type ConexaoMeta = { operationId: string; operacao: string; conectado: boolean; valido: boolean | null; expiraEm: string | null; erro: string | null };
-type Pendente = { id: string; data: string; banco: string; conta: string; empresa: string; cartao: string | null; descricao: string; valor: number; moeda: string; codigo: string | null };
+// mesmos formatos de src/lib/cobrancasMeta.ts (valores SEMPRE por moeda: USD e EUR não se somam)
+type Valores = Record<string, number>;
+type Parcial = { qtd: number; valor: Valores };
+type Situacao = "ok" | "sem_pdf" | "sem_codigo";
+type Cobranca = { id: string; data: string; descricao: string; valor: number; moeda: string; codigo: string | null; situacao: Situacao; contaAnuncio: string | null; contaAnuncioNome: string | null };
+type Cartao = {
+  chave: string; banco: string; conta: string; cartaoFinal: string | null; cartaoNome: string | null;
+  total: number; ok: number; semPdf: number; semCodigo: number; valorOk: Valores; valorPendente: Valores;
+};
 type Importacao = { id: string; tipo: string; arquivo: string | null; quem: string; quando: string; de: string | null; ate: string | null; resumo: Record<string, unknown> };
 type Data = {
   mesesDisponiveis?: string[];
@@ -22,7 +30,9 @@ type Data = {
   month?: string | null;
   contas?: Conta[];
   metaConexoes?: ConexaoMeta[];
-  pendentes?: { total: number; semCodigo: number; codigoSemPdf: number; limite: number; lista: Pendente[] };
+  pendentes?: { total: number; semCodigo: number; codigoSemPdf: number };
+  totais?: { total: Parcial; checado: Parcial; pendente: Parcial; semCodigo: Parcial; semPdf: Parcial };
+  cartoes?: Cartao[];
   importacoes?: Importacao[];
   passos?: {
     bancos: Passo & { transacoesMeta: number };
@@ -40,6 +50,18 @@ const brCurto = (d: string | null | undefined) => (d ? br(d).slice(0, 5) : "—"
 const num = (v: unknown) => (typeof v === "number" ? v : 0);
 const n = (v: number) => v.toLocaleString("pt-BR");
 const dinheiro = (v: number, moeda: string) => `${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${moeda}`;
+/** Valor por moeda, a maior primeiro: "773.240,24 USD · 80,00 EUR". */
+const valores = (v: Valores | undefined) => {
+  const itens = Object.entries(v ?? {}).sort((a, b) => b[1] - a[1]);
+  return itens.length ? itens.map(([moeda, valor]) => dinheiro(valor, moeda)).join(" · ") : "—";
+};
+const nomeCartao = (c: { cartaoNome: string | null; cartaoFinal: string | null }) =>
+  c.cartaoFinal ? `${c.cartaoNome ? `${c.cartaoNome} ` : ""}··${c.cartaoFinal}` : "sem cartão no extrato";
+const SITUACAO: Record<Situacao, { texto: string; cor: string }> = {
+  ok: { texto: "Checado", cor: "bg-emerald-50 text-emerald-700" },
+  sem_pdf: { texto: "Sem PDF", cor: "bg-amber-50 text-amber-700" },
+  sem_codigo: { texto: "Sem código", cor: "bg-rose-50 text-rose-700" },
+};
 const hora = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 /** Resposta do import do CSV → uma frase. */
@@ -89,7 +111,10 @@ export default function FechamentoPage() {
   const [company, setCompany] = useState(""); // "" = todas as empresas do escopo
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<Msg | null>(null);
-  const [aberto, setAberto] = useState<{ contas: boolean; pdfs: boolean; pendencias: boolean }>({ contas: false, pdfs: false, pendencias: false });
+  const [aberto, setAberto] = useState<{ contas: boolean; pdfs: boolean }>({ contas: false, pdfs: false });
+  // resumo por cartão: qual cartão está aberto e as transações já buscadas (chave inclui mês/empresa/recarga)
+  const [cartaoAberto, setCartaoAberto] = useState<string | null>(null);
+  const [transacoes, setTransacoes] = useState<Record<string, Cobranca[] | "carregando" | "erro">>({});
 
   // recarregar = bump do contador; o efeito abaixo busca de novo (mês/empresa/contador)
   const [recarga, setRecarga] = useState(0);
@@ -118,13 +143,31 @@ export default function FechamentoPage() {
       const r = await fetch("/api/admin/import-revolut-csv", { method: "POST", headers: { "Content-Type": "text/csv", "x-filename": encodeURIComponent(file.name) }, body: await file.text() });
       const j: J = await r.json().catch(() => ({}));
       setMsg(r.ok ? msgCsv(j) : { tipo: "erro", texto: `CSV da Revolut: ${String(j.error ?? `erro ${r.status}`)}` });
-      reload();
+      recarregarTudo();
     } catch (e) {
       setMsg({ tipo: "erro", texto: `CSV da Revolut: ${(e as Error).message}` });
     } finally { setBusy(null); }
   }
 
   const alternar = (k: keyof typeof aberto) => setAberto((a) => ({ ...a, [k]: !a[k] }));
+  const qsCobrancas = (extra: Record<string, string>) => {
+    const qs = new URLSearchParams({ month, ...(company ? { company } : {}), ...extra });
+    return `/api/fechamento/cobrancas?${qs.toString()}`;
+  };
+  // o foco da janela recarrega o resumo (volta da Meta) mas NÃO mexe no cartão aberto; a lista só é
+  // jogada fora quando os dados mudam de fato (import de CSV/PDF → recarregarTudo)
+  const chaveCache = (cartao: string) => `${month}|${company}|${cartao}`;
+  const recarregarTudo = () => { setTransacoes({}); setCartaoAberto(null); reload(); };
+  function abrirCartao(cartao: string) {
+    if (cartaoAberto === cartao) { setCartaoAberto(null); return; }
+    setCartaoAberto(cartao);
+    const k = chaveCache(cartao);
+    if (transacoes[k]) return;
+    setTransacoes((t) => ({ ...t, [k]: "carregando" }));
+    fetch(qsCobrancas({ cartao })).then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((j: { cobrancas: Cobranca[] }) => setTransacoes((t) => ({ ...t, [k]: j.cobrancas })))
+      .catch(() => setTransacoes((t) => ({ ...t, [k]: "erro" })));
+  }
   const p = data?.passos;
   const pend = data?.pendentes;
   const contas = data?.contas ?? [];
@@ -145,9 +188,9 @@ export default function FechamentoPage() {
   const conectadas = (data?.metaConexoes ?? []).filter((m) => m.conectado);
   const temMeta = conectadas.some((m) => m.valido === true);
   const metaRuim = conectadas.filter((m) => m.valido !== true);
-  // agrupa pendências por conta
-  const porConta = new Map<string, Pendente[]>();
-  for (const t of pend?.lista ?? []) porConta.set(`${t.banco} · ${t.conta}`, [...(porConta.get(`${t.banco} · ${t.conta}`) ?? []), t]);
+  const totais = data?.totais;
+  const cartoes = data?.cartoes ?? [];
+  const passoFaturas = temMeta ? 4 : 3;
 
   return (
     <div className="flex flex-col min-h-screen bg-[#f8fafc]">
@@ -178,17 +221,18 @@ export default function FechamentoPage() {
         )}
 
         {!data?.bloqueado && p && (
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             {[
-              { rotulo: "Cobranças Meta", valor: n(total), cor: "text-[#1a202c]" },
-              { rotulo: "Com fatura", valor: `${pct.toLocaleString("pt-BR")}%`, cor: total && comFatura === total ? "text-emerald-600" : comFatura ? "text-amber-600" : "text-rose-600", nota: `${n(comFatura)} de ${n(total)}` },
-              { rotulo: "Sem código", valor: n(pend?.semCodigo ?? 0), cor: "text-[#1a202c]", nota: "falta o CSV (passo 2)" },
-              { rotulo: "Código sem PDF", valor: n(pend?.codigoSemPdf ?? 0), cor: "text-[#1a202c]", nota: `falta a fatura (passo ${temMeta ? 4 : 3})` },
+              { rotulo: "Cobranças Meta", valor: valores(totais?.total.valor), cor: "text-[#1a202c]", nota: `${n(total)} cobranças` },
+              { rotulo: "Checado (com fatura)", valor: valores(totais?.checado.valor), cor: total && comFatura === total ? "text-emerald-600" : comFatura ? "text-amber-600" : "text-rose-600",
+                nota: `${n(comFatura)} de ${n(total)} · ${pct.toLocaleString("pt-BR")}%` },
+              { rotulo: "Pendente", valor: valores(totais?.pendente.valor), cor: (pend?.total ?? 0) ? "text-amber-600" : "text-emerald-600",
+                nota: `${n(pend?.semCodigo ?? 0)} sem código (passo 2) · ${n(pend?.codigoSemPdf ?? 0)} sem PDF (passo ${passoFaturas})` },
             ].map((m) => (
               <div key={m.rotulo} className="bg-white rounded-xl border border-[#e8eaed] px-4 py-3">
                 <p className="text-[12px] text-[#6b7280]">{m.rotulo}</p>
-                <p className={`text-[22px] font-bold tabular-nums ${m.cor}`}>{m.valor}</p>
-                {m.nota && <p className="text-[11px] text-[#9ca3af]">{m.nota}</p>}
+                <p className={`text-[20px] font-bold tabular-nums leading-tight mt-0.5 ${m.cor}`}>{m.valor}</p>
+                <p className="text-[11px] text-[#9ca3af] mt-1">{m.nota}</p>
               </div>
             ))}
           </div>
@@ -245,7 +289,7 @@ export default function FechamentoPage() {
               <Passo n={temMeta ? 4 : 3} titulo="Faturas PDF" estado={!total ? "pendente" : (pend?.codigoSemPdf ?? 0) === 0 && (pend?.semCodigo ?? 0) === 0 ? "ok" : comFatura ? "aviso" : "pendente"}
                 status={(pend?.codigoSemPdf ?? 0) > 0 ? `${n(pend?.codigoSemPdf ?? 0)} com código e sem PDF` : total ? "todas as cobranças com código têm fatura" : "sem cobranças no mês"}
                 acao={<button className={btn} onClick={() => alternar("pdfs")}>{aberto.pdfs ? "Fechar" : "Importar PDFs"}</button>}>
-                {aberto.pdfs && <ReceiptsImporter month={month} onImported={reload} />}
+                {aberto.pdfs && <ReceiptsImporter month={month} onImported={recarregarTudo} />}
               </Passo>
             </>
           )}
@@ -272,37 +316,89 @@ export default function FechamentoPage() {
           </div>
         )}
 
-        {!data?.bloqueado && pend && pend.total > 0 && (
-          <div>
-            <button className="flex items-center gap-1.5 text-[13px] font-medium text-[#374151] hover:text-[#00a896]" onClick={() => alternar("pendencias")}>
-              {aberto.pendencias ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-              {aberto.pendencias ? "Ocultar" : "Ver"} as {n(pend.total)} cobranças sem fatura (por conta)
-            </button>
-            {aberto.pendencias && (
-              <div className="mt-2 space-y-3">
-                {[...porConta.entries()].map(([conta, itens]) => (
-                  <div key={conta} className="bg-white rounded-xl border border-[#e8eaed]">
-                    <div className="px-5 py-2.5 border-b border-[#f3f4f6] text-[13px] font-medium text-[#374151]">
-                      {conta} <span className="font-normal text-[#9ca3af]">— {n(itens.length)} · {n(itens.filter((t) => !t.codigo).length)} sem código · {n(itens.filter((t) => t.codigo).length)} sem PDF</span>
-                    </div>
-                    <table className="w-full text-[12px]">
-                      <tbody className="divide-y divide-[#f3f4f6]">
-                        {itens.slice(0, 50).map((t) => (
-                          <tr key={t.id}>
-                            <td className="pl-5 py-1.5 w-24 tabular-nums text-[#6b7280]">{br(t.data)}</td>
-                            <td className="text-[#6b7280]">{t.cartao ?? "—"}</td>
-                            <td className="text-right tabular-nums text-[#374151]">{dinheiro(t.valor, t.moeda)}</td>
-                            <td className="pl-4 pr-5 w-36">{t.codigo ? <span className="font-mono text-[#374151]">{t.codigo}</span> : <span className="text-amber-600">sem código</span>}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {itens.length > 50 && <p className="px-5 py-2 text-[11px] text-[#9ca3af]">e mais {n(itens.length - 50)} nesta conta</p>}
-                  </div>
-                ))}
-                {pend.total > pend.lista.length && <p className="text-[11px] text-[#9ca3af]">Mostrando {n(pend.lista.length)} de {n(pend.total)} (as mais recentes).</p>}
+        {!data?.bloqueado && cartoes.length > 0 && (
+          <div className="bg-white rounded-xl border border-[#e8eaed]">
+            <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-[#f3f4f6]">
+              <div>
+                <h2 className="text-[14px] font-semibold text-[#1a202c]">Cobranças por cartão</h2>
+                <p className="text-[12px] text-[#9ca3af]">{n(cartoes.length)} cartões · clique num cartão pra ver as transações</p>
               </div>
-            )}
+              <a className={btn} href={qsCobrancas({ formato: "csv" })} download><Download className="w-3.5 h-3.5" />Exportar CSV do mês</a>
+            </div>
+            <div className="overflow-x-auto">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wide text-[#9ca3af]">
+                  <th className="pl-5 py-2 font-medium">Cartão</th>
+                  <th className="py-2 font-medium text-right">Cobranças</th>
+                  <th className="py-2 pl-6 font-medium">Checado</th>
+                  <th className="py-2 pl-6 pr-5 font-medium">Pendente</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#f3f4f6]">
+                {cartoes.map((c) => {
+                  const pendente = c.semPdf + c.semCodigo;
+                  const isAberto = cartaoAberto === c.chave;
+                  const lista = transacoes[chaveCache(c.chave)];
+                  return [
+                    <tr key={c.chave} className="cursor-pointer hover:bg-[#f9fafb] align-top" onClick={() => abrirCartao(c.chave)}>
+                      <td className="pl-5 py-2.5">
+                        <div className="flex items-start gap-1.5">
+                          {isAberto ? <ChevronDown className="w-4 h-4 mt-0.5 text-[#9ca3af] shrink-0" /> : <ChevronRight className="w-4 h-4 mt-0.5 text-[#9ca3af] shrink-0" />}
+                          <div>
+                            <p className="font-medium text-[#1a202c]">{nomeCartao(c)}</p>
+                            <p className="text-[11px] text-[#9ca3af]">{c.banco} · {c.conta}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums text-[#374151]">{n(c.total)}</td>
+                      <td className="py-2.5 pl-6 tabular-nums">
+                        <p className={c.ok ? "text-emerald-700 font-medium" : "text-[#9ca3af]"}>{n(c.ok)}</p>
+                        <p className="text-[11px] text-[#6b7280] whitespace-nowrap">{valores(c.valorOk)}</p>
+                      </td>
+                      <td className="py-2.5 pl-6 pr-5 tabular-nums">
+                        <p className={pendente ? "text-amber-700 font-medium" : "text-[#9ca3af]"}>
+                          {n(pendente)}
+                          {pendente > 0 && <span className="ml-1.5 text-[11px] font-normal text-[#9ca3af]">({[c.semPdf ? `${n(c.semPdf)} sem PDF` : "", c.semCodigo ? `${n(c.semCodigo)} sem código` : ""].filter(Boolean).join(" · ")})</span>}
+                        </p>
+                        <p className="text-[11px] text-[#6b7280] whitespace-nowrap">{valores(c.valorPendente)}</p>
+                      </td>
+                    </tr>,
+                    isAberto && (
+                      <tr key={`${c.chave}-lista`}>
+                        <td colSpan={4} className="bg-[#fafbfc] px-5 py-3">
+                          {lista === "carregando" || lista === undefined ? <p className="text-[12px] text-[#9ca3af]">Carregando…</p>
+                            : lista === "erro" ? <p className="text-[12px] text-rose-600">Não deu pra buscar as transações deste cartão.</p>
+                            : (
+                              <>
+                                <div className="flex justify-end mb-2">
+                                  <a className="text-[12px] text-[#00a896] hover:underline inline-flex items-center gap-1" href={qsCobrancas({ cartao: c.chave, formato: "csv" })} download>
+                                    <Download className="w-3 h-3" />Exportar este cartão
+                                  </a>
+                                </div>
+                                <table className="w-full text-[12px]">
+                                  <tbody className="divide-y divide-[#f0f1f3]">
+                                    {[...lista].sort((a, b) => Number(a.situacao === "ok") - Number(b.situacao === "ok")).map((t) => (
+                                      <tr key={t.id}>
+                                        <td className="py-1.5 pr-3 whitespace-nowrap tabular-nums text-[#6b7280]">{br(t.data)}</td>
+                                        <td className="py-1.5 pr-3 whitespace-nowrap"><span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${SITUACAO[t.situacao].cor}`}>{SITUACAO[t.situacao].texto}</span></td>
+                                        <td className="py-1.5 text-right whitespace-nowrap tabular-nums text-[#374151]">{dinheiro(t.valor, t.moeda)}</td>
+                                        <td className="py-1.5 pl-4 w-32">{t.codigo ? <span className="font-mono text-[#374151]">{t.codigo}</span> : <span className="text-[#9ca3af]">—</span>}</td>
+                                        <td className="py-1.5 pl-2 text-[#6b7280] truncate max-w-[220px]" title={t.contaAnuncioNome ?? t.descricao}>{t.contaAnuncioNome ?? t.descricao}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </>
+                            )}
+                        </td>
+                      </tr>
+                    ),
+                  ];
+                })}
+              </tbody>
+            </table>
+            </div>
           </div>
         )}
       </div>
