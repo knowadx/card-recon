@@ -140,9 +140,11 @@ export default function FechamentoPage() {
   const ateMin = configuradas.map((c) => c.sincronizadaAte).filter(Boolean).sort()[0] ?? null;
   // passo 2: de qual conta Revolut falta o CSV
   const faltaCsv = contas.filter((c) => c.banco === "Revolut" && c.semCodigoNoMes > 0);
-  // passo 3: conexão Meta
-  const conexoes = data?.metaConexoes ?? [];
-  const metaRuim = conexoes.filter((m) => m.valido !== true);
+  // passo 3 (OPCIONAL): conexão Meta — não entra na conciliação (extrato × PDF casa pelo código).
+  // Só aparece quando há pelo menos uma conexão funcionando; sem isso o Fechamento tem 3 passos.
+  const conectadas = (data?.metaConexoes ?? []).filter((m) => m.conectado);
+  const temMeta = conectadas.some((m) => m.valido === true);
+  const metaRuim = conectadas.filter((m) => m.valido !== true);
   // agrupa pendências por conta
   const porConta = new Map<string, Pendente[]>();
   for (const t of pend?.lista ?? []) porConta.set(`${t.banco} · ${t.conta}`, [...(porConta.get(`${t.banco} · ${t.conta}`) ?? []), t]);
@@ -181,7 +183,7 @@ export default function FechamentoPage() {
               { rotulo: "Cobranças Meta", valor: n(total), cor: "text-[#1a202c]" },
               { rotulo: "Com fatura", valor: `${pct.toLocaleString("pt-BR")}%`, cor: total && comFatura === total ? "text-emerald-600" : comFatura ? "text-amber-600" : "text-rose-600", nota: `${n(comFatura)} de ${n(total)}` },
               { rotulo: "Sem código", valor: n(pend?.semCodigo ?? 0), cor: "text-[#1a202c]", nota: "falta o CSV (passo 2)" },
-              { rotulo: "Código sem PDF", valor: n(pend?.codigoSemPdf ?? 0), cor: "text-[#1a202c]", nota: "falta a fatura (passo 4)" },
+              { rotulo: "Código sem PDF", valor: n(pend?.codigoSemPdf ?? 0), cor: "text-[#1a202c]", nota: `falta a fatura (passo ${temMeta ? 4 : 3})` },
             ].map((m) => (
               <div key={m.rotulo} className="bg-white rounded-xl border border-[#e8eaed] px-4 py-3">
                 <p className="text-[12px] text-[#6b7280]">{m.rotulo}</p>
@@ -230,16 +232,17 @@ export default function FechamentoPage() {
                   </label>
                 } />
 
-              <Passo n={3} titulo="Conexão Meta" estado={!conexoes.length ? "pendente" : metaRuim.some((m) => m.valido === false || !m.conectado) ? "erro" : metaRuim.length ? "aviso" : "ok"}
-                status={!conexoes.length ? "nenhuma operação no seu escopo"
-                  : <>{conexoes.map((m) => `${m.operacao}: ${!m.conectado ? "não conectada" : m.valido ? `conectada${m.expiraEm ? ` até ${br(m.expiraEm)}` : ""}` : m.valido === false ? "expirada" : "não deu pra conferir"}`).join(" · ")} · {n(p?.meta.cobrancas ?? 0)} cobranças da Meta no mês (<Link href="/cobrancas-meta" className="text-[#00a896] hover:underline">sincronizar</Link>)</>}
-                acao={metaRuim.length > 0 && (
-                  <button className={btn} onClick={() => window.open(`/api/meta/auth?operationId=${metaRuim[0].operationId}`, "conectar-meta", "width=640,height=760")}>
-                    {metaRuim[0].conectado ? "Reconectar" : "Conectar"}{metaRuim.length > 1 ? ` (${metaRuim[0].operacao})` : ""}
-                  </button>
-                )} />
+              {temMeta && (
+                <Passo n={3} titulo="Conexão Meta (opcional)" estado={metaRuim.length ? "aviso" : "ok"}
+                  status={<>{conectadas.map((m) => `${m.operacao}: ${m.valido ? `conectada${m.expiraEm ? ` até ${br(m.expiraEm)}` : ""}` : m.valido === false ? "expirada" : "não deu pra conferir"}`).join(" · ")} · {n(p?.meta.cobrancas ?? 0)} cobranças da Meta no mês (<Link href="/cobrancas-meta" className="text-[#00a896] hover:underline">sincronizar</Link>)</>}
+                  acao={metaRuim.length > 0 && (
+                    <button className={btn} onClick={() => window.open(`/api/meta/auth?operationId=${metaRuim[0].operationId}`, "conectar-meta", "width=640,height=760")}>
+                      Reconectar{metaRuim.length > 1 ? ` (${metaRuim[0].operacao})` : ""}
+                    </button>
+                  )} />
+              )}
 
-              <Passo n={4} titulo="Faturas PDF" estado={!total ? "pendente" : (pend?.codigoSemPdf ?? 0) === 0 && (pend?.semCodigo ?? 0) === 0 ? "ok" : comFatura ? "aviso" : "pendente"}
+              <Passo n={temMeta ? 4 : 3} titulo="Faturas PDF" estado={!total ? "pendente" : (pend?.codigoSemPdf ?? 0) === 0 && (pend?.semCodigo ?? 0) === 0 ? "ok" : comFatura ? "aviso" : "pendente"}
                 status={(pend?.codigoSemPdf ?? 0) > 0 ? `${n(pend?.codigoSemPdf ?? 0)} com código e sem PDF` : total ? "todas as cobranças com código têm fatura" : "sem cobranças no mês"}
                 acao={<button className={btn} onClick={() => alternar("pdfs")}>{aberto.pdfs ? "Fechar" : "Importar PDFs"}</button>}>
                 {aberto.pdfs && <ReceiptsImporter month={month} onImported={reload} />}
