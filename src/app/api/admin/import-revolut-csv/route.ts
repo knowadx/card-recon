@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { AccessError, guarded, requireUser, transactionScope } from "@/lib/access";
 import { isManager } from "@/lib/auth";
-import { extractMetaRef } from "@/lib/metaCheck";
+import { extractMetaRef, last4Of } from "@/lib/metaCheck";
 import { recomputeHasReceipt } from "@/lib/receipts";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +13,12 @@ export const dynamic = "force-dynamic";
  * "Description". Aqui a gente SÓ enriquece: pega [ID(UUID) → metaRef extraído da Description] e
  * grava metaRef nas transações Revolut que a API já importou (reference = revolut:<UUID>:<leg>).
  * Não cria/duplica transação nenhuma. Idempotente.
+ *
+ * Também CONSERTA linha antiga: a linha do CSV tem o código "Facebk *XXXX", então a transação É
+ * cobrança da Meta — marca isMetaCharge e preenche o cartão (Card number/Card label) se estiver vazio.
+ * (Achado em 2026-10-22: 1.204 cobranças da Revolut gravadas pelo sistema antigo em 28/08 ficaram sem
+ * a marca e sem cartão — o sync atual pula transação existente — e sumiam do Fechamento.)
+ * Nunca sobrescreve cartão que já existe.
  */
 
 // parser de linha CSV respeitando aspas
@@ -84,11 +90,14 @@ export const POST = guarded(async (request: Request) => {
   // só as transações do grupo de quem importa (superadmin = todas): admin nunca grava código em transação de outro grupo
   const txs = await prisma.transaction.findMany({
     where: { AND: [{ reference: { startsWith: "revolut:" } }, await transactionScope(user)] },
-    select: { id: true, reference: true, metaRef: true, account: { select: { name: true, companyId: true } } },
+    select: { id: true, reference: true, metaRef: true, isMetaCharge: true, cardLast4: true, cardLabel: true, account: { select: { name: true, companyId: true } } },
   });
 
   // monta updates (id da transação → metaRef), só onde o UUID do CSV bate
   const updates: { id: string; metaRef: string }[] = [];
+  // conserto de linha antiga: marca como Meta e preenche cartão vazio (nunca sobrescreve)
+  const consertos: { id: string; data: { isMetaCharge?: true; cardLast4?: string; cardLabel?: string } }[] = [];
+  let marcadasMeta = 0, cartoesPreenchidos = 0;
   const matched = new Set<string>(); // UUIDs do CSV que acharam transação no banco
   let jaTinha = 0;
   const porConta: Record<string, number> = {}; // códigos que este CSV casou, por conta (pro histórico)
@@ -100,6 +109,12 @@ export const POST = guarded(async (request: Request) => {
     matched.add(uuid);
     porConta[t.account.name] = (porConta[t.account.name] ?? 0) + 1;
     empresas.add(t.account.companyId);
+    const conserto: { isMetaCharge?: true; cardLast4?: string; cardLabel?: string } = {};
+    if (!t.isMetaCharge) { conserto.isMetaCharge = true; marcadasMeta++; }
+    const final = last4Of(row.card);
+    if (!t.cardLast4 && final) { conserto.cardLast4 = final; cartoesPreenchidos++; }
+    if (!t.cardLabel && row.label) conserto.cardLabel = row.label;
+    if (Object.keys(conserto).length) consertos.push({ id: t.id, data: conserto });
     if (t.metaRef && t.metaRef.toLowerCase() === row.code) { jaTinha++; continue; }
     updates.push({ id: t.id, metaRef: row.code });
   }
@@ -130,6 +145,11 @@ export const POST = guarded(async (request: Request) => {
     gravados += safe.length;
   }
 
+  // conserto das linhas antigas (parametrizado: o nome do cartão é texto livre)
+  for (let i = 0; i < consertos.length; i += CHUNK) {
+    await prisma.$transaction(consertos.slice(i, i + CHUNK).map((c) => prisma.transaction.update({ where: { id: c.id }, data: c.data })));
+  }
+
   // ordena o gap por cartão (maior primeiro)
   const gapPorCartao = Object.entries(naoAchadosPorCartao).sort((a, b) => b[1] - a[1]).map(([cartao, qtde]) => ({ cartao, qtde }));
 
@@ -146,7 +166,7 @@ export const POST = guarded(async (request: Request) => {
       periodFrom: datas.length ? new Date(`${datas[0]}T00:00:00.000Z`) : null,
       periodTo: datas.length ? new Date(`${datas[datas.length - 1]}T00:00:00.000Z`) : null,
       companyIds: [...empresas],
-      summary: JSON.stringify({ linhasCsv: lines.length - 1, comCodigoNoCsv: refByUuid.size, gravados, jaTinham: jaTinha, semTransacaoNoBanco: naoAchados, porConta }),
+      summary: JSON.stringify({ linhasCsv: lines.length - 1, comCodigoNoCsv: refByUuid.size, gravados, jaTinham: jaTinha, marcadasMeta, cartoesPreenchidos, semTransacaoNoBanco: naoAchados, porConta }),
     },
   });
 
@@ -157,6 +177,8 @@ export const POST = guarded(async (request: Request) => {
     transacoesRevolutNoBanco: txs.length,
     metaRefGravados: gravados,
     jaTinhamOMesmoCodigo: jaTinha,
+    marcadasMeta, // estavam sem a marca de cobrança Meta (linha antiga) e foram marcadas
+    cartoesPreenchidos, // estavam sem cartão e ganharam o do CSV
     semTransacaoNoBanco: naoAchados, // CSV tem o código mas a API não trouxe a transação
     gapPeriodo: naoAchados ? { de: minData, ate: maxData } : null,
     gapPorCartao, // quais cartões concentram as cobranças que faltam no banco

@@ -24,6 +24,8 @@ export default function RevolutCsvImportPage() {
         `· linhas com Facebk no CSV: ${j.linhasComCodigoNoCsv}`,
         `· transações Revolut no banco: ${j.transacoesRevolutNoBanco}`,
         `· já tinham o código: ${j.jaTinhamOMesmoCodigo}`,
+        `· marcadas como cobrança Meta agora (estavam sem a marca): ${j.marcadasMeta ?? 0}`,
+        `· cartão preenchido agora (estava vazio): ${j.cartoesPreenchidos ?? 0}`,
         ``,
         `⚠️ SEM transação no banco (gap de sync): ${j.semTransacaoNoBanco}`,
         j.gapPeriodo ? `· período do gap: ${j.gapPeriodo.de} → ${j.gapPeriodo.ate}` : `· período do gap: —`,

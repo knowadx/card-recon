@@ -70,6 +70,7 @@ function msgCsv(j: J): Msg {
   return {
     tipo: falta ? "aviso" : "ok",
     texto: `CSV da Revolut: ${n(num(j.metaRefGravados))} código(s) gravado(s), ${n(num(j.jaTinhamOMesmoCodigo))} já tinham` +
+      (num(j.marcadasMeta) || num(j.cartoesPreenchidos) ? ` · consertou ${n(num(j.marcadasMeta))} cobrança(s) sem a marca Meta e ${n(num(j.cartoesPreenchidos))} sem cartão` : "") +
       (falta ? ` · ${n(falta)} do CSV ainda não estão no banco — sincronize a Revolut na aba Accounts e suba de novo.` : "."),
   };
 }
@@ -79,7 +80,8 @@ function resultadoImportacao(i: Importacao): string {
   const r = i.resumo;
   if (i.tipo === "csv_revolut") {
     const porConta = Object.entries((r.porConta as Record<string, number>) ?? {}).map(([c, q]) => `${c}: ${n(q)}`).join(" · ");
-    return `${n(num(r.gravados))} códigos novos · ${n(num(r.jaTinham))} já tinham · ${n(num(r.semTransacaoNoBanco))} sem par${porConta ? ` (${porConta})` : ""}`;
+    const conserto = num(r.marcadasMeta) || num(r.cartoesPreenchidos) ? ` · ${n(num(r.marcadasMeta))} marcadas como Meta · ${n(num(r.cartoesPreenchidos))} cartões preenchidos` : "";
+    return `${n(num(r.gravados))} códigos novos · ${n(num(r.jaTinham))} já tinham${conserto} · ${n(num(r.semTransacaoNoBanco))} sem par${porConta ? ` (${porConta})` : ""}`;
   }
   return `${n(num(r.inseridos))} faturas lidas`;
 }
