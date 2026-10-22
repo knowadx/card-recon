@@ -83,6 +83,20 @@ describe("resumo por cartão no Fechamento", () => {
     expect((await fech()).cartoes.map((c: { cartaoFinal: string | null }) => c.cartaoFinal)).toEqual(["7000", "9514", "3333", null, "1482"]);
   });
 
+  it("estorno (entrada) e cobrança ignorada ficam FORA: topo, cartão, lista e exportação", async () => {
+    const extra = (ref: string, data: Record<string, unknown>) =>
+      prisma.transaction.create({ data: { accountId: s.accounts.pixel.id, reference: ref, date: new Date("2026-09-15"), description: "Facebook", currency: "USD", isMetaCharge: true, cardLast4: "9514", ...data } });
+    await extra("estorno", { amount: 300, metaRef: "estorno001" }); // entrada = estorno da Meta
+    await extra("ignorada", { amount: -400, metaRef: "ignorada01", ignored: true });
+    loginAs(s.users.pixel);
+    const d = await fech();
+    expect(d.totais.total).toEqual({ qtd: 6, valor: { USD: 2034.9, EUR: 80 } }); // igual ao de antes
+    expect(d.cartoes.find((c: { cartaoFinal: string }) => c.cartaoFinal === "9514")).toMatchObject({ total: 3, semPdf: 1 });
+    const csv = await (await lista("month=2026-09&formato=csv")).text();
+    expect(csv).not.toContain("estorno001");
+    expect(csv).not.toContain("ignorada01");
+  });
+
   it("abrir um cartão traz só as transações dele, com situação e a conta de anúncio da fatura", async () => {
     loginAs(s.users.pixel);
     const r = await (await lista(`month=2026-09&cartao=${s.accounts.pixel.id}:9514`)).json();

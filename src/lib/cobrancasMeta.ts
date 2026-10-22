@@ -70,6 +70,14 @@ export function totaisDoMes(cobrancas: CobrancaMeta[]) {
   return t;
 }
 
+/**
+ * O que o Fechamento conta como cobrança da Meta — regra ÚNICA (o seletor de meses, o passo 1/2 e
+ * tudo desta lista usam esta): marcada como Meta, SAÍDA de dinheiro e não ignorada.
+ * Estorno (entrada "Facebook") fica fora — decisão do dono em 2026-10-22 ("tira os estornos").
+ * Transferência pra "Meta Platforms Ireland Limited" não é marcada como Meta, então também fica fora.
+ */
+export const COBRANCA_DO_FECHAMENTO = { isMetaCharge: true, amount: { lt: 0 }, ignored: false } satisfies Prisma.TransactionWhereInput;
+
 const SEM_CARTAO = "-";
 export const chaveCartao = (contaId: string, final: string | null) => `${contaId}:${final ?? SEM_CARTAO}`;
 
@@ -79,7 +87,7 @@ export async function ondeCobrancasDoMes(user: AppUser, month: string, companyId
   const fim = new Date(inicio);
   fim.setUTCMonth(fim.getUTCMonth() + 1);
   return {
-    isMetaCharge: true,
+    ...COBRANCA_DO_FECHAMENTO,
     date: { gte: inicio, lt: fim },
     AND: [await transactionScope(user)],
     ...(companyId ? { account: { companyId } } : {}),

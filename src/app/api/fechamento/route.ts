@@ -4,7 +4,7 @@ import { accessibleOperationsWhere, isSuperadmin, scopes } from "@/lib/auth";
 import { accountScope, assertCompany, companyScope, guarded, requireUser, transactionScope } from "@/lib/access";
 import { metaTokenStatus } from "@/lib/meta";
 import { statusDoMes } from "@/lib/importStatus";
-import { cobrancasDoMes, ondeCobrancasDoMes, resumoPorCartao, totaisDoMes } from "@/lib/cobrancasMeta";
+import { COBRANCA_DO_FECHAMENTO, cobrancasDoMes, ondeCobrancasDoMes, resumoPorCartao, totaisDoMes } from "@/lib/cobrancasMeta";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +23,7 @@ export const GET = guarded(async (request: Request) => {
   // do "período de análise" da Checagem — escolhe-se o mês aqui mesmo (pedido do dono em 2026-10-16;
   // antes, com o período em 01/06–30/06, só junho aparecia).
   const primeira = await prisma.transaction.findFirst({
-    where: { isMetaCharge: true, AND: [await transactionScope(user)] },
+    where: { ...COBRANCA_DO_FECHAMENTO, AND: [await transactionScope(user)] },
     orderBy: { date: "asc" },
     select: { date: true },
   });
@@ -122,8 +122,8 @@ async function contasDoPasso1(user: AppUserLike, companyId: string, dateRange: {
   const ids = contas.map((c) => c.id);
   const [ultimas, metaNoMes, semCodigo, creds] = await Promise.all([
     prisma.transaction.groupBy({ by: ["accountId"], where: { accountId: { in: ids } }, _max: { date: true } }),
-    prisma.transaction.groupBy({ by: ["accountId"], where: { accountId: { in: ids }, isMetaCharge: true, date: dateRange }, _count: { _all: true } }),
-    prisma.transaction.groupBy({ by: ["accountId"], where: { accountId: { in: ids }, isMetaCharge: true, ignored: false, metaRef: null, date: dateRange }, _count: { _all: true } }),
+    prisma.transaction.groupBy({ by: ["accountId"], where: { accountId: { in: ids }, ...COBRANCA_DO_FECHAMENTO, date: dateRange }, _count: { _all: true } }),
+    prisma.transaction.groupBy({ by: ["accountId"], where: { accountId: { in: ids }, ...COBRANCA_DO_FECHAMENTO, metaRef: null, date: dateRange }, _count: { _all: true } }),
     prisma.credential.findMany({
       where: { company: { in: [...new Set(contas.map((c) => c.company.name))] }, isActive: true, NOT: { token: "" } },
       select: { issuer: true, company: true },
