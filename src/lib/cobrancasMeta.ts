@@ -136,7 +136,13 @@ export async function cobrancasDoMes(onde: Prisma.TransactionWhereInput, chave?:
   });
 }
 
-/** Resumo por cartão: quantas ok e quantas pendentes. Cartões com mais pendências primeiro. */
+/** Só pra ORDENAR: soma o valor pendente pelo valor de face, sem converter moeda ("é só pra ter uma ideia"). */
+const somaParaOrdenar = (v: Valores) => Object.values(v).reduce((soma, valor) => soma + valor, 0);
+
+/**
+ * Resumo por cartão: quantas ok e quantas pendentes. Ordem: MAIOR VALOR PENDENTE primeiro
+ * (pedido do dono em 2026-10-22: "organiza essa tela por valor pendente").
+ */
 export function resumoPorCartao(cobrancas: CobrancaMeta[]): ResumoCartao[] {
   const porChave = new Map<string, ResumoCartao>();
   for (const c of cobrancas) {
@@ -155,7 +161,9 @@ export function resumoPorCartao(cobrancas: CobrancaMeta[]): ResumoCartao[] {
     r.cartaoNome ??= c.cartaoNome; // a mais recente que tiver nome (vêm da mais recente pra mais antiga)
     porChave.set(chave, r);
   }
-  return [...porChave.values()].sort((a, b) => b.semPdf + b.semCodigo - (a.semPdf + a.semCodigo) || b.total - a.total || a.chave.localeCompare(b.chave));
+  return [...porChave.values()].sort((a, b) =>
+    somaParaOrdenar(b.valorPendente) - somaParaOrdenar(a.valorPendente)
+    || b.semPdf + b.semCodigo - (a.semPdf + a.semCodigo) || b.total - a.total || a.chave.localeCompare(b.chave));
 }
 
 const SITUACAO_CSV: Record<Situacao, string> = { ok: "Com fatura", sem_pdf: "Sem PDF", sem_codigo: "Sem código" };

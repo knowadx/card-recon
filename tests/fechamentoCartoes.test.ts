@@ -54,13 +54,13 @@ const fech = async (q = "month=2026-09") => (await fechamento.GET(req(`/api/fech
 const lista = (q: string) => cobrancasRota.GET(req(`/api/fechamento/cobrancas?${q}`));
 
 describe("resumo por cartão no Fechamento", () => {
-  it("conta ok e pendente (sem PDF / sem código) por cartão, pendentes primeiro, e bate com os números do topo", async () => {
+  it("conta ok e pendente (sem PDF / sem código) por cartão, maior VALOR pendente primeiro, e bate com os números do topo", async () => {
     loginAs(s.users.pixel);
     const d = await fech();
     expect(d.cartoes).toEqual([
       expect.objectContaining({ chave: `${s.accounts.pixel.id}:9514`, cartaoFinal: "9514", cartaoNome: "BM 21 - 04.05", conta: "Mercury Pixel", total: 3, ok: 1, semPdf: 1, semCodigo: 1, valorOk: { USD: 900 }, valorPendente: { USD: 723.24 } }),
+      expect.objectContaining({ chave: `${s.accounts.pixel.id}:3333`, cartaoFinal: "3333", total: 1, ok: 0, semPdf: 1, valorPendente: { EUR: 80 } }), // 80 > 50, pelo valor de face
       expect.objectContaining({ chave: `${s.accounts.pixel.id}:-`, cartaoFinal: null, total: 1, ok: 0, semPdf: 1, semCodigo: 0, valorOk: {}, valorPendente: { USD: 50 } }),
-      expect.objectContaining({ chave: `${s.accounts.pixel.id}:3333`, cartaoFinal: "3333", total: 1, ok: 0, semPdf: 1, valorPendente: { EUR: 80 } }),
       expect.objectContaining({ chave: `${s.accounts.pixel.id}:1482`, cartaoFinal: "1482", total: 1, ok: 1, semPdf: 0, semCodigo: 0, valorOk: { USD: 361.66 }, valorPendente: {} }),
     ]);
     // mesma fonte: topo = soma dos cartões, em quantidade e valor; USD e EUR separados
@@ -73,6 +73,14 @@ describe("resumo por cartão no Fechamento", () => {
       semCodigo: { qtd: 1, valor: { USD: 1.7 } },
       semPdf: { qtd: 3, valor: { USD: 771.54, EUR: 80 } },
     });
+  });
+
+  it("ordem é pelo VALOR pendente, não pela quantidade: 1 pendência de 5.000 passa à frente de 2 que somam 723", async () => {
+    await prisma.transaction.create({
+      data: { accountId: s.accounts.pixel.id, reference: "grande", date: new Date("2026-09-20"), description: "Facebk *grande0001", amount: -5000, currency: "USD", isMetaCharge: true, metaRef: "grande0001", cardLast4: "7000" },
+    });
+    loginAs(s.users.pixel);
+    expect((await fech()).cartoes.map((c: { cartaoFinal: string | null }) => c.cartaoFinal)).toEqual(["7000", "9514", "3333", null, "1482"]);
   });
 
   it("abrir um cartão traz só as transações dele, com situação e a conta de anúncio da fatura", async () => {
