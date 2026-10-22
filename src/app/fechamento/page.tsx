@@ -377,6 +377,15 @@ export default function FechamentoPage() {
                                   </a>
                                 </div>
                                 <table className="w-full text-[12px]">
+                                  <thead>
+                                    <tr className="text-left text-[10px] uppercase tracking-wide text-[#9ca3af]">
+                                      <th className="pb-1 font-medium">Data (extrato)</th>
+                                      <th className="pb-1 font-medium">Situação</th>
+                                      <th className="pb-1 font-medium text-right">Valor</th>
+                                      <th className="pb-1 pl-4 font-medium">Código</th>
+                                      <th className="pb-1 pl-2 font-medium">Conta de anúncio (fatura)</th>
+                                    </tr>
+                                  </thead>
                                   <tbody className="divide-y divide-[#f0f1f3]">
                                     {[...lista].sort((a, b) => Number(a.situacao === "ok") - Number(b.situacao === "ok")).map((t) => (
                                       <tr key={t.id}>
@@ -384,7 +393,7 @@ export default function FechamentoPage() {
                                         <td className="py-1.5 pr-3 whitespace-nowrap"><span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${SITUACAO[t.situacao].cor}`}>{SITUACAO[t.situacao].texto}</span></td>
                                         <td className="py-1.5 text-right whitespace-nowrap tabular-nums text-[#374151]">{dinheiro(t.valor, t.moeda)}</td>
                                         <td className="py-1.5 pl-4 w-32">{t.codigo ? <span className="font-mono text-[#374151]">{t.codigo}</span> : <span className="text-[#9ca3af]">—</span>}</td>
-                                        <td className="py-1.5 pl-2 text-[#6b7280] truncate max-w-[220px]" title={t.contaAnuncioNome ?? t.descricao}>{t.contaAnuncioNome ?? t.descricao}</td>
+                                        <td className="py-1.5 pl-2 text-[#6b7280] truncate max-w-[220px]" title={`extrato: ${t.descricao}`}>{t.contaAnuncioNome ?? <span className="text-[#c4c8cf]">—</span>}</td>
                                       </tr>
                                     ))}
                                   </tbody>
