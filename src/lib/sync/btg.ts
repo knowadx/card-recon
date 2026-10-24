@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { apenasDigitos, btgGet, btgListarContas, BtgNaoConfigurado, BtgSemConsentimento } from "@/lib/btg";
+import { apenasDigitos, btgGet, btgListarContas, BtgNaoConfigurado, BtgSemConsentimento, cnpjValido } from "@/lib/btg";
 import { isMetaMerchant, extractMetaRef } from "@/lib/metaCheck";
 import { getSyncPeriod } from "@/lib/settings";
 import { assertAccount, type AppUser } from "@/lib/access";
@@ -61,7 +61,7 @@ export async function syncBtgAccount(opts: {
   const account = await prisma.account.findUnique({ where: { id: accountId }, include: { company: true } });
   if (!account) return { status: 404, body: { error: "account not found" } };
   const cnpj = apenasDigitos(account.company.cnpj);
-  if (cnpj.length !== 14) return { status: 400, body: { error: `a empresa "${account.company.name}" não tem CNPJ cadastrado` } };
+  if (!cnpjValido(cnpj)) return { status: 400, body: { error: account.company.cnpj ? `o CNPJ de "${account.company.name}" é inválido — corrija no cadastro da empresa` : `a empresa "${account.company.name}" não tem CNPJ cadastrado` } };
 
   let btgAccountId = opts.btgAccountId || null;
   try {

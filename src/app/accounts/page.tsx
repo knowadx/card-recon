@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Plus, Pencil, Trash2, RefreshCw, Upload } from "lucide-react";
+import { cnpjValido } from "@/lib/cnpj";
 
 type Company = { id: string; name: string; color: string; cnpj?: string | null };
 type Account = { id: string; name: string; bank: string; currency: string; company: Company; syncConfig?: string | null; operation?: { id: string; name: string } | null };
@@ -811,7 +812,7 @@ const save = async () => {
             })()}
             {form.bank === "BTG" && (() => {
               const empresa = companies.find(c => c.id === form.companyId);
-              const cnpjOk = (empresa?.cnpj ?? "").replace(/\D/g, "").length === 14;
+              const cnpjOk = cnpjValido(empresa?.cnpj);
               const conectada = !!empresa && btgStatus.empresas.includes(empresa.id);
               return (
                 <div className="space-y-2">
@@ -821,7 +822,7 @@ const save = async () => {
                   ) : !empresa ? (
                     <p className="text-[12px] text-[#9ca3af]">Escolha a empresa primeiro.</p>
                   ) : !cnpjOk ? (
-                    <p className="text-[12px] text-amber-700">Cadastre o CNPJ de {empresa.name} (aba Companies) antes de conectar.</p>
+                    <p className="text-[12px] text-amber-700">{empresa.cnpj ? `O CNPJ de ${empresa.name} (${empresa.cnpj}) é inválido — corrija na aba Companies.` : `Cadastre o CNPJ de ${empresa.name} (aba Companies) antes de conectar.`}</p>
                   ) : conectada ? (
                     <p className="text-[12px] text-emerald-700">✓ BTG conectado para {empresa.name}</p>
                   ) : (

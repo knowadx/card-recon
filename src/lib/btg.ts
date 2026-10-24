@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { apenasDigitos, cnpjValido } from "./cnpj";
 
 /**
  * BTG Pactual Empresas — API direta da conta PJ (pedido do dono em 2026-10-24; Open Finance rejeitado).
@@ -38,7 +39,7 @@ function exigirConfig() {
   return cfg;
 }
 
-export const apenasDigitos = (cnpj: string | null | undefined) => (cnpj ?? "").replace(/\D/g, "");
+export { apenasDigitos, cnpjValido };
 
 /** GET /oauth2/authorize?client_id&response_type=code&redirect_uri&scope&prompt=login (+ state anti-CSRF). */
 export function btgAuthorizeUrl(redirectUri: string, state: string): string {

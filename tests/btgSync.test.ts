@@ -6,6 +6,7 @@ import * as btgCallback from "@/app/api/btg/callback/route";
 import * as syncBtg from "@/app/api/sync/btg/route";
 import * as syncAll from "@/app/api/sync/all/route";
 import { loginAs, req, resetRequest, seedTwoGroups } from "./helpers";
+import { cnpjValido } from "@/lib/cnpj";
 
 /**
  * Conector BTG Pactual Empresas (pedido do dono em 2026-10-24). O BTG aqui é falso, mas fala o
@@ -82,6 +83,20 @@ describe("conectar o BTG (Authorization Code)", () => {
     expect(res.headers.get("set-cookie")).toContain(`cr_btg=${encodeURIComponent(destino.searchParams.get("state")!)}`);
     loginAs(s.users.pixel);
     expect((await btgAuth.GET(new Request(`https://finance.exemplo.com/api/btg/auth?companyId=${s.companies.pixel.id}`))).status).toBe(403);
+  });
+
+  it("CNPJ com dígitos verificadores errados (ou faltando dígito) = 400 com mensagem clara, sem chamar o BTG", async () => {
+    expect(cnpjValido(CNPJ)).toBe(true);
+    expect(cnpjValido("45.700.852/0001-20")).toBe(true);
+    expect(cnpjValido("2.715.695/0001-38")).toBe(false); // 13 dígitos
+    expect(cnpjValido("45700852000121")).toBe(false); // dígito verificador trocado
+    expect(cnpjValido("11111111111111")).toBe(false);
+    await prisma.company.update({ where: { id: s.companies.pixel.id }, data: { cnpj: "45700852000121" } });
+    loginAs(s.users.root);
+    const res = await btgAuth.GET(new Request(`https://x/api/btg/auth?companyId=${s.companies.pixel.id}`));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("é inválido");
+    expect(chamadas).toEqual([]);
   });
 
   it("empresa sem CNPJ = 400; BTG sem Client ID/Secret no servidor = 503", async () => {
