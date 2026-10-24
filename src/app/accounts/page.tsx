@@ -14,7 +14,7 @@ type MercuryAccount = { id: string; name: string; availableBalance?: number; kin
 type WiseProfile = { id: string; label: string };
 type ApiStatus = { ok: boolean | null; label: string };
 
-const BANKS = ["Revolut", "Husky", "Wise", "Mercury", "Dolafy", "BTG"];
+const BANKS = ["Revolut", "Husky", "Wise", "Mercury", "Dolafy", "BTG", "XP"];
 const CURRENCIES = ["USD", "BRL", "EUR", "GBP", "ARS", "CLP", "MXN", "COP"];
 const EMPTY = { name: "", bank: "Mercury", currency: "USD", companyId: "", apiToken: "" };
 
@@ -29,7 +29,14 @@ const BANK_COLORS: Record<string, string> = {
   Husky: "bg-orange-50 text-orange-700",
   Dolafy: "bg-yellow-50 text-yellow-700",
   BTG: "bg-sky-50 text-sky-700",
+  XP: "bg-zinc-100 text-zinc-800",
 };
+
+/** Texto do OFX: o cabeçalho pode mentir (o da XP diz CHARSET:1252 e é UTF-8) → tenta UTF-8, senão Windows-1252. */
+async function textoDoOfx(arquivo: File): Promise<string> {
+  const bytes = await arquivo.arrayBuffer();
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { return new TextDecoder("windows-1252").decode(bytes); }
+}
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -79,6 +86,10 @@ export default function AccountsPage() {
   const [btgSyncFrom, setBtgSyncFrom] = useState(defaultSyncFrom);
   const [btgSyncing, setBtgSyncing] = useState(false);
   const [btgSyncResult, setBtgSyncResult] = useState<{ imported?: number; skipped?: number; error?: string } | null>(null);
+  // Importar OFX (bancos sem API — começou pela XP Empresas)
+  const ofxRef = useRef<HTMLInputElement>(null);
+  const [ofxAlvo, setOfxAlvo] = useState<Account | null>(null);
+  const [ofxMsg, setOfxMsg] = useState<{ ok: boolean; texto: string } | null>(null);
   const [revConnectedCompanies, setRevConnectedCompanies] = useState<string[]>([]);
   const [revClientId, setRevClientId] = useState("");
   const [revolutSyncOpen, setRevolutSyncOpen] = useState(false);
@@ -265,6 +276,19 @@ const save = async () => {
     if (!res.error) load();
   };
 
+  const importarOfx = async (arquivo: File) => {
+    if (!ofxAlvo) return;
+    setOfxMsg({ ok: true, texto: `Importando ${arquivo.name} em ${ofxAlvo.name}…` });
+    const res = await fetch(`/api/import/ofx?accountId=${encodeURIComponent(ofxAlvo.id)}`, {
+      method: "POST", headers: { "Content-Type": "application/x-ofx", "x-filename": encodeURIComponent(arquivo.name) }, body: await textoDoOfx(arquivo),
+    }).then(r => r.json()).catch(() => ({ error: "sem resposta do servidor" }));
+    setOfxMsg(res.error
+      ? { ok: false, texto: `❌ ${res.error}` }
+      : { ok: true, texto: `✅ ${ofxAlvo.name}: ${res.gravados} lançamento(s) novo(s) · ${res.jaExistiam} já existiam · conta do arquivo ${res.contaBanco}${res.saldo != null ? ` · saldo no arquivo ${Number(res.saldo).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : ""}` });
+    setOfxAlvo(null);
+    if (!res.error) load();
+  };
+
   const openWiseSync = async (a: Account) => {
     setWiseSyncTarget(a);
     setWiseSyncResult(null);
@@ -366,6 +390,13 @@ const save = async () => {
       </div>
 
       <div className="flex-1 overflow-auto p-8 space-y-6">
+        <input ref={ofxRef} type="file" accept=".ofx,application/x-ofx" className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) importarOfx(f); e.target.value = ""; }} />
+        {ofxMsg && (
+          <div className={`rounded-xl border px-4 py-2.5 text-[13px] ${ofxMsg.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800"}`}>
+            {ofxMsg.texto} <button className="ml-2 text-[12px] underline opacity-70" onClick={() => setOfxMsg(null)}>fechar</button>
+          </div>
+        )}
         {accounts.length === 0 && (
           <div className="bg-white rounded-2xl border border-[#e8eaed] p-16 text-center">
             <p className="text-[#9ca3af] text-sm">No accounts registered.</p>
@@ -458,6 +489,15 @@ const save = async () => {
                               title="Sync via Revolut API"
                             >
                               <RefreshCw className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {a.bank === "XP" && (
+                            <button
+                              onClick={() => { setOfxAlvo(a); ofxRef.current?.click(); }}
+                              className="p-2 rounded-lg hover:bg-zinc-100 text-[#9ca3af] hover:text-zinc-800 transition-colors"
+                              title="Importar extrato OFX"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
                             </button>
                           )}
                           {a.bank === "BTG" && (
