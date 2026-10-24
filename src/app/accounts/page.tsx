@@ -8,13 +8,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Plus, Pencil, Trash2, RefreshCw, Upload } from "lucide-react";
 
-type Company = { id: string; name: string; color: string };
+type Company = { id: string; name: string; color: string; cnpj?: string | null };
 type Account = { id: string; name: string; bank: string; currency: string; company: Company; syncConfig?: string | null; operation?: { id: string; name: string } | null };
 type MercuryAccount = { id: string; name: string; availableBalance?: number; kind: string; legalBusinessName?: string; entity: string };
 type WiseProfile = { id: string; label: string };
 type ApiStatus = { ok: boolean | null; label: string };
 
-const BANKS = ["Revolut", "Husky", "Wise", "Mercury", "Dolafy"];
+const BANKS = ["Revolut", "Husky", "Wise", "Mercury", "Dolafy", "BTG"];
 const CURRENCIES = ["USD", "BRL", "EUR", "GBP", "ARS", "CLP", "MXN", "COP"];
 const EMPTY = { name: "", bank: "Mercury", currency: "USD", companyId: "", apiToken: "" };
 
@@ -28,6 +28,7 @@ const BANK_COLORS: Record<string, string> = {
   Revolut: "bg-purple-50 text-purple-700",
   Husky: "bg-orange-50 text-orange-700",
   Dolafy: "bg-yellow-50 text-yellow-700",
+  BTG: "bg-sky-50 text-sky-700",
 };
 
 export default function AccountsPage() {
@@ -70,6 +71,14 @@ export default function AccountsPage() {
 
   const [wiseConnected, setWiseConnected] = useState<boolean | null>(null);
   const [revolutConnected, setRevolutConnected] = useState<boolean | null>(null);
+  // BTG Pactual Empresas (API direta da conta PJ): configurado no servidor? quais empresas conectadas?
+  const [btgStatus, setBtgStatus] = useState<{ configurado: boolean; ambiente: string | null; empresas: string[] }>({ configurado: false, ambiente: null, empresas: [] });
+  const [btgSyncTarget, setBtgSyncTarget] = useState<Account | null>(null);
+  const [btgContas, setBtgContas] = useState<{ accountId: string; agencia: string | null; numero: string | null }[]>([]);
+  const [btgContaId, setBtgContaId] = useState("");
+  const [btgSyncFrom, setBtgSyncFrom] = useState(defaultSyncFrom);
+  const [btgSyncing, setBtgSyncing] = useState(false);
+  const [btgSyncResult, setBtgSyncResult] = useState<{ imported?: number; skipped?: number; error?: string } | null>(null);
   const [revConnectedCompanies, setRevConnectedCompanies] = useState<string[]>([]);
   const [revClientId, setRevClientId] = useState("");
   const [revolutSyncOpen, setRevolutSyncOpen] = useState(false);
@@ -101,9 +110,10 @@ export default function AccountsPage() {
     loadStatus();
     fetch("/api/revolut/status").then(r => r.json()).then(d => { setRevolutConnected(d.connected); setRevConnectedCompanies(d.companies ?? []); });
     fetch("/api/wise/status").then(r => r.json()).then(d => setWiseConnected(d.connected));
+    fetch("/api/btg/status").then(r => (r.ok ? r.json() : null)).then(d => d && setBtgStatus(d)).catch(() => {});
     // período de sync persistido (fonte única) — preenche os "de" de todas as integrações
     fetch("/api/settings/sync-period").then(r => r.json()).then(p => {
-      if (p?.from) { setMercurySyncFrom(p.from); setWiseSyncFrom(p.from); setRevolutSyncFrom(p.from); }
+      if (p?.from) { setMercurySyncFrom(p.from); setWiseSyncFrom(p.from); setRevolutSyncFrom(p.from); setBtgSyncFrom(p.from); }
     }).catch(() => {});
   }, []);
 
@@ -229,6 +239,30 @@ const save = async () => {
     }).then(r => r.json());
     setRevolutSyncing(false);
     setRevolutSyncResult(res);
+  };
+
+  const openBtgSync = async (a: Account) => {
+    setBtgSyncTarget(a);
+    setBtgSyncResult(null);
+    setBtgContaId("");
+    setBtgContas([]);
+    const res = await fetch(`/api/btg/contas?accountId=${a.id}`).then(r => r.json()).catch(() => ({ error: "sem resposta do servidor" }));
+    if (Array.isArray(res)) { setBtgContas(res); if (res.length === 1) setBtgContaId(res[0].accountId); }
+    else setBtgSyncResult({ error: res.error });
+  };
+
+  const runBtgSync = async () => {
+    if (!btgSyncTarget) return;
+    setBtgSyncing(true);
+    setBtgSyncResult(null);
+    const res = await fetch("/api/sync/btg", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountId: btgSyncTarget.id, btgAccountId: btgContaId || null, from: btgSyncFrom }),
+    }).then(r => r.json()).catch(() => ({ error: "sem resposta do servidor" }));
+    setBtgSyncing(false);
+    setBtgSyncResult(res);
+    if (!res.error) load();
   };
 
   const openWiseSync = async (a: Account) => {
@@ -426,6 +460,15 @@ const save = async () => {
                               <RefreshCw className="w-3.5 h-3.5" />
                             </button>
                           )}
+                          {a.bank === "BTG" && (
+                            <button
+                              onClick={() => openBtgSync(a)}
+                              className="p-2 rounded-lg hover:bg-sky-50 text-[#9ca3af] hover:text-sky-600 transition-colors"
+                              title="Sync via BTG API"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           {a.bank === "Wise" && (
                             <button
                               onClick={() => openWiseSync(a)}
@@ -592,6 +635,55 @@ const save = async () => {
         </DialogContent>
       </Dialog>
 
+      {/* BTG sync dialog */}
+      <Dialog open={!!btgSyncTarget} onOpenChange={(v) => { if (!v) { setBtgSyncTarget(null); setBtgSyncResult(null); } }}>
+        <DialogContent className="rounded-2xl max-w-sm border-[#e8eaed] shadow-xl">
+          <DialogHeader>
+            <DialogTitle className="text-[17px] font-bold text-[#1a202c]">Sync via BTG{btgStatus.ambiente === "sandbox" ? " (ambiente de testes)" : ""}</DialogTitle>
+          </DialogHeader>
+          {btgSyncTarget && (
+            <div className="space-y-4 pt-2">
+              <p className="text-[13px] text-[#6b7280]">
+                Conta local: <span className="text-[#1a202c] font-semibold">{btgSyncTarget.name}</span>
+              </p>
+              {btgContas.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-[13px] font-medium text-[#374151]">Conta no BTG</Label>
+                  <Select value={btgContaId} onValueChange={(v) => setBtgContaId(v ?? "")}>
+                    <SelectTrigger className="h-10 text-sm rounded-lg border-[#e8eaed]">
+                      <span className="flex-1 text-left text-sm truncate">
+                        {btgContaId ? (() => { const c = btgContas.find(x => x.accountId === btgContaId); return c ? `Ag. ${c.agencia ?? "?"} · Conta ${c.numero ?? "?"}` : btgContaId; })() : "Escolha a conta"}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {btgContas.map(c => <SelectItem key={c.accountId} value={c.accountId}>Ag. {c.agencia ?? "?"} · Conta {c.numero ?? "?"}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label className="text-[13px] font-medium text-[#374151]">Importar a partir de</Label>
+                <Input type="date" value={btgSyncFrom} onChange={(e) => setBtgSyncFrom(e.target.value)} className="h-10 text-sm rounded-lg border-[#e8eaed]" />
+              </div>
+              {btgSyncResult && (
+                <div className={`rounded-xl border p-4 text-[13px] space-y-1 ${btgSyncResult.error ? "border-rose-200 bg-rose-50" : "border-[#e8eaed] bg-[#fafbfc]"}`}>
+                  {btgSyncResult.error
+                    ? <p className="text-rose-600">{btgSyncResult.error}</p>
+                    : <>
+                        <p><span className="text-emerald-600 font-semibold">{btgSyncResult.imported ?? 0} transações importadas</span></p>
+                        <p className="text-[#9ca3af]">{btgSyncResult.skipped ?? 0} já existiam</p>
+                      </>
+                  }
+                </div>
+              )}
+              <Button onClick={runBtgSync} disabled={btgSyncing || (btgContas.length > 1 && !btgContaId)} className="w-full h-10 text-sm rounded-lg bg-[#00b9a5] hover:bg-[#00a896] text-white font-semibold">
+                {btgSyncing ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Sincronizando...</> : "Sincronizar"}
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Edit/create dialog */}
       <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditing(null); setForm(EMPTY); } }}>
         <DialogContent className="rounded-2xl max-w-sm border-[#e8eaed] shadow-xl">
@@ -674,6 +766,31 @@ const save = async () => {
                     </div>
                   )}
                   <p className="text-[11px] text-[#9ca3af]">Sobe o certificado X.509 no Revolut da empresa, pega o Client ID e conecta. 1 conexão cobre todas as contas daquela org.</p>
+                </div>
+              );
+            })()}
+            {form.bank === "BTG" && (() => {
+              const empresa = companies.find(c => c.id === form.companyId);
+              const cnpjOk = (empresa?.cnpj ?? "").replace(/\D/g, "").length === 14;
+              const conectada = !!empresa && btgStatus.empresas.includes(empresa.id);
+              return (
+                <div className="space-y-2">
+                  <Label className="text-[13px] font-medium text-[#374151]">BTG Pactual Empresas (autorização por CNPJ){btgStatus.ambiente === "sandbox" ? " · testes" : ""}</Label>
+                  {!btgStatus.configurado ? (
+                    <p className="text-[12px] text-amber-700">BTG ainda não configurado no servidor (falta o Client ID/Secret do app do BTG).</p>
+                  ) : !empresa ? (
+                    <p className="text-[12px] text-[#9ca3af]">Escolha a empresa primeiro.</p>
+                  ) : !cnpjOk ? (
+                    <p className="text-[12px] text-amber-700">Cadastre o CNPJ de {empresa.name} (aba Companies) antes de conectar.</p>
+                  ) : conectada ? (
+                    <p className="text-[12px] text-emerald-700">✓ BTG conectado para {empresa.name}</p>
+                  ) : (
+                    <Button type="button" variant="outline" className="h-10 text-sm rounded-lg border-sky-200 bg-sky-50 text-sky-700"
+                      onClick={() => window.open(`/api/btg/auth?companyId=${encodeURIComponent(empresa.id)}`, "_blank", "width=700,height=760")}>
+                      Conectar BTG de {empresa.name}
+                    </Button>
+                  )}
+                  <p className="text-[11px] text-[#9ca3af]">Abre o login do BTG; você escolhe o CNPJ e autoriza a leitura de saldo e extrato.</p>
                 </div>
               );
             })()}

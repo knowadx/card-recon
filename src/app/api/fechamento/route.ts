@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { accessibleOperationsWhere, isSuperadmin, scopes } from "@/lib/auth";
 import { accountScope, assertCompany, companyScope, guarded, requireUser, transactionScope } from "@/lib/access";
 import { metaTokenStatus } from "@/lib/meta";
-import { statusDoMes } from "@/lib/importStatus";
+import { SINCRONIZAVEIS, statusDoMes } from "@/lib/importStatus";
 import { COBRANCA_DO_FECHAMENTO, cobrancasDoMes, ondeCobrancasDoMes, resumoPorCartao, totaisDoMes } from "@/lib/cobrancasMeta";
 
 export const dynamic = "force-dynamic";
@@ -109,7 +109,6 @@ export const GET = guarded(async (request: Request) => {
 });
 
 type AppUserLike = Awaited<ReturnType<typeof requireUser>>;
-const SINCRONIZAVEIS = ["Mercury", "Wise", "Revolut"];
 const dia = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
 
 /** Passo 1: cada conta do escopo — já configurada pro sync? tem chave? até quando tem dados? */

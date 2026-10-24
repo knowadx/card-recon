@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { btgAccessToken, btgConfig } from "@/lib/btg";
 import { getValidAccessToken } from "@/lib/revolut";
 import { resolveBankToken } from "@/lib/credentials";
 import { isSuperadmin } from "@/lib/auth";
@@ -34,12 +35,13 @@ export const GET = guarded(async () => {
   // só as contas do escopo do usuário (superadmin = todas)
   const accounts = await prisma.account.findMany({
     where: await accountScope(user),
-    select: { id: true, bank: true, apiToken: true, company: { select: { name: true } } },
+    select: { id: true, bank: true, apiToken: true, companyId: true, company: { select: { name: true } } },
   });
 
   // cache por token (evita chamadas repetidas pro mesmo token)
   const cache = new Map<string, { ok: boolean; label: string }>();
   const revolutCache = new Map<string, { ok: boolean; label: string }>();
+  const btgCache = new Map<string, { ok: boolean; label: string }>();
 
   const results = await Promise.all(
     accounts.map(async (account) => {
@@ -63,6 +65,19 @@ export const GET = guarded(async () => {
           }
         }
         return { accountId: account.id, ...revolutCache.get(co)! };
+      }
+
+      if (bank === "BTG") {
+        if (!btgConfig()) return { accountId: account.id, ok: false, label: "BTG não configurado" };
+        if (!btgCache.has(account.companyId)) {
+          try {
+            await btgAccessToken(account.companyId); // renova se precisar
+            btgCache.set(account.companyId, { ok: true, label: "Conectada" });
+          } catch {
+            btgCache.set(account.companyId, { ok: false, label: "Não conectado" });
+          }
+        }
+        return { accountId: account.id, ...btgCache.get(account.companyId)! };
       }
 
       return { accountId: account.id, ok: null, label: "Manual" };

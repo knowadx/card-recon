@@ -6,14 +6,15 @@ import { recomputeHasReceipt } from "@/lib/receipts";
 import { syncMercuryAccount } from "@/lib/sync/mercury";
 import { syncWiseAccount } from "@/lib/sync/wise";
 import { syncRevolutAccount } from "@/lib/sync/revolut";
+import { syncBtgAccount } from "@/lib/sync/btg";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /** syncConfig salvo na conta (PATCH /api/accounts/[id] e as rotas por banco). */
-type SyncConfig = { mercuryAccountId?: string; mercuryEntity?: string; wiseProfileId?: string; revolutAccountId?: string | null };
+type SyncConfig = { mercuryAccountId?: string; mercuryEntity?: string; wiseProfileId?: string; revolutAccountId?: string | null; btgAccountId?: string };
 
-type Bank = "mercury" | "wise" | "revolut";
+type Bank = "mercury" | "wise" | "revolut" | "btg";
 
 type AccountResult = { bank: Bank | null; imported: number; skipped: number; error?: string } & Record<string, unknown>;
 
@@ -38,6 +39,7 @@ function bankOf(config: SyncConfig | null): Bank | null {
   if (config?.mercuryAccountId) return "mercury";
   if (config?.wiseProfileId) return "wise";
   if (config && "revolutAccountId" in config) return "revolut";
+  if (config?.btgAccountId) return "btg";
   return null;
 }
 
@@ -60,6 +62,8 @@ async function syncAccount(user: AppUser, account: { id: string; syncConfig: str
         return summarize(bank, await syncWiseAccount({ user, accountId: account.id, profileId: config.wiseProfileId!, from, saveSyncConfig: false }));
       case "revolut":
         return summarize(bank, await syncRevolutAccount({ user, accountId: account.id, revolutAccountId: config.revolutAccountId, from, saveSyncConfig: false }));
+      case "btg":
+        return summarize(bank, await syncBtgAccount({ user, accountId: account.id, btgAccountId: config.btgAccountId, from, saveSyncConfig: false }));
     }
   } catch (e) {
     return { bank, imported: 0, skipped: 0, error: e instanceof Error ? e.message : String(e) };

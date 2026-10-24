@@ -5,7 +5,8 @@
  * planilha (Husky) não travam — aparecem no passo 1. Mês bloqueado vem com o motivo.
  */
 
-const SINCRONIZAVEIS = ["Mercury", "Wise", "Revolut"];
+/** Bancos que sincronizam por API (fonte ÚNICA — o Fechamento também usa). Husky/Dolafy = manual. */
+export const SINCRONIZAVEIS = ["Mercury", "Wise", "Revolut", "BTG"];
 
 export type ContaImportacao = { nome: string; banco: string; configurada: boolean; syncedThrough: Date | null };
 export type StatusMes = { liberado: boolean; motivo: string | null };
