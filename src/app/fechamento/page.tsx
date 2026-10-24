@@ -16,7 +16,7 @@ type ConexaoMeta = { operationId: string; operacao: string; conectado: boolean; 
 type Valores = Record<string, number>;
 type Parcial = { qtd: number; valor: Valores };
 type Situacao = "ok" | "sem_pdf" | "sem_codigo";
-type Cobranca = { id: string; data: string; descricao: string; valor: number; moeda: string; codigo: string | null; situacao: Situacao; contaAnuncio: string | null; contaAnuncioNome: string | null };
+type Cobranca = { id: string; data: string; descricao: string; valor: number; moeda: string; codigo: string | null; situacao: Situacao; contaAnuncio: string | null; contaAnuncioNome: string | null; faturaId: string | null; faturaPdf: boolean };
 type Cartao = {
   chave: string; banco: string; conta: string; cartaoFinal: string | null; cartaoNome: string | null;
   total: number; ok: number; semPdf: number; semCodigo: number; valorOk: Valores; valorPendente: Valores;
@@ -395,7 +395,12 @@ export default function FechamentoPage() {
                                         <td className="py-1.5 pr-3 whitespace-nowrap"><span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${SITUACAO[t.situacao].cor}`}>{SITUACAO[t.situacao].texto}</span></td>
                                         <td className="py-1.5 text-right whitespace-nowrap tabular-nums text-[#374151]">{dinheiro(t.valor, t.moeda)}</td>
                                         <td className="py-1.5 pl-4 w-32">{t.codigo ? <span className="font-mono text-[#374151]">{t.codigo}</span> : <span className="text-[#9ca3af]">—</span>}</td>
-                                        <td className="py-1.5 pl-2 text-[#6b7280] truncate max-w-[220px]" title={`extrato: ${t.descricao}`}>{t.contaAnuncioNome ?? <span className="text-[#c4c8cf]">—</span>}</td>
+                                        <td className="py-1.5 pl-2 text-[#6b7280] max-w-[260px]" title={`extrato: ${t.descricao}`}>
+                                          <span className="truncate">{t.contaAnuncioNome ?? <span className="text-[#c4c8cf]">—</span>}</span>
+                                          {t.faturaPdf && t.faturaId && (
+                                            <a className="ml-2 text-[11px] font-medium text-[#00a896] hover:underline" href={`/api/faturas-meta/${t.faturaId}/pdf`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>PDF</a>
+                                          )}
+                                        </td>
                                       </tr>
                                     ))}
                                   </tbody>

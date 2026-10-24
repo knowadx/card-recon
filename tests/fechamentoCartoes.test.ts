@@ -84,7 +84,7 @@ describe("resumo por cartão no Fechamento", () => {
   });
 
   it("estorno (entrada) e cobrança ignorada ficam FORA: topo, cartão, lista e exportação", async () => {
-    const extra = (ref: string, data: Record<string, unknown>) =>
+    const extra = (ref: string, data: { amount: number; metaRef: string; ignored?: boolean }) =>
       prisma.transaction.create({ data: { accountId: s.accounts.pixel.id, reference: ref, date: new Date("2026-09-15"), description: "Facebook", currency: "USD", isMetaCharge: true, cardLast4: "9514", ...data } });
     await extra("estorno", { amount: 300, metaRef: "estorno001" }); // entrada = estorno da Meta
     await extra("ignorada", { amount: -400, metaRef: "ignorada01", ignored: true });

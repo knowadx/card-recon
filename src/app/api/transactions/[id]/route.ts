@@ -17,5 +17,12 @@ export const GET = guarded(async (_req: Request, { params }: Ctx) => {
     },
   });
   if (!tx) return Response.json({ error: "not found" }, { status: 404 });
-  return Response.json(tx);
+  // fatura da Meta casada pelo código (mesma regra de src/lib/receipts.ts) — o PDF abre por /api/faturas-meta/:id/pdf
+  const fatura = tx.isMetaCharge && tx.hasReceipt && tx.metaRef
+    ? await prisma.metaReceipt.findFirst({
+        where: { referenceNumber: { equals: tx.metaRef, mode: "insensitive" } },
+        select: { id: true, fileKey: true, accountName: true },
+      })
+    : null;
+  return Response.json({ ...tx, faturaMeta: fatura ? { id: fatura.id, pdf: !!fatura.fileKey, contaAnuncio: fatura.accountName } : null });
 });

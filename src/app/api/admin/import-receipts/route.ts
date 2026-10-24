@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { AccessError, guarded, requireUser } from "@/lib/access";
 import { isManager } from "@/lib/auth";
 import { recomputeHasReceipt } from "@/lib/receipts";
+import { chaveFaturaMeta, pdfsQueChegaram } from "@/lib/faturasMeta";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -15,12 +16,15 @@ type Row = {
   cardLast4?: string | null;
   amountUsd?: number | null;
   date?: string | null;
+  arquivo?: boolean; // a tela subiu o PDF pro R2 (o servidor confere antes de gravar o vínculo)
 };
 
 /**
  * POST /api/admin/import-receipts — recebe o receipts-parsed.json (array) e carrega em
  * MetaReceipt (a tabela nasce na migration). Aditivo/idempotente (skipDuplicates por
  * transactionId). Superadmin e admins.
+ * PDF: a tela sobe cada fatura pro R2 antes (/arquivos) e marca `arquivo: true`; aqui só vira vínculo
+ * o que o R2 CONFIRMA que chegou. Reimportar sem o arquivo mantém o PDF que já estava guardado.
  */
 export const POST = guarded(async (request: Request) => {
   // superadmin e admins (passos 2 e 4 do Fechamento Meta — decisão do dono em 2026-10-16); member não
@@ -33,8 +37,17 @@ export const POST = guarded(async (request: Request) => {
   // dedup por transactionId (alguns recibos podem repetir o id) + ignora os sem id
   const byId = new Map<string, (typeof rows)[number]>();
   for (const r of rows) if (r.transactionId && !byId.has(r.transactionId)) byId.set(r.transactionId, r);
+  // PDFs: só os que o R2 confirma; quem não veio com arquivo mantém o que já estava guardado
+  const chegaram = await pdfsQueChegaram([...byId.values()].filter((r) => r.arquivo).map((r) => r.transactionId!));
+  const jaGuardados = new Map(
+    (await prisma.metaReceipt.findMany({ where: { transactionId: { in: [...byId.keys()] }, fileKey: { not: null } }, select: { transactionId: true, fileKey: true, fileSize: true } }))
+      .map((f) => [f.transactionId, f]),
+  );
+  const arquivoDe = (id: string) =>
+    chegaram.has(id) ? { fileKey: chaveFaturaMeta(id), fileSize: chegaram.get(id)! } : { fileKey: jaGuardados.get(id)?.fileKey ?? null, fileSize: jaGuardados.get(id)?.fileSize ?? null };
   const data = [...byId.values()].map((r) => ({
     transactionId: r.transactionId!,
+    ...arquivoDe(r.transactionId!),
     referenceNumber: r.referenceNumber ?? null,
     accountId: r.accountId ?? null,
     accountName: r.accountName ?? null,
@@ -71,9 +84,9 @@ export const POST = guarded(async (request: Request) => {
       periodFrom: datas[0] ?? null,
       periodTo: datas[datas.length - 1] ?? null,
       companyIds: [],
-      summary: JSON.stringify({ recebidos: rows.length, inseridos: inserted, comFatura, metaSemFatura }),
+      summary: JSON.stringify({ recebidos: rows.length, inseridos: inserted, pdfsGuardados: chegaram.size, comFatura, metaSemFatura }),
     },
   });
 
-  return NextResponse.json({ ok: true, recebidos: rows.length, inseridos: inserted, comFatura, metaSemFatura });
+  return NextResponse.json({ ok: true, recebidos: rows.length, inseridos: inserted, pdfsGuardados: chegaram.size, comFatura, metaSemFatura });
 });

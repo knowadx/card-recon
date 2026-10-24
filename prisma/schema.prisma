@@ -359,6 +359,8 @@ model MetaReceipt {
   cardLast4       String?
   amountUsd       Float?
   date            DateTime?
+  fileKey         String? // PDF guardado no R2 (faturas-meta/<transactionId>.pdf) — só depois de conferido que chegou
+  fileSize        Int?
   createdAt       DateTime  @default(now())
 
   @@index([referenceNumber])

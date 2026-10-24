@@ -28,6 +28,9 @@ export default function ReceiptsImporter({ month, onImported }: { month?: string
   const [rows, setRows] = useState<Row[]>([]);
   const [result, setResult] = useState<string | null>(null);
   const [lote, setLote] = useState<string>("");
+  // o arquivo de cada recibo (por id da transação da Meta) — sobe pro R2 na hora de importar
+  const arquivosRef = useRef<Map<string, File>>(new Map());
+  const [envio, setEnvio] = useState({ feito: 0, total: 0 });
 
   useEffect(() => {
     if (inputRef.current) { inputRef.current.setAttribute("webkitdirectory", ""); inputRef.current.setAttribute("directory", ""); }
@@ -40,6 +43,7 @@ export default function ReceiptsImporter({ month, onImported }: { month?: string
     setLote(rel.includes("/") ? `pasta ${rel.split("/")[0]} (${all.length} PDFs)` : `${all.length} PDFs`);
     if (all.length === 0) { setResult("Nenhum PDF encontrado na pasta."); return; }
     setPhase("reading"); setResult(null); setProgress({ done: 0, total: all.length, errors: 0 }); setRows([]);
+    arquivosRef.current = new Map();
 
     const pdfjs = await import("pdfjs-dist");
     pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
@@ -61,7 +65,9 @@ export default function ReceiptsImporter({ month, onImported }: { month?: string
           text += "\n";
         }
         await doc.destroy();
-        out.push(parseRow(all[i].name, text));
+        const row = parseRow(all[i].name, text);
+        if (row.transactionId) arquivosRef.current.set(row.transactionId, all[i]);
+        out.push(row);
       } catch { errors++; }
       if (i % 5 === 0 || i === all.length - 1) setProgress({ done: i + 1, total: all.length, errors });
     }
@@ -71,13 +77,42 @@ export default function ReceiptsImporter({ month, onImported }: { month?: string
   // no Fechamento (month setado), importa SÓ os recibos daquele mês — preserva os outros
   const toImport = month ? rows.filter((r) => r.date?.slice(0, 7) === month) : rows;
 
+  /** Sobe os PDFs pro Cloudflare R2 (6 por vez). Devolve os ids que subiram. Falha não impede a importação dos dados. */
+  async function guardarPdfs(ids: string[]): Promise<{ subiu: Set<string>; aviso: string | null }> {
+    const subiu = new Set<string>();
+    setEnvio({ feito: 0, total: ids.length });
+    for (let i = 0; i < ids.length; i += 200) {
+      const lote = ids.slice(i, i + 200);
+      const r = await fetch("/api/admin/import-receipts/arquivos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: lote }) }).catch(() => null);
+      if (!r?.ok) return { subiu, aviso: `os PDFs não foram guardados (${(await r?.json().catch(() => null))?.error ?? "armazenamento indisponível"}) — os dados entraram igual` };
+      const { urls } = (await r.json()) as { urls: Record<string, string> };
+      let k = 0;
+      await Promise.all(Array.from({ length: 6 }, async () => {
+        while (k < lote.length) {
+          const id = lote[k++];
+          const arquivo = arquivosRef.current.get(id);
+          if (arquivo && urls[id]) {
+            const put = await fetch(urls[id], { method: "PUT", headers: { "Content-Type": "application/pdf" }, body: arquivo }).catch(() => null);
+            if (put?.ok) subiu.add(id);
+          }
+          setEnvio((e) => ({ ...e, feito: e.feito + 1 }));
+        }
+      }));
+    }
+    return { subiu, aviso: null };
+  }
+
   async function importar() {
     setPhase("importing"); setResult(null);
     try {
-      const res = await fetch("/api/admin/import-receipts", { method: "POST", headers: { "Content-Type": "application/json", "x-filename": encodeURIComponent(lote || `${toImport.length} PDFs`) }, body: JSON.stringify(toImport) });
+      // 1) guarda os PDFs no R2 (nome fixo por id — reimportar só sobrescreve); 2) importa os dados
+      const ids = [...new Set(toImport.map((r) => r.transactionId).filter((id): id is string => !!id))];
+      const { subiu, aviso } = await guardarPdfs(ids);
+      const corpo = toImport.map((r) => ({ ...r, arquivo: !!r.transactionId && subiu.has(r.transactionId) }));
+      const res = await fetch("/api/admin/import-receipts", { method: "POST", headers: { "Content-Type": "application/json", "x-filename": encodeURIComponent(lote || `${toImport.length} PDFs`) }, body: JSON.stringify(corpo) });
       const j = await res.json();
       setResult(res.ok
-        ? `✅ Importado e cruzado! · recibos: ${j.recebidos} · no banco: ${j.inseridos} · COM fatura: ${j.comFatura} · SEM fatura: ${j.metaSemFatura}`
+        ? `✅ Importado e cruzado! · recibos: ${j.recebidos} · no banco: ${j.inseridos} · PDFs guardados: ${j.pdfsGuardados ?? 0} · COM fatura: ${j.comFatura} · SEM fatura: ${j.metaSemFatura}${aviso ? `\n⚠️ ${aviso}` : ""}`
         : `❌ ${j.error ?? "erro"}`);
       setPhase("done");
       if (res.ok) onImported?.();
@@ -90,7 +125,7 @@ export default function ReceiptsImporter({ month, onImported }: { month?: string
   return (
     <div className="flex flex-col gap-3">
       <input ref={inputRef} type="file" multiple accept="application/pdf,.pdf" disabled={phase === "reading" || phase === "importing"} onChange={onPick} className="text-sm" />
-      <p className="text-[12px] text-slate-400">Escolha a pasta com os PDFs (lê subpastas). Nada é enviado — o navegador lê aqui e manda só o resultado.</p>
+      <p className="text-[12px] text-slate-400">Escolha a pasta com os PDFs (lê subpastas). O navegador lê cada fatura aqui e, ao importar, guarda o PDF no Cloudflare R2 ligado à cobrança.</p>
 
       {phase === "reading" && (
         <div>
@@ -119,7 +154,7 @@ export default function ReceiptsImporter({ month, onImported }: { month?: string
             </table>
           </div>
           <button onClick={importar} disabled={phase === "importing" || toImport.length === 0} className="self-start rounded-md bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
-            {phase === "importing" ? "Importando e cruzando…" : `Importar e cruzar ${toImport.length} recibos${month ? ` de ${month}` : ""}`}
+            {phase === "importing" ? (envio.total && envio.feito < envio.total ? `Guardando PDFs… ${envio.feito}/${envio.total}` : "Importando e cruzando…") : `Importar e cruzar ${toImport.length} recibos${month ? ` de ${month}` : ""}`}
           </button>
         </>
       )}

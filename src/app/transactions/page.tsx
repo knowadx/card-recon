@@ -24,6 +24,7 @@ type Transaction = {
   id: string; date: string; description: string; amount: number; currency: string; reference: string | null;
   ignored: boolean;
   isMetaCharge?: boolean; metaRef?: string | null; hasReceipt?: boolean;
+  faturaMeta?: { id: string; pdf: boolean; contaAnuncio: string | null } | null; // só no detalhe (/api/transactions/:id)
   account: Account;
   splits: ApiSplit[];
   accountingSplits: ApiAccountingSplit[];
@@ -142,6 +143,7 @@ export default function TransactionsPage() {
 
   const openTx = (tx: Transaction) => {
     setSelected(tx);
+    if (tx.hasReceipt && tx.faturaMeta === undefined) refreshTx(tx.id); // traz a fatura da Meta (e o link do PDF)
     setSplitTab("managerial");
     setSplits(
       tx.splits.length > 0
@@ -1072,7 +1074,13 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
                   </button>
                   <input type="file" ref={docRef} className="hidden" onChange={(e) => e.target.files?.[0] && uploadDoc(e.target.files[0])} />
                 </div>
-                {selected.documents.length === 0
+                {selected.faturaMeta?.pdf && (
+                  <a href={`/api/faturas-meta/${selected.faturaMeta.id}/pdf`} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-2.5 text-[13px] text-[#374151] hover:text-[#00b9a5] transition-colors">
+                    <FileText className="w-4 h-4 shrink-0 text-[#00b9a5]" />Fatura Meta{selected.faturaMeta.contaAnuncio ? ` · ${selected.faturaMeta.contaAnuncio}` : ""} (PDF)
+                  </a>
+                )}
+                {selected.documents.length === 0 && !selected.faturaMeta?.pdf
                   ? <p className="text-[13px] text-[#9ca3af]">No documents attached.</p>
                   : selected.documents.map((d) => (
                       <a key={d.id} href={`/api/documents/${d.id}`} target="_blank" rel="noreferrer"

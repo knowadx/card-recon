@@ -30,6 +30,8 @@ export type CobrancaMeta = {
   situacao: Situacao;
   contaAnuncio: string | null; // da fatura PDF (só quando "ok")
   contaAnuncioNome: string | null;
+  faturaId: string | null; // pra abrir o PDF (/api/faturas-meta/:id/pdf)
+  faturaPdf: boolean; // o PDF está guardado no R2
 };
 
 /** Soma POR MOEDA (USD e EUR nunca se somam — sem câmbio confiável, somar daria número falso). */
@@ -116,8 +118,8 @@ export async function cobrancasDoMes(onde: Prisma.TransactionWhereInput, chave?:
   // conta de anúncio de cada cobrança "ok", tirada da fatura PDF (o código casa sem diferenciar maiúscula)
   const codigosOk = [...new Set(linhas.filter((t) => t.hasReceipt && t.metaRef).map((t) => t.metaRef!.toLowerCase()))];
   const faturas = codigosOk.length
-    ? await prisma.$queryRaw<{ ref: string; accountId: string | null; accountName: string | null }[]>`
-        SELECT lower("referenceNumber") AS ref, "accountId", "accountName" FROM "MetaReceipt"
+    ? await prisma.$queryRaw<{ ref: string; id: string; accountId: string | null; accountName: string | null; pdf: boolean }[]>`
+        SELECT lower("referenceNumber") AS ref, "id", "accountId", "accountName", ("fileKey" IS NOT NULL) AS pdf FROM "MetaReceipt"
         WHERE lower("referenceNumber") = ANY(${codigosOk})`
     : [];
   const faturaDe = new Map(faturas.map((f) => [f.ref, f]));
@@ -140,6 +142,8 @@ export async function cobrancasDoMes(onde: Prisma.TransactionWhereInput, chave?:
       situacao: t.hasReceipt ? "ok" : t.metaRef ? "sem_pdf" : "sem_codigo",
       contaAnuncio: fatura?.accountId ?? null,
       contaAnuncioNome: fatura?.accountName ?? null,
+      faturaId: fatura?.id ?? null,
+      faturaPdf: fatura?.pdf === true,
     };
   });
 }
