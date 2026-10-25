@@ -60,6 +60,11 @@ export async function syncBtgAccount(opts: {
   await assertAccount(user, accountId);
   const account = await prisma.account.findUnique({ where: { id: accountId }, include: { company: true } });
   if (!account) return { status: 404, body: { error: "account not found" } };
+  // cada conta usa UMA fonte: se já recebeu extrato por OFX, a API duplicaria os mesmos lançamentos
+  if (await prisma.transaction.findFirst({ where: { accountId, reference: { startsWith: "ofx:" } }, select: { id: true } })) {
+    return { status: 409, body: { error: `a conta ${account.name} já recebe extratos por OFX — sincronizar pela API do BTG duplicaria os lançamentos (use outra conta pra API, ou continue com o OFX)` } };
+  }
+
   const cnpj = apenasDigitos(account.company.cnpj);
   if (!cnpjValido(cnpj)) return { status: 400, body: { error: account.company.cnpj ? `o CNPJ de "${account.company.name}" é inválido — corrija no cadastro da empresa` : `a empresa "${account.company.name}" não tem CNPJ cadastrado` } };
 

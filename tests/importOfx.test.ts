@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import * as importOfx from "@/app/api/import/ofx/route";
 import { dataOfx, lerOfx } from "@/lib/ofx";
-import { loginAs, resetRequest, seedTwoGroups } from "./helpers";
+import * as syncBtg from "@/app/api/sync/btg/route";
+import { loginAs, req, resetRequest, seedTwoGroups } from "./helpers";
 
 /**
  * Importação de extrato OFX (pedido do dono em 2026-10-24, começando pela XP Empresas — sem API pro
@@ -92,6 +93,22 @@ describe("leitura do OFX", () => {
     expect(dataOfx("20261005")?.toISOString()).toBe("2026-10-05T12:00:00.000Z");
   });
 
+  it("formato do BTG: folhas sem fechamento, data com hora e fuso [-3:BRT], FITID numérico, sem agência", () => {
+    const btg = "OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\nCHARSET:1252\n\n<OFX>\n\t<BANKMSGSRSV1>\n\t\t<STMTTRNRS>\n\t\t\t<STMTRS>\n\t\t\t\t<CURDEF>BRL\n" +
+      "\t\t\t\t<BANKACCTFROM>\n\t\t\t\t\t<BANKID>208\n\t\t\t\t\t<ACCTID>123456789\n\t\t\t\t\t<ACCTTYPE>CHECKING\n\t\t\t\t</BANKACCTFROM>\n" +
+      "\t\t\t\t<BANKTRANLIST>\n\t\t\t\t\t<DTSTART>20261001000000[-3:BRT]\n\t\t\t\t\t<DTEND>20261025235959[-3:BRT]\n" +
+      "\t\t\t\t\t<STMTTRN>\n\t\t\t\t\t\t<TRNTYPE>DEBIT\n\t\t\t\t\t\t<DTPOSTED>20261001062134[-3:BRT]\n\t\t\t\t\t\t<TRNAMT>-1500.00\n\t\t\t\t\t\t<FITID>1234567890123456789012345678901\n\t\t\t\t\t\t<CHECKNUM>1\n\t\t\t\t\t\t<MEMO>Pagamento de boleto\n\t\t\t\t\t</STMTTRN>\n" +
+      "\t\t\t\t\t<STMTTRN>\n\t\t\t\t\t\t<TRNTYPE>CREDIT\n\t\t\t\t\t\t<DTPOSTED>20261025052446[-3:BRT]\n\t\t\t\t\t\t<TRNAMT>2.50\n\t\t\t\t\t\t<FITID>1234567890123456789012345678902\n\t\t\t\t\t\t<CHECKNUM>2\n\t\t\t\t\t\t<MEMO>Rendimento\n\t\t\t\t\t</STMTTRN>\n" +
+      "\t\t\t\t</BANKTRANLIST>\n\t\t\t\t<LEDGERBAL>\n\t\t\t\t\t<BALAMT>1871.19\n\t\t\t\t\t<DTASOF>20261025235959[-3:BRT]\n\t\t\t\t</LEDGERBAL>\n\t\t\t</STMTRS>\n\t\t</STMTTRNRS>\n\t</BANKMSGSRSV1>\n</OFX>\n";
+    const { extrato } = lerOfx(btg);
+    expect(extrato).toMatchObject({ banco: "208", agencia: null, conta: "123456789", moeda: "BRL", saldo: 1871.19 });
+    expect(extrato!.inicio!.toISOString()).toBe("2026-10-01T03:00:00.000Z");
+    expect(extrato!.lancamentos.map((l) => [l.fitid.slice(-1), l.valor, l.data.toISOString(), l.descricao])).toEqual([
+      ["1", -1500, "2026-10-01T09:21:34.000Z", "Pagamento de boleto"],
+      ["2", 2.5, "2026-10-25T08:24:46.000Z", "Rendimento"],
+    ]);
+  });
+
   it("recusa o que não é OFX ou não diz a conta", () => {
     expect(lerOfx("Data;Hora;Descricao;Valor;Saldo").erro).toBe("isso não é um arquivo OFX");
     expect(lerOfx("<OFX><STMTTRN><FITID>1</OFX>").erro).toBe("o OFX não diz de qual conta é (sem ACCTID)");
@@ -133,9 +150,27 @@ describe("POST /api/import/ofx", () => {
   it("trava: moeda diferente da conta = 400; conta que sincroniza por API = 400", async () => {
     loginAs(admin);
     expect((await importar(contaXp.id, ofxXp("1234567", undefined, "USD"))).status).toBe(400);
-    const mercury = await importar(s.accounts.pixel.id, ofxXp()); // Mercury Pixel: tem API → duplicaria
+    await prisma.account.update({ where: { id: s.accounts.pixel.id }, data: { syncConfig: JSON.stringify({ mercuryAccountId: "m1" }) } });
+    const mercury = await importar(s.accounts.pixel.id, ofxXp()); // Mercury Pixel configurada pra API → duplicaria
     expect(mercury.status).toBe(400);
     expect((await mercury.json()).error).toContain("duplicaria");
+  });
+
+  it("BTG: conta ainda sem API aceita OFX; depois de receber OFX, o sync pela API do BTG é recusado (duplicaria)", async () => {
+    const contaBtg = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "BTG", currency: "BRL", name: "BTG Pixel" } });
+    loginAs(admin);
+    expect(await (await importar(contaBtg.id, ofxXp("998877"))).json()).toMatchObject({ ok: true, gravados: 3 });
+    const sync = await syncBtg.POST(req("/api/sync/btg", { method: "POST", json: { accountId: contaBtg.id } }));
+    expect(sync.status).toBe(409);
+    expect((await sync.json()).error).toContain("já recebe extratos por OFX");
+  });
+
+  it("BTG: conta já configurada pra API recusa OFX", async () => {
+    const contaBtg = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "BTG", currency: "BRL", name: "BTG Pixel", syncConfig: JSON.stringify({ btgAccountId: "x" }) } });
+    loginAs(admin);
+    const res = await importar(contaBtg.id, ofxXp());
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("já sincroniza pela API do BTG");
   });
 
   it("membro = 403; conta de outro grupo = 404 (nada gravado)", async () => {

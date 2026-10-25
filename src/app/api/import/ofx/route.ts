@@ -3,7 +3,6 @@ import { prisma } from "@/lib/db";
 import { AccessError, assertAccount, guarded, requireUser } from "@/lib/access";
 import { isManager } from "@/lib/auth";
 import { lerOfx } from "@/lib/ofx";
-import { SINCRONIZAVEIS } from "@/lib/importStatus";
 import { isMetaMerchant, extractMetaRef } from "@/lib/metaCheck";
 import { recomputeHasReceipt } from "@/lib/receipts";
 
@@ -11,9 +10,10 @@ export const dynamic = "force-dynamic";
 
 /**
  * POST /api/import/ofx?accountId=… — corpo: o texto do OFX. Importa o extrato numa conta de banco SEM
- * API (começou pela XP Empresas). Uma linha por lançamento: reference ofx:<banco>:<conta>:<FITID>
- * (reimportar não duplica). Travas:
- *  - conta que sincroniza por API (Mercury/Wise/Revolut/BTG) não aceita OFX (duplicaria o sync);
+ * API — ou de banco com API que AINDA não foi ligado (começou pela XP Empresas; BTG pedido em
+ * 2026-10-25). Uma linha por lançamento: reference ofx:<banco>:<conta>:<FITID> (reimportar não
+ * duplica). Cada conta usa UMA fonte (a primeira usada). Travas:
+ *  - conta já configurada pra sincronizar pela API (syncConfig) não aceita OFX (duplicaria o sync);
  *  - moeda do arquivo diferente da conta = recusa;
  *  - a conta fica LIGADA à conta do primeiro OFX: arquivo de outra conta bancária = recusa.
  * Superadmin e admins (como as outras importações).
@@ -24,8 +24,8 @@ export const POST = guarded(async (request: Request) => {
   const accountId = new URL(request.url).searchParams.get("accountId") ?? "";
   await assertAccount(user, accountId); // outro grupo = 404
   const account = await prisma.account.findUniqueOrThrow({ where: { id: accountId } });
-  if (SINCRONIZAVEIS.includes(account.bank)) {
-    return NextResponse.json({ error: `a conta ${account.name} sincroniza pela API do ${account.bank} — importar OFX duplicaria os lançamentos` }, { status: 400 });
+  if (account.syncConfig) {
+    return NextResponse.json({ error: `a conta ${account.name} já sincroniza pela API do ${account.bank} — importar OFX duplicaria os lançamentos` }, { status: 400 });
   }
 
   const { extrato, erro } = lerOfx(await request.text());

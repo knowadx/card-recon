@@ -492,7 +492,7 @@ const save = async () => {
                               <RefreshCw className="w-3.5 h-3.5" />
                             </button>
                           )}
-                          {a.bank === "XP" && (
+                          {(a.bank === "XP" || a.bank === "BTG") && (
                             <button
                               onClick={() => { setOfxAlvo(a); ofxRef.current?.click(); }}
                               className="p-2 rounded-lg hover:bg-zinc-100 text-[#9ca3af] hover:text-zinc-800 transition-colors"
