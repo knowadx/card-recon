@@ -45,7 +45,7 @@ export const POST = guarded(async (request: Request) => {
 
   const dados = extrato.lancamentos.map((l) => ({
     accountId,
-    reference: `${prefixo}${l.fitid}`,
+    reference: `${prefixo}${l.chave}`, // FITID (ou FITID+valor quando o banco numera por dia — Itaú)
     date: l.data,
     description: l.descricao,
     amount: l.valor,
@@ -60,7 +60,7 @@ export const POST = guarded(async (request: Request) => {
 
   let filename: string | null = null;
   try { filename = decodeURIComponent(request.headers.get("x-filename") ?? "").slice(0, 200) || null; } catch { filename = null; }
-  const resumo = { lancamentos: dados.length, gravados, jaExistiam: dados.length - gravados, contaBanco: `${extrato.banco ?? "?"}/${extrato.agencia ?? "?"}/${extrato.conta}`, conta: account.name, saldo: extrato.saldo };
+  const resumo = { lancamentos: dados.length, gravados, jaExistiam: dados.length - gravados, linhasDeSaldoIgnoradas: extrato.linhasDeSaldo, contaBanco: `${extrato.banco ?? "?"}/${extrato.agencia ?? "?"}/${extrato.conta}`, conta: account.name, saldo: extrato.saldo };
   await prisma.importLog.create({
     data: { kind: "ofx", filename, userId: user.id, periodFrom: extrato.inicio, periodTo: extrato.fim, companyIds: [account.companyId], summary: JSON.stringify(resumo) },
   });

@@ -15,7 +15,9 @@ type MercuryAccount = { id: string; name: string; availableBalance?: number; kin
 type WiseProfile = { id: string; label: string };
 type ApiStatus = { ok: boolean | null; label: string };
 
-const BANKS = ["Revolut", "Husky", "Wise", "Mercury", "Dolafy", "BTG", "XP"];
+const BANKS = ["Revolut", "Husky", "Wise", "Mercury", "Dolafy", "BTG", "XP", "Itaú"];
+// bancos com botão "Importar extrato OFX" (o servidor ainda recusa conta ligada a API — uma fonte por conta)
+const BANCOS_OFX = ["XP", "BTG", "Itaú"];
 const CURRENCIES = ["USD", "BRL", "EUR", "GBP", "ARS", "CLP", "MXN", "COP"];
 const EMPTY = { name: "", bank: "Mercury", currency: "USD", companyId: "", apiToken: "" };
 
@@ -31,6 +33,7 @@ const BANK_COLORS: Record<string, string> = {
   Dolafy: "bg-yellow-50 text-yellow-700",
   BTG: "bg-sky-50 text-sky-700",
   XP: "bg-zinc-100 text-zinc-800",
+  "Itaú": "bg-amber-50 text-amber-800",
 };
 
 /** Texto do OFX: o cabeçalho pode mentir (o da XP diz CHARSET:1252 e é UTF-8) → tenta UTF-8, senão Windows-1252. */
@@ -285,7 +288,7 @@ const save = async () => {
     }).then(r => r.json()).catch(() => ({ error: "sem resposta do servidor" }));
     setOfxMsg(res.error
       ? { ok: false, texto: `❌ ${res.error}` }
-      : { ok: true, texto: `✅ ${ofxAlvo.name}: ${res.gravados} lançamento(s) novo(s) · ${res.jaExistiam} já existiam · conta do arquivo ${res.contaBanco}${res.saldo != null ? ` · saldo no arquivo ${Number(res.saldo).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : ""}` });
+      : { ok: true, texto: `✅ ${ofxAlvo.name}: ${res.gravados} lançamento(s) novo(s) · ${res.jaExistiam} já existiam${res.linhasDeSaldoIgnoradas ? ` · ${res.linhasDeSaldoIgnoradas} linha(s) de saldo ignorada(s)` : ""} · conta do arquivo ${res.contaBanco}${res.saldo != null ? ` · saldo no arquivo ${Number(res.saldo).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : ""}` });
     setOfxAlvo(null);
     if (!res.error) load();
   };
@@ -492,7 +495,7 @@ const save = async () => {
                               <RefreshCw className="w-3.5 h-3.5" />
                             </button>
                           )}
-                          {(a.bank === "XP" || a.bank === "BTG") && (
+                          {BANCOS_OFX.includes(a.bank) && (
                             <button
                               onClick={() => { setOfxAlvo(a); ofxRef.current?.click(); }}
                               className="p-2 rounded-lg hover:bg-zinc-100 text-[#9ca3af] hover:text-zinc-800 transition-colors"

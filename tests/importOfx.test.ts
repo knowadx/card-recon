@@ -52,6 +52,52 @@ ${lancs.map(([t, d, v, id, memo]) => `          <STMTTRN>
 </OFX>
 `;
 
+
+/** OFX no formato do Itaú (medido no arquivo real): SGML sem fechamento, linha "SALDO ANTERIOR", FITID = data+sequência, fuso [-03:EST]. */
+const ofxItau = (lancs: Array<[string, string, string]>) => `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+CHARSET:1252
+
+<OFX>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<STMTRS>
+<CURDEF>BRL
+<BANKACCTFROM>
+<BANKID>0341
+<ACCTID>0145999990
+<ACCTTYPE>CHECKING
+</BANKACCTFROM>
+<BANKTRANLIST>
+<DTSTART>20261024100000[-03:EST]
+<DTEND>20261025100000[-03:EST]
+<STMTTRN>
+<TRNTYPE>CREDIT
+<DTPOSTED>20261023100000[-03:EST]
+<TRNAMT>37536.87
+<FITID>20261023001
+<MEMO>SALDO ANTERIOR
+</STMTTRN>
+${lancs.map(([fitid, valor, memo]) => `<STMTTRN>
+<TRNTYPE>${valor.startsWith("-") ? "DEBIT" : "CREDIT"}
+<DTPOSTED>20261024100000[-03:EST]
+<TRNAMT>${valor}
+<FITID>${fitid}
+<CHECKNUM>${fitid}
+<MEMO>${memo}
+</STMTTRN>`).join("\n")}
+</BANKTRANLIST>
+<LEDGERBAL>
+<BALAMT>37547.27
+<DTASOF>20261025100000[-03:EST]
+</LEDGERBAL>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>
+`;
+
 let s: Awaited<ReturnType<typeof seedTwoGroups>>;
 let admin: { id: string; email: string };
 let contaXp: { id: string };
@@ -107,6 +153,16 @@ describe("leitura do OFX", () => {
       ["1", -1500, "2026-10-01T09:21:34.000Z", "Pagamento de boleto"],
       ["2", 2.5, "2026-10-25T08:24:46.000Z", "Rendimento"],
     ]);
+  });
+
+  it("formato do Itaú: linha SALDO ANTERIOR fica fora; FITID data+sequência vira chave por dia/valor/descrição/ocorrência", () => {
+    const { extrato } = lerOfx(ofxItau([["20261024001", "-100.00", "PIX ENVIADO A"], ["20261024002", "-50.00", "TED B"]]));
+    expect(extrato).toMatchObject({ banco: "0341", conta: "0145999990", linhasDeSaldo: 1, saldo: 37547.27 });
+    expect(extrato!.lancamentos.map((l) => [l.valor, l.data.toISOString(), l.chave.slice(0, 4)])).toEqual([
+      [-100, "2026-10-24T13:00:00.000Z", "pos:"],
+      [-50, "2026-10-24T13:00:00.000Z", "pos:"],
+    ]);
+    expect(lerOfx(ofxItau([])).erro).toContain("só tem a linha de saldo");
   });
 
   it("recusa o que não é OFX ou não diz a conta", () => {
@@ -171,6 +227,19 @@ describe("POST /api/import/ofx", () => {
     const res = await importar(contaBtg.id, ofxXp());
     expect(res.status).toBe(400);
     expect((await res.json()).error).toContain("já sincroniza pela API do BTG");
+  });
+
+  it("Itaú: numeração do dia mudou entre exportações → nada some e nada duplica; dois iguais no dia seguem separados", async () => {
+    const itau = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "Itaú", currency: "BRL", name: "Itaú Pixel" } });
+    loginAs(admin);
+    // 1ª exportação: A (001), B (002) e dois pagamentos idênticos (003, 004)
+    expect(await (await importar(itau.id, ofxItau([["20261024001", "-100.00", "PIX ENVIADO A"], ["20261024002", "-50.00", "TED B"], ["20261024003", "-10.00", "TARIFA"], ["20261024004", "-10.00", "TARIFA"]]))).json())
+      .toMatchObject({ gravados: 4, linhasDeSaldoIgnoradas: 1 });
+    // 2ª exportação: entrou C no meio do dia e a sequência andou (B virou 003, as tarifas 004/005)
+    const r = await (await importar(itau.id, ofxItau([["20261024001", "-100.00", "PIX ENVIADO A"], ["20261024002", "-30.00", "BOLETO C"], ["20261024003", "-50.00", "TED B"], ["20261024004", "-10.00", "TARIFA"], ["20261024005", "-10.00", "TARIFA"]]))).json();
+    expect(r).toMatchObject({ gravados: 1, jaExistiam: 4 }); // só o C entrou
+    const l = await prisma.transaction.findMany({ where: { accountId: itau.id }, orderBy: { amount: "asc" } });
+    expect(l.map((t) => t.amount)).toEqual([-100, -50, -30, -10, -10]); // sem crédito falso do saldo, sem duplicar B, tarifas iguais mantidas
   });
 
   it("membro = 403; conta de outro grupo = 404 (nada gravado)", async () => {
