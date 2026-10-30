@@ -380,7 +380,7 @@ const integrationCalls = (): Array<[string, () => Promise<Response>]> => [
 describe("integrações Revolut/Wise — só o administrador geral", () => {
   it("membro (mesmo na própria conta/empresa) = 403, sem chamar banco e sem gravar credencial", async () => {
     await prisma.credential.create({
-      data: { issuer: "revolut", company: "Pixel Ads LLC", token: "refresh-antigo", secrets: JSON.stringify({ clientId: "cli", redirectUri: "http://localhost/api/revolut/callback" }) },
+      data: { issuer: "revolut", company: s.companies.pixel.id, token: "refresh-antigo", secrets: JSON.stringify({ clientId: "cli", redirectUri: "http://localhost/api/revolut/callback" }) },
     });
     const before = await prisma.credential.findMany({ orderBy: { id: "asc" } });
     for (const user of [s.users.pixel, s.users.operador, s.users.semAcesso]) {

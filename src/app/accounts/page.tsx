@@ -782,7 +782,7 @@ const save = async () => {
             )}
             {form.bank === "Revolut" && (() => {
               const companyName = companies.find(c => c.id === form.companyId)?.name ?? "";
-              const connected = companyName && revConnectedCompanies.includes(companyName);
+              const connected = !!form.companyId && revConnectedCompanies.includes(form.companyId); // conexão Revolut é por ID da empresa
               return (
                 <div className="space-y-2">
                   <Label className="text-[13px] font-medium text-[#374151]">Revolut Business (OAuth por empresa)</Label>
@@ -803,7 +803,7 @@ const save = async () => {
                         variant="outline"
                         disabled={!revClientId}
                         className="h-10 text-sm rounded-lg border-purple-200 bg-purple-50 text-purple-700"
-                        onClick={() => window.open(`/api/revolut/auth?company=${encodeURIComponent(companyName)}&client_id=${encodeURIComponent(revClientId)}`, "_blank", "width=700,height=700")}
+                        onClick={() => window.open(`/api/revolut/auth?companyId=${encodeURIComponent(form.companyId)}&client_id=${encodeURIComponent(revClientId)}`, "_blank", "width=700,height=700")}
                       >
                         Conectar
                       </Button>

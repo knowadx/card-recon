@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { prisma } from "@/lib/db";
 import { completeConsent } from "@/lib/revolut";
 import { guarded, requireSuperadmin } from "@/lib/access";
 import { escapeHtml } from "@/lib/html";
@@ -23,7 +24,7 @@ export const GET = guarded(async (request: NextRequest) => {
   // A empresa vem SÓ do cookie gravado por /api/revolut/auth neste navegador (anti-CSRF). O Revolut
   // nem sempre devolve o state; quando devolve, tem que bater com o cookie.
   const cookieValue = request.cookies.get("cr_revolut_company")?.value;
-  const company = cookieValue ? decodeURIComponent(cookieValue) : null;
+  const company = cookieValue ? decodeURIComponent(cookieValue) : null; // ID da empresa
   const state = request.nextUrl.searchParams.get("state");
 
   if (error) return html(`<h2>Autorização negada</h2><p>${escapeHtml(error)}</p>`, 400);
@@ -33,7 +34,8 @@ export const GET = guarded(async (request: NextRequest) => {
 
   try {
     await completeConsent(company, code);
-    return html(`<h2 style="color:#00b9a5">✓ Revolut conectado (${escapeHtml(company)})!</h2><p>Pode fechar esta aba.</p>`);
+    const nome = (await prisma.company.findUnique({ where: { id: company }, select: { name: true } }))?.name ?? company;
+    return html(`<h2 style="color:#00b9a5">✓ Revolut conectado (${escapeHtml(nome)})!</h2><p>Pode fechar esta aba.</p>`);
   } catch (e) {
     return html(`<h2>Erro ao conectar</h2><pre style="white-space:pre-wrap">${escapeHtml((e as Error).message)}</pre>`, 500);
   }

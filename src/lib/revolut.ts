@@ -8,8 +8,10 @@ import { prisma } from "./db";
  * consentimento OAuth; o MESMO certificado X.509 (revolut_public.cer) é subido em
  * todas. A chave privada (REVOLUT_PRIVATE_KEY ou revolut_private.pem) é compartilhada.
  *
- * Credencial por empresa: Credential(issuer="revolut", company),
+ * Credencial por empresa: Credential(issuer="revolut", company = ID da empresa no PixelFinance),
  *   token = refresh_token, secrets = { clientId, redirectUri, accessToken, accessExp }.
+ * ID, nunca o NOME: em 2026-10 as empresas foram renomeadas (PubViews OÜ → PUBVIEWS OÜ) e a conexão
+ * guardada pelo nome sumiu pro sync e pra tela (migration 0008 converteu as antigas).
  */
 
 export const REVOLUT_BASE = process.env.REVOLUT_API_BASE || "https://b2b.revolut.com/api/1.0";
@@ -43,13 +45,13 @@ export function buildJwt(clientId: string, redirectUri: string): string {
   return `${signing}.${base64url(sign.sign(getPrivateKey()))}`;
 }
 
-export function authorizeUrl(clientId: string, company: string, redirectUri: string): string {
+export function authorizeUrl(clientId: string, companyId: string, redirectUri: string): string {
   const u = new URL("https://business.revolut.com/app-confirm");
   u.searchParams.set("client_id", clientId);
   u.searchParams.set("redirect_uri", redirectUri);
   u.searchParams.set("response_type", "code");
   u.searchParams.set("scope", "READ");
-  u.searchParams.set("state", company);
+  u.searchParams.set("state", companyId);
   return u.toString();
 }
 
@@ -68,46 +70,46 @@ async function tokenRequest(clientId: string, redirectUri: string, params: Recor
   return res.json() as Promise<{ access_token: string; refresh_token?: string; expires_in: number }>;
 }
 
-/** Registra empresa + client_id + redirect antes do consentimento. */
-export async function registerCompany(company: string, clientId: string, redirectUri: string): Promise<void> {
+/** Registra empresa (ID) + client_id + redirect antes do consentimento. */
+export async function registerCompany(companyId: string, clientId: string, redirectUri: string): Promise<void> {
   await prisma.credential.upsert({
-    where: { issuer_company: { issuer: "revolut", company } },
+    where: { issuer_company: { issuer: "revolut", company: companyId } },
     update: { secrets: JSON.stringify({ clientId, redirectUri }) },
-    create: { issuer: "revolut", company, token: "", secrets: JSON.stringify({ clientId, redirectUri }) },
+    create: { issuer: "revolut", company: companyId, token: "", secrets: JSON.stringify({ clientId, redirectUri }) },
   });
 }
 
 /** Troca o code pelo refresh+access token e grava na Credential da empresa. */
-export async function completeConsent(company: string, code: string): Promise<void> {
-  const cred = await prisma.credential.findUnique({ where: { issuer_company: { issuer: "revolut", company } } });
+export async function completeConsent(companyId: string, code: string): Promise<void> {
+  const cred = await prisma.credential.findUnique({ where: { issuer_company: { issuer: "revolut", company: companyId } } });
   const s = cred ? parseSecrets(cred.secrets) : {};
-  if (!s.clientId || !s.redirectUri) throw new Error(`Empresa "${company}" sem client_id/redirect (use /api/revolut/auth primeiro)`);
+  if (!s.clientId || !s.redirectUri) throw new Error("empresa sem client_id/redirect (use /api/revolut/auth primeiro)");
   const t = await tokenRequest(s.clientId, s.redirectUri, { grant_type: "authorization_code", code, redirect_uri: s.redirectUri });
   const exp = Math.floor(Date.now() / 1000) + (t.expires_in ?? 1800);
   await prisma.credential.update({
-    where: { issuer_company: { issuer: "revolut", company } },
+    where: { issuer_company: { issuer: "revolut", company: companyId } },
     data: { token: t.refresh_token ?? "", secrets: JSON.stringify({ clientId: s.clientId, redirectUri: s.redirectUri, accessToken: t.access_token, accessExp: exp }) },
   });
 }
 
-/** Access token válido da empresa (refresh se expirado). */
-export async function getValidAccessToken(company: string): Promise<string> {
-  const cred = await prisma.credential.findUnique({ where: { issuer_company: { issuer: "revolut", company } } });
-  if (!cred) throw new Error(`Revolut "${company}" não cadastrado`);
+/** Access token válido da empresa (ID; refresh se expirado). */
+export async function getValidAccessToken(companyId: string): Promise<string> {
+  const cred = await prisma.credential.findUnique({ where: { issuer_company: { issuer: "revolut", company: companyId } } });
+  if (!cred) throw new Error("Revolut desta empresa não cadastrado");
   const s = parseSecrets(cred.secrets);
   const now = Math.floor(Date.now() / 1000);
   if (s.accessToken && s.accessExp && Number(s.accessExp) > now + 60) return s.accessToken;
-  if (!cred.token) throw new Error(`Revolut "${company}" sem consentimento`);
+  if (!cred.token) throw new Error("Revolut desta empresa sem consentimento");
   const t = await tokenRequest(s.clientId, s.redirectUri, { grant_type: "refresh_token", refresh_token: cred.token });
   const exp = now + (t.expires_in ?? 1800);
   await prisma.credential.update({
-    where: { issuer_company: { issuer: "revolut", company } },
+    where: { issuer_company: { issuer: "revolut", company: companyId } },
     data: { token: t.refresh_token ?? cred.token, secrets: JSON.stringify({ clientId: s.clientId, redirectUri: s.redirectUri, accessToken: t.access_token, accessExp: exp }) },
   });
   return t.access_token;
 }
 
-/** Empresas Revolut já consentidas (têm refresh token). */
+/** Empresas (IDs) com a Revolut já consentida (têm refresh token). */
 export async function connectedRevolutCompanies(): Promise<string[]> {
   const rows = await prisma.credential.findMany({ where: { issuer: "revolut", isActive: true, NOT: { token: "" } }, select: { company: true } });
   return rows.map((r) => r.company);

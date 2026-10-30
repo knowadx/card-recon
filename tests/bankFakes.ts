@@ -367,7 +367,7 @@ export async function seedBankAccounts(s: Seed) {
   await prisma.credential.create({
     data: {
       issuer: "revolut",
-      company: s.companies.pixel.name,
+      company: s.companies.pixel.id,
       token: "refresh-pixel",
       secrets: JSON.stringify({ clientId: "cli-pixel", redirectUri: "https://app.teste/api/revolut/callback", accessToken: REVOLUT_TOKEN, accessExp: Math.floor(Date.now() / 1000) + 3600 }),
     },

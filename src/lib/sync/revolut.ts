@@ -71,7 +71,7 @@ export async function syncRevolutAccount(opts: {
 
   let accessToken: string;
   try {
-    accessToken = await getValidAccessToken(account.company.name);
+    accessToken = await getValidAccessToken(account.companyId);
   } catch (e) {
     console.error(e);
     return { status: 401, body: { error: `Revolut da empresa "${account.company.name}" não conectado`, needsAuth: true } };

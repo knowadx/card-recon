@@ -11,7 +11,7 @@ export const GET = guarded(async (request: Request) => {
   if (!account) return Response.json({ error: "account not found" }, { status: 404 });
 
   try {
-    const accessToken = await getValidAccessToken(account.company.name);
+    const accessToken = await getValidAccessToken(account.companyId);
     const res = await fetch(`${REVOLUT_BASE}/accounts`, { headers: { Authorization: `Bearer ${accessToken}` } });
     if (!res.ok) return Response.json({ error: `Revolut API ${res.status}: ${await res.text()}` }, { status: 502 });
     return Response.json(await res.json());

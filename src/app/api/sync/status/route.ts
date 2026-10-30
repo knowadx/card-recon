@@ -55,7 +55,7 @@ export const GET = guarded(async () => {
       }
 
       if (bank === "Revolut") {
-        const co = account.company.name;
+        const co = account.companyId; // conexão Revolut é por ID da empresa (o nome pode mudar)
         if (!revolutCache.has(co)) {
           try {
             await getValidAccessToken(co);

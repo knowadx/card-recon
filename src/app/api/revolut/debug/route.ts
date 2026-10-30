@@ -5,12 +5,12 @@ export const GET = guarded(async (request: Request) => {
   await requireSuperadmin(); // depuração (transações cruas do banco) = só o administrador geral
   const { searchParams } = new URL(request.url);
   const count = parseInt(searchParams.get("count") ?? "5");
-  const company = searchParams.get("company");
-  if (!company) return Response.json({ error: "?company= obrigatório" }, { status: 400 });
+  const companyId = searchParams.get("companyId");
+  if (!companyId) return Response.json({ error: "?companyId= obrigatório" }, { status: 400 });
 
   let accessToken: string;
   try {
-    accessToken = await getValidAccessToken(company);
+    accessToken = await getValidAccessToken(companyId);
   } catch (e) {
     return Response.json({ error: String(e) }, { status: 401 });
   }

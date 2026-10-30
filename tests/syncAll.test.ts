@@ -70,7 +70,7 @@ beforeEach(async () => {
   await prisma.credential.create({ data: { issuer: "wise", company: co.name, token: "tok-outro-cred-wise" } });
   await prisma.credential.create({
     data: {
-      issuer: "revolut", company: co.name, token: "refresh-outro",
+      issuer: "revolut", company: co.id, token: "refresh-outro",
       secrets: JSON.stringify({ clientId: "cli-outro", redirectUri: "https://app.teste/api/revolut/callback", accessToken: OUTRO_REVOLUT_TOKEN, accessExp: Math.floor(Date.now() / 1000) + 3600 }),
     },
   });
@@ -262,7 +262,7 @@ describe("POST /api/sync/all — mesma implementação das rotas por banco", () 
   });
 
   it("falha de um banco vira erro SÓ daquela conta; as outras seguem", async () => {
-    await prisma.credential.deleteMany({ where: { issuer: "revolut", company: s.companies.pixel.name } });
+    await prisma.credential.deleteMany({ where: { issuer: "revolut", company: s.companies.pixel.id } });
     vi.spyOn(console, "error").mockImplementation(() => {});
     loginAs(s.users.pixel);
     const b = banks();
