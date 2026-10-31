@@ -78,13 +78,17 @@ describe("um grupo não enxerga o outro", () => {
     expect(await statusOf(assertTransactions(u, [s.transactions.pixel.id, s.transactions.outro.id]))).toBe(404);
   });
 
-  it("membro só de operação: vê a conta/transação/empresa da operação, nada do outro grupo, e não cria em holding", async () => {
+  it("membro só de operação: vê a transação marcada (no split) com a operação — não a conta nem a empresa dela", async () => {
     const u = s.users.operador;
-    expect(await statusOf(assertAccount(u, s.accounts.pixel.id))).toBe("ok");
     expect(await statusOf(assertTransaction(u, s.transactions.pixel.id))).toBe("ok");
-    expect(await statusOf(assertCompany(u, s.companies.pixel.id))).toBe("ok");
+    expect(await statusOf(assertTransaction(u, s.transactions.outro.id))).toBe(404);
+    expect(await statusOf(assertAccount(u, s.accounts.pixel.id))).toBe(404);
+    expect(await statusOf(assertCompany(u, s.companies.pixel.id))).toBe(404);
     expect(await statusOf(assertAccount(u, s.accounts.outro.id))).toBe(404);
     expect(await statusOf(assertHolding(u, s.holdings.pixel.id))).toBe(404);
+    // tirou a marcação do split: a transação some pra ele
+    await prisma.transactionSplit.updateMany({ where: { transactionId: s.transactions.pixel.id }, data: { operationId: null } });
+    expect(await statusOf(assertTransaction(u, s.transactions.pixel.id))).toBe(404);
   });
 
   it("logado sem vínculo nenhum não vê nada", async () => {

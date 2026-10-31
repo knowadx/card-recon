@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { fetchControlledAccounts, parseFundingDisplay } from "@/lib/meta";
-import { getCurrentUser, isSuperadmin, accessibleOperationsWhere } from "@/lib/auth";
+import { getCurrentUser, isSuperadmin, memberOperationsWhere } from "@/lib/auth";
 import { syncBillingCharges } from "@/lib/metaCharges";
 import { getSyncPeriod } from "@/lib/settings";
 
@@ -12,15 +12,15 @@ export const maxDuration = 300;
  * POST /api/meta/sync — "Sincronizar Meta" (numa ordem só):
  *   1) contas controladas + cartão de funding + gasto (MetaAdAccount)
  *   2) cobranças reais de TODAS as contas (MetaBillingCharge, via activities)
- * Cada credencial Meta é POR OPERAÇÃO. Superadmin = todas; admin/member = escopo dele.
+ * Cada credencial Meta é POR OPERAÇÃO. Superadmin = todas; os demais = as que operam (membro).
  */
 export async function POST(request: Request) {
   try {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ ok: false, error: "não autenticado" }, { status: 401 });
 
-    // superadmin sincroniza todas; admin = ops da(s) holding(s) dele ou que é membro; member = as que é membro
-    const opScope = await accessibleOperationsWhere(user);
+    // superadmin sincroniza todas; os demais, só as operações que operam (membro)
+    const opScope = await memberOperationsWhere(user);
     const where = { issuer: "meta", isActive: true, ...(opScope ? { operation: opScope } : {}) };
     const { from, to } = await request.json().catch(() => ({}));
     const period = await getSyncPeriod();

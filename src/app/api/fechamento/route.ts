@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { accessibleOperationsWhere, isSuperadmin, scopes } from "@/lib/auth";
+import { memberOperationsWhere, isSuperadmin, scopes } from "@/lib/auth";
 import { accountScope, assertCompany, companyScope, guarded, requireUser, transactionScope } from "@/lib/access";
 import { metaTokenStatus } from "@/lib/meta";
 import { SINCRONIZAVEIS, statusDoMes } from "@/lib/importStatus";
@@ -145,9 +145,9 @@ async function contasDoPasso1(user: AppUserLike, companyId: string, dateRange: {
   }));
 }
 
-/** Passo 3: conexão Meta de cada operação do escopo — existe? ainda vale (pergunta à Meta)? */
+/** Passo 3: conexão Meta de cada operação que o usuário opera — existe? ainda vale (pergunta à Meta)? */
 async function conexoesMeta(user: AppUserLike) {
-  const escopo = await accessibleOperationsWhere(user);
+  const escopo = await memberOperationsWhere(user);
   const ops = await prisma.operation.findMany({ where: escopo ?? {}, select: { id: true, name: true }, orderBy: { name: "asc" } });
   const creds = await prisma.credential.findMany({
     where: { issuer: "meta", isActive: true, operationId: { in: ops.map((o) => o.id) } },

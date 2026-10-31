@@ -1,12 +1,12 @@
 import { prisma } from "@/lib/db";
-import { AccessError, accountScope, assertCompany, assertOperation, guarded, requireUser } from "@/lib/access";
+import { AccessError, accountScope, assertCompany, guarded, requireUser } from "@/lib/access";
 import { isManager } from "@/lib/auth";
 
 export const GET = guarded(async () => {
   const user = await requireUser();
   const accounts = await prisma.account.findMany({
     where: await accountScope(user),
-    include: { company: true, operation: { select: { id: true, name: true } } },
+    include: { company: true },
     orderBy: { name: "asc" },
   });
   // Não vaza o token pro client — só sinaliza se existe
@@ -19,7 +19,6 @@ export const POST = guarded(async (request: Request) => {
   const user = await requireUser();
   const body = await request.json();
   await assertCompany(user, body.companyId);
-  if (body.operationId) await assertOperation(user, body.operationId);
   if (body.apiToken && !isManager(user.role)) {
     throw new AccessError(403, "só administradores cadastram o token do banco");
   }
@@ -30,7 +29,6 @@ export const POST = guarded(async (request: Request) => {
       currency: body.currency,
       name: body.name,
       apiToken: body.apiToken || null,
-      operationId: body.operationId || null,
     },
     include: { company: true },
   });

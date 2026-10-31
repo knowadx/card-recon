@@ -148,7 +148,6 @@ export async function syncMercuryAccount(opts: {
         cardLast4: cardId ? cardMap.get(cardId) ?? null : null,
         isMetaCharge: isMetaMerchant(tx.merchantName, tx.counterpartyName, tx.bankDescription),
         metaRef: extractMetaRef(tx.merchantName, tx.counterpartyName, tx.bankDescription),
-        operationId: account.operationId,
       };
     }),
   });

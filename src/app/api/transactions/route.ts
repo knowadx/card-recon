@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { assertAccount, assertOperation, guarded, requireUser, transactionScope } from "@/lib/access";
+import { assertAccount, guarded, requireUser, transactionScope } from "@/lib/access";
 import { transactionFilterWhere } from "@/lib/transactionFilters";
 
 const PAGE_SIZE = 100;
@@ -44,7 +44,6 @@ export const POST = guarded(async (request: Request) => {
   const user = await requireUser();
   const body = await request.json();
   await assertAccount(user, String(body.accountId ?? "")); // conta-alvo precisa ser minha
-  if (body.operationId) await assertOperation(user, String(body.operationId));
   const transaction = await prisma.transaction.create({
     data: {
       accountId: body.accountId,

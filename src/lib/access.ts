@@ -1,12 +1,13 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "./db";
-import { findAccessibleOperation, getCurrentUser, isManager, isSuperadmin, scopes } from "./auth";
+import { getCurrentUser, isManager, isSuperadmin, scopes } from "./auth";
 
 /**
  * Permissão por grupo — a peça ÚNICA que as rotas usam. Regras:
  *  - superadmin vê e altera tudo;
- *  - os demais veem e alteram só o que é das holdings deles (Membership) ou das operações
- *    deles (OperationMembership), com o mesmo critério que o GET /api/transactions já usava;
+ *  - os demais veem e alteram só o que é das holdings deles (Membership); a operação
+ *    (OperationMembership) dá acesso SÓ às transações com split daquela operação — não a contas
+ *    nem empresas (a operação mora só no split, decisão do dono em 2026-10-30);
  *  - fora do escopo responde 404 (não confirma que o recurso existe);
  *  - configuração global (categorias, gráficos, câmbio, ajustes, admin/*, integrações) só superadmin altera.
  */
@@ -59,37 +60,28 @@ export async function requireManager(): Promise<AppUser> {
   return user;
 }
 
-/** Contas visíveis: da empresa de uma holding minha OU de uma operação minha. */
+/** Contas visíveis: das empresas das holdings minhas. (Operação não dá conta: ela mora no split.) */
 export async function accountScope(user: AppUser): Promise<Prisma.AccountWhereInput> {
   if (isSuperadmin(user.role)) return {};
-  const { holdingIds, operationIds } = await scopes(user.id);
-  const or: Prisma.AccountWhereInput[] = [];
-  if (holdingIds.length) or.push({ company: { holdingId: { in: holdingIds } } });
-  if (operationIds.length) or.push({ operationId: { in: operationIds } });
-  return or.length ? { OR: or } : { id: NONE };
+  const { holdingIds } = await scopes(user.id);
+  return holdingIds.length ? { company: { holdingId: { in: holdingIds } } } : { id: NONE };
 }
 
-/** Transações visíveis: conta no meu escopo OU a própria transação marcada numa operação minha. */
+/** Transações visíveis: conta no meu escopo OU algum split marcado numa operação minha. */
 export async function transactionScope(user: AppUser): Promise<Prisma.TransactionWhereInput> {
   if (isSuperadmin(user.role)) return {};
   const { holdingIds, operationIds } = await scopes(user.id);
   const or: Prisma.TransactionWhereInput[] = [];
   if (holdingIds.length) or.push({ account: { company: { holdingId: { in: holdingIds } } } });
-  if (operationIds.length) {
-    or.push({ operationId: { in: operationIds } });
-    or.push({ account: { operationId: { in: operationIds } } });
-  }
+  if (operationIds.length) or.push({ splits: { some: { operationId: { in: operationIds } } } });
   return or.length ? { OR: or } : { id: NONE };
 }
 
-/** Empresas visíveis: de uma holding minha OU com conta numa operação minha. */
+/** Empresas visíveis: das holdings minhas. */
 export async function companyScope(user: AppUser): Promise<Prisma.CompanyWhereInput> {
   if (isSuperadmin(user.role)) return {};
-  const { holdingIds, operationIds } = await scopes(user.id);
-  const or: Prisma.CompanyWhereInput[] = [];
-  if (holdingIds.length) or.push({ holdingId: { in: holdingIds } });
-  if (operationIds.length) or.push({ accounts: { some: { operationId: { in: operationIds } } } });
-  return or.length ? { OR: or } : { id: NONE };
+  const { holdingIds } = await scopes(user.id);
+  return holdingIds.length ? { holdingId: { in: holdingIds } } : { id: NONE };
 }
 
 /** IDs das contas visíveis — para filtros em tabelas sem relação direta (ex.: agregações). */
@@ -146,10 +138,14 @@ export async function assertHolding(user: AppUser, holdingId: string): Promise<v
   if (!holdingIds.includes(holdingId)) throw new AccessError(404, "holding não encontrada");
 }
 
-/** Operação que o usuário pode usar (mesmo critério de findAccessibleOperation). */
-export async function assertOperation(user: AppUser, operationId: string): Promise<void> {
+/**
+ * Operação que dá pra usar como etiqueta (split, filtro do P&L): a lista é GLOBAL, como categoria —
+ * basta existir. Quem MANDA na operação (Meta, conceder acesso) é outra regra: findMemberOperation.
+ */
+export async function assertOperation(_user: AppUser, operationId: string): Promise<void> {
   validId(operationId, "operação");
-  if (!(await findAccessibleOperation(user, operationId))) throw new AccessError(404, "operação não encontrada");
+  const found = await prisma.operation.findUnique({ where: { id: operationId }, select: { id: true } });
+  if (!found) throw new AccessError(404, "operação não encontrada");
 }
 
 /** Embrulha um handler de rota: AccessError/RequestError vira resposta JSON com o status certo. */

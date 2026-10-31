@@ -2,12 +2,11 @@
 
 import { useEffect, useState } from "react";
 
-type Holding = { id: string; name: string };
 type Operation = {
   id: string;
   name: string;
   type: string;
-  holding?: { id: string; name: string } | null;
+  podeGerenciar: boolean; // sou membro (ou superadmin): conecto o Meta e removo
   metaConnected?: boolean;
   metaUpdatedAt?: string | null;
   metaProfile?: string | null;
@@ -15,19 +14,16 @@ type Operation = {
 
 export default function OperationsPage() {
   const [operations, setOperations] = useState<Operation[]>([]);
-  const [holdings, setHoldings] = useState<Holding[]>([]);
   const [forbidden, setForbidden] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [type, setType] = useState("own");
-  const [holdingId, setHoldingId] = useState("");
 
   async function load() {
     const ops = await fetch("/api/operations");
     if (ops.status === 401) { setForbidden(true); return; }
     setOperations(await ops.json());
-    setHoldings(await fetch("/api/holdings").then((r) => r.json()));
   }
   useEffect(() => { load(); }, []);
 
@@ -35,13 +31,13 @@ export default function OperationsPage() {
     if (!name) return;
     const r = await fetch("/api/operations", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, type, holdingId }),
+      body: JSON.stringify({ name, type }),
     });
     setMsg(r.ok ? "✅ operação criada" : "❌ erro");
     setName(""); load();
   }
   async function delOp(id: string) {
-    if (!confirm("Remover operação? As transações marcadas com ela ficam sem operação.")) return;
+    if (!confirm("Remover operação? Os splits marcados com ela ficam sem operação, e a conexão Meta e os acessos dela somem.")) return;
     await fetch(`/api/operations?id=${id}`, { method: "DELETE" }); load();
   }
   async function disconnectMeta(id: string) {
@@ -63,8 +59,9 @@ export default function OperationsPage() {
       <div>
         <h1 className="text-xl font-semibold">Operações</h1>
         <p className="text-sm text-slate-500">
-          Operação é uma <strong>etiqueta livre</strong> (como categoria), carimbada na <strong>transação/split</strong> —
-          não é presa a empresa nem a conta. O operador só vê as transações da operação dele.
+          Operação é uma <strong>etiqueta global</strong> (como categoria), carimbada no <strong>split da transação</strong> —
+          não é presa a empresa, conta nem holding. Quem é membro de uma operação vê as transações marcadas com ela
+          e conecta o Meta dela.
         </p>
       </div>
       {msg && <div className="rounded-md bg-slate-900 px-3 py-2 text-sm text-white">{msg}</div>}
@@ -75,10 +72,6 @@ export default function OperationsPage() {
           <option value="own">própria (comissão isolada)</option>
           <option value="holding">da holding</option>
         </select>
-        <select className={input} value={holdingId} onChange={(e) => setHoldingId(e.target.value)}>
-          <option value="">(holding opcional)</option>
-          {holdings.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
-        </select>
         <button className={btn} onClick={create} disabled={!name}>Criar operação</button>
       </section>
 
@@ -88,10 +81,10 @@ export default function OperationsPage() {
           {operations.map((o) => (
             <div key={o.id} className="rounded-lg border border-slate-200 bg-white p-3 flex flex-col gap-2">
               <div className="flex items-center justify-between">
-                <span className="font-medium">{o.name} <span className="text-xs text-slate-400">· {o.type === "holding" ? "da holding" : "própria"}{o.holding ? ` · ${o.holding.name}` : ""}</span></span>
-                <button className="text-xs text-red-600 hover:underline" onClick={() => delOp(o.id)}>remover</button>
+                <span className="font-medium">{o.name} <span className="text-xs text-slate-400">· {o.type === "holding" ? "da holding" : "própria"}</span></span>
+                {o.podeGerenciar && <button className="text-xs text-red-600 hover:underline" onClick={() => delOp(o.id)}>remover</button>}
               </div>
-              <div className="flex items-center justify-between border-t border-slate-100 pt-2">
+              {o.podeGerenciar && <div className="flex items-center justify-between border-t border-slate-100 pt-2">
                 {o.metaConnected ? (
                   <span className="text-xs text-emerald-700">
                     Meta conectado ✓{o.metaProfile ? <span className="text-slate-500"> · {o.metaProfile}</span> : ""}
@@ -107,7 +100,7 @@ export default function OperationsPage() {
                     <button className="text-xs text-red-600 hover:underline" onClick={() => disconnectMeta(o.id)}>desconectar</button>
                   )}
                 </div>
-              </div>
+              </div>}
             </div>
           ))}
         </div>

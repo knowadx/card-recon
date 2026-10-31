@@ -134,12 +134,11 @@ export async function syncRevolutAccount(opts: {
               cardLabel: (() => { const l4 = last4Of(tx.card?.last_digits ?? tx.card?.card_number); return l4 ? cardLabelByLast4.get(l4) ?? null : null; })(),
               isMetaCharge: isMetaMerchant(tx.merchant?.name, leg.counterparty?.name, leg.description),
               metaRef: extractMetaRef(tx.merchant?.name, leg.description, leg.counterparty?.name, tx.reference),
-              operationId: account.operationId,
               billAmount: leg.bill_amount != null ? Math.abs(leg.bill_amount) : null,
               billCurrency: leg.bill_currency ?? null,
             };
           })
-          .filter(Boolean) as Array<{ accountId: string; date: Date; description: string; amount: number; fee: number; currency: string; reference: string; cardLast4: string | null; cardLabel: string | null; isMetaCharge: boolean; metaRef: string | null; operationId: string | null; billAmount: number | null; billCurrency: string | null }>,
+          .filter(Boolean) as Array<{ accountId: string; date: Date; description: string; amount: number; fee: number; currency: string; reference: string; cardLast4: string | null; cardLabel: string | null; isMetaCharge: boolean; metaRef: string | null; billAmount: number | null; billCurrency: string | null }>,
       );
 
   // Salva syncConfig logo de cara (não depende de terminar a paginação)

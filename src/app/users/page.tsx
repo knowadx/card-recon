@@ -49,7 +49,8 @@ export default function UsersPage() {
     if (r.status === 403) { setForbidden(true); return; }
     setUsers(await r.json());
     setHoldings(await fetch("/api/holdings").then((x) => x.json()));
-    setOperations(await fetch("/api/operations").then((x) => x.json().then((d) => Array.isArray(d) ? d : [])));
+    // a lista de operações é global; aqui só as que dá pra conceder (as que eu opero — o servidor confere de novo)
+    setOperations(await fetch("/api/operations").then((x) => x.json().then((d) => Array.isArray(d) ? d.filter((o: { podeGerenciar?: boolean }) => o.podeGerenciar) : [])));
     setAcesso(await fetch("/api/users/acesso-cloudflare").then((x) => x.ok ? x.json() : null).catch(() => null));
   }
   useEffect(() => { load(); }, []);
@@ -91,7 +92,7 @@ export default function UsersPage() {
   return (
     <div className="flex flex-col gap-6 p-2">
       <h1 className="text-xl font-semibold">Usuários (operadores)</h1>
-      <p className="text-sm text-slate-500">Acesso por <strong>Holding</strong> (vê o holding todo) e/ou por <strong>Operação</strong> (vê só as contas daquela operação).</p>
+      <p className="text-sm text-slate-500">Acesso por <strong>Holding</strong> (vê o holding todo) e/ou por <strong>Operação</strong> (vê só as transações marcadas com aquela operação).</p>
       {msg && <div className="rounded-md bg-slate-900 px-3 py-2 text-sm text-white">{msg}</div>}
       {acesso && (
         <div className={`flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm ${acesso.status === "em_dia" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>

@@ -51,18 +51,19 @@ async function wipeConfig() {
 }
 
 async function seedReports(seed: Awaited<ReturnType<typeof seedTwoGroups>>) {
-  const { accounts, transactions, holdings, users, operations } = seed;
+  const { accounts, transactions, users, operations } = seed;
   await prisma.setting.create({ data: { key: "sync.from", value: "2026-01-01" } });
   await prisma.setting.create({ data: { key: "sync.to", value: "2026-12-31" } });
 
-  const opOutro = await prisma.operation.create({ data: { name: "Op Outro", holdingId: holdings.outro.id } });
+  const opOutro = await prisma.operation.create({ data: { name: "Op Outro" } });
   await prisma.operationMembership.create({ data: { userId: users.outro.id, operationId: opOutro.id } });
 
   const receita = await prisma.category.create({ data: { type: "MANAGERIAL", name: "Receita" } });
   await prisma.transaction.update({ where: { id: transactions.pixel.id }, data: { isMetaCharge: true } });
   await prisma.transaction.update({ where: { id: transactions.outro.id }, data: { isMetaCharge: true } });
-  await prisma.transactionSplit.create({ data: { transactionId: transactions.pixel.id, amount: -100, managerialCategoryId: receita.id } });
-  await prisma.transactionSplit.create({ data: { transactionId: transactions.outro.id, amount: -200, managerialCategoryId: receita.id } });
+  // o seed já tem o split da Pixel (marcado na Op Pixel): só ganha a categoria
+  await prisma.transactionSplit.updateMany({ where: { transactionId: transactions.pixel.id }, data: { managerialCategoryId: receita.id } });
+  await prisma.transactionSplit.create({ data: { transactionId: transactions.outro.id, amount: -200, managerialCategoryId: receita.id, operationId: opOutro.id } });
   await prisma.transaction.create({
     data: { accountId: accounts.pixel.id, date: new Date("2026-10-05"), description: "Entrada Pixel", amount: 50, currency: "USD", reference: "px-2" },
   });
@@ -209,9 +210,10 @@ describe("/api/pl", () => {
     expect(pixel.body.rows.map((r: { id: string; total: number }) => [r.id, r.total])).toEqual([[f.receita.id, -100]]);
     expect(pixel.body.uncategorizedRow).toMatchObject({ total: 50, count: 1 });
 
+    // operador só da Op Pixel: só a transação marcada com ela; a "Entrada Pixel" (sem marca) não é dele
     const operador = await call(s.users.operador, get());
     expect(operador.body.rows[0].total).toBe(-100);
-    expect(operador.body.uncategorizedRow.total).toBe(50);
+    expect(operador.body.uncategorizedRow).toBeNull();
 
     const outro = await call(s.users.outro, get());
     expect(outro.body.rows[0].total).toBe(-200);
@@ -226,10 +228,16 @@ describe("/api/pl", () => {
     expect(sem.body.uncategorizedRow).toBeNull();
   });
 
-  it("filtro de empresa/holding/operação fora do escopo = 404; o próprio filtra; deslogado = 401", async () => {
+  it("filtro de empresa/holding fora do escopo = 404; operação é lista global, mas filtrar por ela não fura o escopo; deslogado = 401", async () => {
     expect((await call(s.users.pixel, get(`&companyId=${s.companies.outro.id}`))).status).toBe(404);
     expect((await call(s.users.pixel, get(`&holdingId=${s.holdings.outro.id}`))).status).toBe(404);
-    expect((await call(s.users.pixel, get(`&operationId=${f.opOutro.id}`))).status).toBe(404);
+    expect((await call(s.users.pixel, get(`&operationId=op-que-nao-existe`))).status).toBe(404);
+    // Op Outro existe (lista global) e marca a transação do outro grupo: a Pixel filtra e vê NADA dela
+    const filtroAlheio = await call(s.users.pixel, get(`&operationId=${f.opOutro.id}`));
+    expect(filtroAlheio.status).toBe(200);
+    expect(filtroAlheio.body.rows).toEqual([]);
+    expect(filtroAlheio.body.uncategorizedRow).toBeNull();
+    expect((await call(s.users.outro, get(`&operationId=${f.opOutro.id}`))).body.rows[0].total).toBe(-200);
     const own = await call(s.users.pixel, get(`&holdingId=${s.holdings.pixel.id}`));
     expect(own.status).toBe(200);
     expect(own.body.rows[0].total).toBe(-100);
@@ -327,13 +335,19 @@ describe("/api/fechamento", () => {
     expect(JSON.stringify(r.body)).not.toContain("segredo-merc");
   });
 
-  it("passo 3: conexão Meta por operação do escopo (sem credencial = desconectado)", async () => {
+  it("passo 3: conexão Meta só das operações que a pessoa OPERA (sem credencial = desconectado)", async () => {
     await prisma.credential.create({ data: { issuer: "meta", company: "Op Pixel", operationId: s.operations.pixel.id, token: "tok-meta" } });
-    const r = await call(s.users.pixel, get());
+    const r = await call(s.users.operador, get());
     expect(r.body.metaConexoes).toEqual([
       expect.objectContaining({ operationId: s.operations.pixel.id, operacao: "Op Pixel", conectado: true }),
     ]);
     expect(JSON.stringify(r.body)).not.toContain("tok-meta");
+    // membro da holding Pixel, mas não da operação: a operação não tem holding dona → não é dele
+    expect((await call(s.users.pixel, get())).body.metaConexoes).toEqual([]);
+    // outro grupo opera a Op Outro (sem credencial)
+    expect((await call(s.users.outro, get())).body.metaConexoes).toEqual([
+      expect.objectContaining({ operationId: f.opOutro.id, operacao: "Op Outro", conectado: false }),
+    ]);
   });
 
   it("resultado: cobranças Meta do mês SEM fatura, com o motivo; outro grupo e as já casadas não entram", async () => {

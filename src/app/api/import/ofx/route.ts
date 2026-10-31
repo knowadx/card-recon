@@ -53,7 +53,6 @@ export const POST = guarded(async (request: Request) => {
     currency: account.currency,
     isMetaCharge: isMetaMerchant(l.descricao),
     metaRef: extractMetaRef(l.descricao),
-    operationId: account.operationId,
   }));
   const { count: gravados } = await prisma.transaction.createMany({ data: dados, skipDuplicates: true });
   if (dados.some((d) => d.isMetaCharge)) await recomputeHasReceipt();

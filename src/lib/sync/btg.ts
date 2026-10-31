@@ -122,7 +122,6 @@ export async function syncBtgAccount(opts: {
               currency: account.currency,
               isMetaCharge: isMetaMerchant(m.description, m.descriptionDetails),
               metaRef: extractMetaRef(m.description, m.descriptionDetails),
-              operationId: account.operationId,
             });
           }
         }

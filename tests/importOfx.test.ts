@@ -107,7 +107,7 @@ beforeEach(async () => {
   s = await seedTwoGroups();
   admin = await prisma.user.create({ data: { email: "adm-px@teste.com", role: "admin", name: "Admin Pixel" } });
   await prisma.membership.create({ data: { userId: admin.id, holdingId: s.holdings.pixel.id } });
-  contaXp = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "XP", currency: "BRL", name: "XP Pixel", operationId: s.operations.pixel.id } });
+  contaXp = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "XP", currency: "BRL", name: "XP Pixel" } });
 });
 
 const importar = (accountId: string, ofx: string) =>
@@ -182,7 +182,7 @@ describe("POST /api/import/ofx", () => {
       ["ofx:348:1234567:11111111-aaaa-4bbb-8ccc-000000000002", -1130, "BRL"],
       ["ofx:348:1234567:11111111-aaaa-4bbb-8ccc-000000000001", -115, "BRL"],
     ]);
-    expect(l[1]).toMatchObject({ description: "Pagamento para FACEBK *ABCD1234XY", isMetaCharge: true, metaRef: "ABCD1234XY", operationId: s.operations.pixel.id });
+    expect(l[1]).toMatchObject({ description: "Pagamento para FACEBK *ABCD1234XY", isMetaCharge: true, metaRef: "ABCD1234XY" });
     const log = await prisma.importLog.findFirstOrThrow({ where: { kind: "ofx" } });
     expect(log).toMatchObject({ filename: "extrato_xp.ofx", userId: admin.id, companyIds: [s.companies.pixel.id] });
   });

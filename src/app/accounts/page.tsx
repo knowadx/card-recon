@@ -10,7 +10,7 @@ import { Plus, Pencil, Trash2, RefreshCw, Upload } from "lucide-react";
 import { cnpjValido } from "@/lib/cnpj";
 
 type Company = { id: string; name: string; color: string; cnpj?: string | null };
-type Account = { id: string; name: string; bank: string; currency: string; company: Company; syncConfig?: string | null; operation?: { id: string; name: string } | null };
+type Account = { id: string; name: string; bank: string; currency: string; company: Company; syncConfig?: string | null };
 type MercuryAccount = { id: string; name: string; availableBalance?: number; kind: string; legalBusinessName?: string; entity: string };
 type WiseProfile = { id: string; label: string };
 type ApiStatus = { ok: boolean | null; label: string };

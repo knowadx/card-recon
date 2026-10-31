@@ -23,7 +23,7 @@ beforeEach(async () => {
   resetRequest();
   s = await seedTwoGroups();
   await prisma.metaAdAccount.deleteMany();
-  opOutro = await prisma.operation.create({ data: { name: "Op Outro", holdingId: s.holdings.outro.id } });
+  opOutro = await prisma.operation.create({ data: { name: "Op Outro" } });
   await prisma.metaAdAccount.create({ data: { accountId: "act_1", name: "Nome antigo", operationId: opOutro.id, company: "Op Outro" } });
   await prisma.credential.create({ data: { issuer: "meta", company: "Op Pixel", operationId: s.operations.pixel.id, token: "tok-meta-pixel", isActive: true } });
 });
@@ -31,8 +31,8 @@ beforeEach(async () => {
 const run = () => POST(req("/api/meta/sync", { method: "POST", json: {} }));
 
 describe("sync da Meta não 'puxa pra si' conta de anúncios de outro grupo", () => {
-  it("membro da Pixel atualiza o nome, mas o dono continua sendo o outro grupo", async () => {
-    loginAs(s.users.pixel);
+  it("membro da Op Pixel atualiza o nome, mas o dono continua sendo o outro grupo", async () => {
+    loginAs(s.users.operador); // o Meta da operação é de quem OPERA (membro), não da holding
     expect((await run()).status).toBe(200);
     const row = await prisma.metaAdAccount.findUnique({ where: { accountId: "act_1" } });
     expect(row?.name).toBe("Nome novo");

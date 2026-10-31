@@ -14,32 +14,25 @@ model Holding {
   color       String       @default("#6366f1")
   createdAt   DateTime     @default(now())
   companies   Company[]
-  operations  Operation[]
   memberships Membership[]
 }
 
-// Operação = unidade operacional (toca sites/custos), cruza empresas. Cada CONTA
-// pertence a uma operação → as transações herdam a operação. Acesso pode ser por
-// operação (operador vê só a dele).
+// Operação = etiqueta GLOBAL (como categoria), carimbada só no SPLIT da transação — não é presa a
+// empresa, conta nem holding (decisão do dono em 2026-10-30). A transação "é da operação X" se algum
+// split dela for X. Membro da operação vê as transações marcadas com ela e conecta o Meta dela.
 model Operation {
   id             String                @id @default(cuid())
   name           String
   type           String                @default("own") // "own" (própria) | "holding"
   color          String                @default("#0ea5e9")
-  holdingId      String?
-  holding        Holding?              @relation(fields: [holdingId], references: [id])
   createdAt      DateTime              @default(now())
-  accounts       Account[]
-  transactions   Transaction[]
   splits         TransactionSplit[]
   memberships    OperationMembership[]
   credentials    Credential[]
   metaAdAccounts MetaAdAccount[]
-
-  @@index([holdingId])
 }
 
-// Acesso de um usuário a UMA operação (vê só as contas/transações daquela operação).
+// Acesso de um usuário a UMA operação (vê as transações com split daquela operação).
 model OperationMembership {
   id          String    @id @default(cuid())
   userId      String
@@ -77,13 +70,10 @@ model Account {
   apiToken      String? // token da API do banco — 1 token por conta (ex.: Mercury)
   syncConfig    String? // JSON: { mercuryAccountId?, mercuryEntity?, wiseProfileId? }
   syncedThrough DateTime? // fim da janela do último sync COMPLETO (o sync vai até hoje) — libera o Fechamento Meta do mês
-  operationId   String? // operação dona desta conta (as transações herdam)
-  operation     Operation?    @relation(fields: [operationId], references: [id])
   createdAt     DateTime      @default(now())
   transactions  Transaction[]
 
   @@index([companyId])
-  @@index([operationId])
 }
 
 model Category {
@@ -127,8 +117,6 @@ model Transaction {
   // Valor ORIGINAL cobrado (antes do câmbio) — Meta cobra em USD; base da reconciliação gasto×cobrança
   billAmount       Float?
   billCurrency     String?
-  operationId      String? // operação da transação (default herdado da conta; editável)
-  operation        Operation?         @relation(fields: [operationId], references: [id])
   splits           TransactionSplit[]
   accountingSplits AccountingSplit[]
   documents        Document[]
@@ -138,7 +126,6 @@ model Transaction {
   @@index([date])
   @@index([isMetaCharge])
   @@index([cardLast4])
-  @@index([operationId])
   @@index([hasReceipt])
 }
 
@@ -168,7 +155,7 @@ model TransactionSplit {
   managerialCategory   Category?   @relation("ManagerialCategory", fields: [managerialCategoryId], references: [id])
   accountingCategoryId String?
   accountingCategory   Category?   @relation("AccountingCategory", fields: [accountingCategoryId], references: [id])
-  operationId          String? // operação desta linha de split (divide a transação entre operações)
+  operationId          String? // operação desta linha de split — o ÚNICO lugar da operação (divide a transação entre operações)
   operation            Operation?  @relation(fields: [operationId], references: [id])
   createdAt            DateTime    @default(now())
 

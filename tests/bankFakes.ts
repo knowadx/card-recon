@@ -352,14 +352,14 @@ type Seed = Awaited<ReturnType<typeof seedTwoGroups>>;
 
 /**
  * Contas da Pixel ligadas aos bancos falsos:
- *  - Mercury = a conta da Pixel do seed (operação Pixel), token próprio;
- *  - Wise = conta nova da Pixel (operação Pixel), token próprio;
- *  - Revolut = conta nova da Pixel SEM operação; credencial OAuth da empresa com access token válido.
+ *  - Mercury = a conta da Pixel do seed, token próprio;
+ *  - Wise = conta nova da Pixel, token próprio;
+ *  - Revolut = conta nova da Pixel; credencial OAuth da empresa com access token válido.
  */
 export async function seedBankAccounts(s: Seed) {
   const mercury = await prisma.account.update({ where: { id: s.accounts.pixel.id }, data: { apiToken: "tok-merc-pixel" } });
   const wise = await prisma.account.create({
-    data: { companyId: s.companies.pixel.id, bank: "Wise", currency: "USD", name: "Wise Pixel", operationId: s.operations.pixel.id, apiToken: "tok-wise-pixel" },
+    data: { companyId: s.companies.pixel.id, bank: "Wise", currency: "USD", name: "Wise Pixel", apiToken: "tok-wise-pixel" },
   });
   const revolut = await prisma.account.create({
     data: { companyId: s.companies.pixel.id, bank: "Revolut", currency: "EUR", name: "Revolut Pixel" },
@@ -398,7 +398,6 @@ export async function rowsOf(accountId: string) {
     metaRef: r.metaRef,
     cardLast4: r.cardLast4,
     cardLabel: r.cardLabel,
-    operationId: r.operationId,
     billAmount: r.billAmount,
     billCurrency: r.billCurrency,
   }));

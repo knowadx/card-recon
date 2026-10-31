@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser, isManager, isSuperadmin, accessibleHoldingIds } from "@/lib/auth";
+import { getCurrentUser, isManager, manageScope } from "@/lib/auth";
 import { sincronizarAcessoCloudflare } from "@/lib/cloudflareAccess";
 
 export const dynamic = "force-dynamic";
@@ -8,14 +8,6 @@ export const dynamic = "force-dynamic";
 async function requireManager() {
   const u = await getCurrentUser();
   return u && isManager(u.role) ? u : null;
-}
-
-async function manageScope(user: { id: string; role: string }) {
-  if (isSuperadmin(user.role)) return { all: true as const, holdingIds: [] as string[], operationIds: [] as string[] };
-  const h = await accessibleHoldingIds(user.id, user.role);
-  const holdingIds = h === "all" ? [] : h;
-  const ops = await prisma.operation.findMany({ where: { holdingId: { in: holdingIds } }, select: { id: true } });
-  return { all: false as const, holdingIds, operationIds: ops.map((o) => o.id) };
 }
 
 /** O gestor (não-superadmin) pode tocar neste usuário? Só se está na holding/operação dele e não é superadmin. */

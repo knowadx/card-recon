@@ -29,14 +29,12 @@ import {
 
 let s: Awaited<ReturnType<typeof seedTwoGroups>>;
 let acc: Awaited<ReturnType<typeof seedBankAccounts>>;
-let opPixel: string;
 
 beforeEach(async () => {
   resetRequest();
   await prisma.setting.deleteMany();
   s = await seedTwoGroups();
   acc = await seedBankAccounts(s);
-  opPixel = s.operations.pixel.id;
   await seedExistingBankRows({ mercury: acc.mercury.id, wise: acc.wise.id, revolut: acc.revolut.id });
   loginAs(s.users.pixel); // membro do grupo, com credencial PRÓPRIA em cada conta
 });
@@ -75,7 +73,7 @@ describe("POST /api/sync/mercury (caracterização)", () => {
     expect(fake.unexpected).toEqual([]);
 
     const id = acc.mercury.id;
-    const base = { fee: 0, currency: "USD", cardLabel: null, operationId: opPixel, billAmount: null, billCurrency: null };
+    const base = { fee: 0, currency: "USD", cardLabel: null, billAmount: null, billCurrency: null };
     // descrição: merchantName > counterpartyName > bankDescription > "—"; data: postedAt ?? createdAt
     expect(await rowByRef(id, "m-meta-1")).toEqual({
       ...base, reference: "m-meta-1", date: "2026-10-03T14:00:00.000Z", description: "FACEBK *A1B2C3D4E5", amount: -123.45,
@@ -101,7 +99,7 @@ describe("POST /api/sync/mercury (caracterização)", () => {
     expect(await rowByRef(id, "m-failed")).toBeUndefined();
     expect(await rowByRef(id, "m-cancelled")).toBeUndefined();
     // a que já existia continua como estava (não é reimportada nem atualizada)
-    expect(await rowByRef(id, "m-existing")).toMatchObject({ description: "Já importada", isMetaCharge: false, operationId: null });
+    expect(await rowByRef(id, "m-existing")).toMatchObject({ description: "Já importada", isMetaCharge: false });
 
     const rows = await rowsOf(id);
     expect(rows).toHaveLength(500 + 2); // novas + "m-existing" + "px-1" do seed
@@ -190,7 +188,7 @@ describe("POST /api/sync/wise (caracterização)", () => {
     expect(fake.unexpected).toEqual([]);
 
     const id = acc.wise.id;
-    const base = { cardLabel: null, operationId: opPixel, billAmount: null, billCurrency: null };
+    const base = { cardLabel: null, billAmount: null, billCurrency: null };
     expect(await rowByRef(id, "wise-activity:act-card-meta")).toEqual({
       ...base, reference: "wise-activity:act-card-meta", date: "2026-10-05T12:00:00.000Z", description: "Facebook",
       amount: -55.1, currency: "USD", fee: null, isMetaCharge: true, metaRef: "WQ12ER34TY", cardLast4: "1234",
@@ -213,7 +211,7 @@ describe("POST /api/sync/wise (caracterização)", () => {
     });
     expect(await rowByRef(id, "wise-activity:act-pending")).toBeUndefined();
     expect(await rowByRef(id, "wise-activity:act-unparseable")).toBeUndefined();
-    expect(await rowByRef(id, "wise-activity:act-existing")).toMatchObject({ description: "Já importada", amount: -5, cardLast4: null, operationId: null });
+    expect(await rowByRef(id, "wise-activity:act-existing")).toMatchObject({ description: "Já importada", amount: -5, cardLast4: null });
     expect(await rowsOf(id)).toHaveLength(6);
 
     expect(JSON.parse((await syncConfigOf(id))!)).toEqual({ wiseProfileId: WISE_PROFILE });
@@ -283,7 +281,7 @@ describe("POST /api/sync/revolut (caracterização)", () => {
     expect(fake.unexpected).toEqual([]);
 
     const id = acc.revolut.id;
-    const base = { operationId: null, cardLabel: null, billAmount: null, billCurrency: null, cardLast4: null, isMetaCharge: false, metaRef: null };
+    const base = { cardLabel: null, billAmount: null, billCurrency: null, cardLast4: null, isMetaCharge: false, metaRef: null };
     // valor: negativo soma a taxa; positivo fica como veio. data: completed_at ?? created_at
     expect(await rowByRef(id, "revolut:rtx-meta-1:leg-1")).toEqual({
       ...base, reference: "revolut:rtx-meta-1:leg-1", date: "2026-10-10T03:00:00.000Z", description: "Facebk *RVQ7K2M9P1",

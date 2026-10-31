@@ -38,7 +38,8 @@ export async function wipe() {
  * Dois grupos que NÃO podem se ver:
  *  - Pixel: holding, empresa, conta, transação; usuário `pixel` (membro da holding)
  *  - Outro: holding, empresa, conta, transação; usuário `outro` (membro da holding)
- *  - `operador`: sem holding, só membro de uma operação ligada à conta da Pixel
+ *  - `operador`: sem holding, só membro da operação `Op Pixel`, marcada no SPLIT da transação da Pixel
+ *    (a operação mora só no split: dá a transação, não a conta nem a empresa)
  *  - `semAcesso`: logado, sem vínculo nenhum
  *  - `root`: superadmin
  */
@@ -56,20 +57,23 @@ export async function seedTwoGroups() {
 
   const hPixel = await prisma.holding.create({ data: { name: "Pixel" } });
   const hOutro = await prisma.holding.create({ data: { name: "Outro grupo" } });
-  const opPixel = await prisma.operation.create({ data: { name: "Op Pixel", holdingId: hPixel.id } });
+  const opPixel = await prisma.operation.create({ data: { name: "Op Pixel" } });
 
   const cPixel = await prisma.company.create({ data: { name: "Pixel Ads LLC", holdingId: hPixel.id } });
   const cOutro = await prisma.company.create({ data: { name: "Outra Empresa LTDA", holdingId: hOutro.id } });
 
   const aPixel = await prisma.account.create({
-    data: { companyId: cPixel.id, bank: "Mercury", currency: "USD", name: "Mercury Pixel", operationId: opPixel.id },
+    data: { companyId: cPixel.id, bank: "Mercury", currency: "USD", name: "Mercury Pixel" },
   });
   const aOutro = await prisma.account.create({
     data: { companyId: cOutro.id, bank: "Wise", currency: "USD", name: "Wise Outro" },
   });
 
   const tPixel = await prisma.transaction.create({
-    data: { accountId: aPixel.id, date: new Date("2026-10-01"), description: "Pagamento Pixel", amount: -100, currency: "USD", reference: "px-1" },
+    data: {
+      accountId: aPixel.id, date: new Date("2026-10-01"), description: "Pagamento Pixel", amount: -100, currency: "USD", reference: "px-1",
+      splits: { create: { amount: -100, operationId: opPixel.id } },
+    },
   });
   const tOutro = await prisma.transaction.create({
     data: { accountId: aOutro.id, date: new Date("2026-10-01"), description: "Pagamento Outro", amount: -200, currency: "USD", reference: "ot-1" },

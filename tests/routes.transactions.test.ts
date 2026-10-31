@@ -19,7 +19,7 @@ let category: { id: string };
 beforeEach(async () => {
   resetRequest();
   s = await seedTwoGroups();
-  opOutro = await prisma.operation.create({ data: { name: "Op Outro", holdingId: s.holdings.outro.id } });
+  opOutro = await prisma.operation.create({ data: { name: "Op Outro" } });
   category = await prisma.category.create({ data: { type: "managerial", name: "Teste" } });
 });
 
@@ -76,13 +76,18 @@ describe("GET /api/transactions", () => {
     expect(empty.total).toBe(0);
   });
 
-  it("mesma regra de antes: operador vê a conta da operação E a transação marcada na operação dele", async () => {
-    await prisma.transaction.update({ where: { id: s.transactions.outro.id }, data: { operationId: s.operations.pixel.id } });
+  it("operação mora no split: operador vê só as transações marcadas com a operação dele — não a conta inteira", async () => {
+    // mesma conta da Pixel, sem split marcado: o operador NÃO vê (a operação não é da conta)
+    const semMarca = await prisma.transaction.create({
+      data: { accountId: s.accounts.pixel.id, date: new Date("2026-10-02"), description: "Sem operação", amount: -7, currency: "USD", reference: "px-2" },
+    });
+    // transação de OUTRO grupo com um split marcado na operação dele: o operador vê
+    await prisma.transactionSplit.create({ data: { transactionId: s.transactions.outro.id, amount: -200, operationId: s.operations.pixel.id } });
     loginAs(s.users.operador);
-    expect(idsOf((await (await list()).json()).data)).toEqual(idsOf([s.transactions.pixel, s.transactions.outro]));
+    expect(idsOf((await (await list()).json()).data).sort()).toEqual(idsOf([s.transactions.pixel, s.transactions.outro]).sort());
     // a marcação na operação não abre a transação pra holding Pixel (o escopo de holding é pela conta)
     loginAs(s.users.pixel);
-    expect(idsOf((await (await list()).json()).data)).toEqual([s.transactions.pixel.id]);
+    expect(idsOf((await (await list()).json()).data).sort()).toEqual([s.transactions.pixel.id, semMarca.id].sort());
   });
 
   it("filtro pela conta de outro grupo não fura o escopo (mesmo combinado com busca/valor, que usam OR)", async () => {
@@ -118,16 +123,10 @@ describe("POST /api/transactions", () => {
     expect(await prisma.transaction.count({ where: { description: "nova" } })).toBe(0);
   });
 
-  it("não aceita operação de outro grupo", async () => {
-    loginAs(s.users.pixel);
-    expect((await create({ ...base, accountId: s.accounts.pixel.id, operationId: opOutro.id })).status).toBe(404);
-    expect(await prisma.transaction.count({ where: { description: "nova" } })).toBe(0);
-  });
-
   it("dono cria na própria conta (sem o token na resposta); superadmin cria em qualquer conta", async () => {
     await prisma.account.update({ where: { id: s.accounts.pixel.id }, data: { apiToken: "segredo-banco" } });
     loginAs(s.users.pixel);
-    const res = await create({ ...base, accountId: s.accounts.pixel.id, operationId: s.operations.pixel.id });
+    const res = await create({ ...base, accountId: s.accounts.pixel.id });
     expect(res.status).toBe(201);
     expect(JSON.stringify(await res.json())).not.toContain("segredo-banco");
     loginAs(s.users.root);
@@ -164,15 +163,14 @@ describe("/api/transactions/[id]/splits", () => {
     splits.PUT(req(`/api/transactions/${id}/splits`, { method: "PUT", json: { splits: body } }), params({ id }));
   const get = (id: string) => splits.GET(req(`/api/transactions/${id}/splits`), params({ id }));
 
+  // o seed já marca a transação da Pixel com 1 split (Op Pixel); aqui só ganha uma nota
   async function seedSplit() {
-    return prisma.transactionSplit.create({ data: { transactionId: s.transactions.pixel.id, amount: -100, note: "original" } });
+    const split = await prisma.transactionSplit.findFirstOrThrow({ where: { transactionId: s.transactions.pixel.id } });
+    return prisma.transactionSplit.update({ where: { id: split.id }, data: { note: "original" } });
   }
   async function splitState(id: string) {
-    const [rows, tx] = await Promise.all([
-      prisma.transactionSplit.findMany({ where: { transactionId: id }, select: { id: true, note: true, operationId: true } }),
-      prisma.transaction.findUnique({ where: { id }, select: { operationId: true } }),
-    ]);
-    return { rows, txOperationId: tx?.operationId };
+    const rows = await prisma.transactionSplit.findMany({ where: { transactionId: id }, select: { id: true, note: true, operationId: true }, orderBy: { amount: "asc" } });
+    return { rows };
   }
 
   it("deslogado = 401; outro grupo = 404 no GET e no PUT, e nada muda", async () => {
@@ -189,17 +187,37 @@ describe("/api/transactions/[id]/splits", () => {
     expect(before.rows.map((r) => r.id)).toEqual([original.id]);
   });
 
-  it("dono não grava operação de outro grupo (nem num split do meio) — nada muda", async () => {
+  it("operação que não existe (nem num split do meio) = 404 e nada muda", async () => {
     await seedSplit();
     const id = s.transactions.pixel.id;
     const before = await splitState(id);
     loginAs(s.users.pixel);
     const res = await put(id, [
       { amount: -60, operationId: s.operations.pixel.id },
-      { amount: -40, operationId: opOutro.id },
+      { amount: -40, operationId: "op-que-nao-existe" },
     ]);
     expect(res.status).toBe(404);
     expect(await splitState(id)).toEqual(before);
+  });
+
+  it("lista global: dono divide a transação com uma operação de outro grupo — quem é dela passa a ver; quem não é, deixa de ver", async () => {
+    const id = s.transactions.pixel.id;
+    const deOutro = await prisma.user.create({ data: { email: "op-outro@teste.com", role: "member" } });
+    await prisma.operationMembership.create({ data: { userId: deOutro.id, operationId: opOutro.id } });
+    loginAs(deOutro);
+    expect((await get(id)).status).toBe(404);
+
+    loginAs(s.users.pixel);
+    expect((await put(id, [{ amount: -60, operationId: s.operations.pixel.id }, { amount: -40, operationId: opOutro.id }])).status).toBe(200);
+    expect((await splitState(id)).rows.map((r) => r.operationId)).toEqual([s.operations.pixel.id, opOutro.id]);
+    loginAs(deOutro);
+    expect((await get(id)).status).toBe(200);
+
+    // tirou a Op Pixel de todos os splits: o operador da Op Pixel perde a transação
+    loginAs(s.users.pixel);
+    expect((await put(id, [{ amount: -100, operationId: opOutro.id }])).status).toBe(200);
+    loginAs(s.users.operador);
+    expect((await get(id)).status).toBe(404);
   });
 
   it("dono lê e regrava com a própria operação; superadmin regrava no outro grupo", async () => {
@@ -211,13 +229,12 @@ describe("/api/transactions/[id]/splits", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ count: 1 });
     const after = await splitState(id);
-    expect(after.rows.map((r) => r.note)).toEqual(["nova"]);
-    expect(after.txOperationId).toBe(s.operations.pixel.id);
+    expect(after.rows.map((r) => [r.note, r.operationId])).toEqual([["nova", s.operations.pixel.id]]);
 
     loginAs(s.users.root);
     const outroId = s.transactions.outro.id;
     expect((await put(outroId, [{ amount: -200, operationId: opOutro.id }])).status).toBe(200);
-    expect((await splitState(outroId)).txOperationId).toBe(opOutro.id);
+    expect((await splitState(outroId)).rows.map((r) => r.operationId)).toEqual([opOutro.id]);
   });
 });
 
@@ -301,7 +318,7 @@ describe("/api/transactions/bulk", () => {
     expect((await call("PUT", { ids: mixed, managerialCategoryId: category.id })).status).toBe(404);
     expect((await call("DELETE", { ids: mixed })).status).toBe(404);
     expect(await state()).toEqual(before);
-    expect(before.every((t) => t.exists && t.ignored === false && t.splits.length === 0)).toBe(true);
+    expect(before.every((t) => t.exists && t.ignored === false && t.splits.every((sp) => sp.managerialCategoryId === null))).toBe(true);
   });
 
   it("lote só com id do outro grupo = 404, nada muda", async () => {

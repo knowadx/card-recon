@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser, isManager, isSuperadmin, accessibleHoldingIds } from "@/lib/auth";
+import { getCurrentUser, isManager, manageScope } from "@/lib/auth";
 import { sincronizarAcessoCloudflare } from "@/lib/cloudflareAccess";
 
 export const dynamic = "force-dynamic";
@@ -11,15 +11,6 @@ async function requireManager() {
   return u;
 }
 
-/** Holdings que o gestor pode conceder + operações dentro delas. Superadmin = tudo. */
-async function manageScope(user: { id: string; role: string }) {
-  if (isSuperadmin(user.role)) return { all: true as const, holdingIds: [] as string[], operationIds: [] as string[] };
-  const h = await accessibleHoldingIds(user.id, user.role);
-  const holdingIds = h === "all" ? [] : h;
-  const ops = await prisma.operation.findMany({ where: { holdingId: { in: holdingIds } }, select: { id: true } });
-  return { all: false as const, holdingIds, operationIds: ops.map((o) => o.id) };
-}
-
 export async function GET() {
   const me = await requireManager();
   if (!me) return Response.json({ error: "forbidden" }, { status: 403 });
@@ -28,7 +19,7 @@ export async function GET() {
   const where = scope.all
     ? {}
     : {
-        // a "equipe" do admin: quem é membro das holdings dele ou das operações dentro delas (+ ele mesmo),
+        // a "equipe" do admin: quem é membro das holdings dele ou das operações que ele opera (+ ele mesmo),
         // mas nunca superadmins
         AND: [
           { role: { not: "superadmin" } },

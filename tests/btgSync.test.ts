@@ -35,7 +35,7 @@ beforeEach(async () => {
   vi.stubEnv("BTG_CLIENT_SECRET", "segredo-teste");
   vi.stubEnv("BTG_AMBIENTE", "sandbox");
   await prisma.company.update({ where: { id: s.companies.pixel.id }, data: { cnpj: CNPJ } });
-  contaBtg = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "BTG", currency: "BRL", name: "BTG Pixel", operationId: s.operations.pixel.id } });
+  contaBtg = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "BTG", currency: "BRL", name: "BTG Pixel" } });
   contasNoBtg = [{ accountId: CONTA_BTG, number: "777776752", branchCode: "1" }];
   chamadas = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -143,7 +143,7 @@ describe("sync da conta BTG", () => {
       [`btg:${CONTA_BTG}:2`, -30, "BRL"],
       [`btg:${CONTA_BTG}:3`, 5000, "BRL"],
     ]);
-    expect(r[0]).toMatchObject({ description: "Compra no cartão — FACEBK *ABCD1234XY", isMetaCharge: true, metaRef: "ABCD1234XY", operationId: s.operations.pixel.id });
+    expect(r[0]).toMatchObject({ description: "Compra no cartão — FACEBK *ABCD1234XY", isMetaCharge: true, metaRef: "ABCD1234XY" });
     expect(r[1]).toMatchObject({ isMetaCharge: false, metaRef: null });
     // lembrou a conta do BTG e marcou até quando está sincronizada
     expect(await prisma.account.findUniqueOrThrow({ where: { id: contaBtg.id } })).toMatchObject({ syncConfig: JSON.stringify({ btgAccountId: CONTA_BTG }) });

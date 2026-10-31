@@ -144,9 +144,9 @@ describe("POST /api/sync/all — mesma implementação das rotas por banco", () 
     expect(viaAll).toEqual(viaRoutes);
 
     // as marcas que importam p/ a conciliação Meta estão lá
-    expect(await rowByRef(acc.mercury.id, "m-meta-1")).toMatchObject({ isMetaCharge: true, metaRef: "A1B2C3D4E5", cardLast4: "4242", operationId: s.operations.pixel.id, description: "FACEBK *A1B2C3D4E5" });
+    expect(await rowByRef(acc.mercury.id, "m-meta-1")).toMatchObject({ isMetaCharge: true, metaRef: "A1B2C3D4E5", cardLast4: "4242", description: "FACEBK *A1B2C3D4E5" });
     expect(await rowByRef(acc.mercury.id, "m-p2-meta")).toMatchObject({ isMetaCharge: true, metaRef: "zz99yy88xx" }); // veio da 2ª página
-    expect(await rowByRef(acc.wise.id, "wise-activity:act-card-meta")).toMatchObject({ isMetaCharge: true, metaRef: "WQ12ER34TY", cardLast4: "1234", operationId: s.operations.pixel.id });
+    expect(await rowByRef(acc.wise.id, "wise-activity:act-card-meta")).toMatchObject({ isMetaCharge: true, metaRef: "WQ12ER34TY", cardLast4: "1234" });
     expect(await rowByRef(acc.wise.id, "wise-activity:act-transfer-out")).toMatchObject({ fee: 4.12, currency: "EUR" });
     expect(await rowByRef(acc.revolut.id, "revolut:rtx-meta-1:leg-1")).toMatchObject({
       isMetaCharge: true, metaRef: "RVQ7K2M9P1", cardLast4: "9876", cardLabel: "BM 14 Snapnork / BM 15 Outro", billAmount: 100, billCurrency: "USD", fee: 0.75, amount: -93.25,
@@ -201,14 +201,13 @@ describe("POST /api/sync/all — mesma implementação das rotas por banco", () 
     expect(await prisma.transaction.count({ where: { accountId: { in: [outro.wise, outro.revolut] } } })).toBe(0);
   });
 
-  it("operador (só a operação) com filtro de empresa: só as contas da operação dele", async () => {
+  it("operador (só a operação) não sincroniza conta nenhuma: a operação mora no split, não dá conta nem empresa", async () => {
     loginAs(s.users.operador);
     const fake = installFakeBanks(banks());
-    const { status, byId } = await runAll({ from: FROM, company: s.companies.pixel.id });
-    expect(status).toBe(200);
-    expect([...byId.keys()].sort()).toEqual([acc.mercury.id, acc.wise.id].sort()); // Revolut Pixel não é da operação
-    expect(fake.calls.filter((c) => c.url.startsWith(REVOLUT_BASE))).toEqual([]);
-    expect(new Set(fake.calls.map((c) => c.auth))).toEqual(new Set(["Bearer tok-merc-pixel", "Bearer tok-wise-pixel"]));
+    expect((await runAll({ from: FROM, company: s.companies.pixel.id })).status).toBe(404);
+    expect((await runAll({ from: FROM, accountId: acc.mercury.id })).status).toBe(404);
+    expect((await runAll({ from: FROM })).status).toBe(400); // nenhuma conta no escopo
+    expect(fake.calls).toEqual([]);
   });
 
   it("uma conta só (accountId): sincroniza só ela; conta de outro grupo = 404 sem chamar banco", async () => {
@@ -277,15 +276,14 @@ describe("POST /api/sync/all — mesma implementação das rotas por banco", () 
     expect(await rowsOf(acc.mercury.id)).toHaveLength(2); // nada gravado (só px-1 e m-existing)
   });
 
-  it("Revolut de conta com operação: rota e sync/all gravam a operação da conta em cada linha", async () => {
-    await prisma.account.update({ where: { id: acc.revolut.id }, data: { operationId: s.operations.pixel.id } });
+  it("Revolut: rota e sync/all gravam as mesmas linhas — e nenhuma chega marcada com operação (operação é do split, à mão)", async () => {
     loginAs(s.users.pixel);
     installFakeBanks(banks());
     await revolutRoute.POST(req("/api/sync/revolut", { method: "POST", json: { accountId: acc.revolut.id, revolutAccountId: null, from: FROM } }));
     const newRows = async () => (await rowsOf(acc.revolut.id)).filter((r) => r.reference !== "revolut:rtx-existing:leg-e");
     const viaRoute = await newRows();
     expect(viaRoute).toHaveLength(1000);
-    expect(viaRoute.every((r) => r.operationId === s.operations.pixel.id)).toBe(true);
+    expect(await prisma.transactionSplit.count({ where: { transaction: { accountId: acc.revolut.id } } })).toBe(0);
 
     await prisma.transaction.deleteMany({ where: { accountId: acc.revolut.id, reference: { not: "revolut:rtx-existing:leg-e" } } });
     await prisma.account.updateMany({ where: { id: { in: [acc.mercury.id, acc.wise.id] } }, data: { syncConfig: null } }); // só o Revolut

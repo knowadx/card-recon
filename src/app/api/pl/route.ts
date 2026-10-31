@@ -77,9 +77,9 @@ export const GET = guarded(async (request: Request) => {
     prisma.transaction.findMany({
       where: {
         ...txWhere,
-        ...(operationId ? { operationId } : {}),
         date: { gte: rangeStart, lte: rangeEnd },
-        splits: { none: { managerialCategoryId: { not: null } } },
+        // operação mora no split: "da operação X" = algum split marcado com X
+        splits: { none: { managerialCategoryId: { not: null } }, ...(operationId ? { some: { operationId } } : {}) },
       },
       select: { amount: true, currency: true, date: true },
     }),

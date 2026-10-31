@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { AccessError, assertAccount, assertCompany, assertOperation, guarded, requireUser } from "@/lib/access";
+import { AccessError, assertAccount, assertCompany, guarded, requireUser } from "@/lib/access";
 import { isManager } from "@/lib/auth";
 
 /** Ligar a conta ao banco (token e ids da conta no banco) é configuração de integração: só superadmin e admins. */
@@ -15,7 +15,6 @@ export const PUT = guarded(async (request: Request, { params }: Ctx) => {
   await assertAccount(user, id);
   const body = await request.json();
   if (body.companyId) await assertCompany(user, body.companyId); // mover para outra empresa: só se ela for sua
-  if (body.operationId) await assertOperation(user, body.operationId);
   if (body.apiToken !== undefined) requireBankLinkRights(user.role);
   const { apiToken, ...account } = await prisma.account.update({
     where: { id },
@@ -25,7 +24,6 @@ export const PUT = guarded(async (request: Request, { params }: Ctx) => {
       currency: body.currency,
       name: body.name,
       ...(body.apiToken !== undefined ? { apiToken: body.apiToken || null } : {}),
-      ...(body.operationId !== undefined ? { operationId: body.operationId || null } : {}),
     },
     include: { company: true },
   });

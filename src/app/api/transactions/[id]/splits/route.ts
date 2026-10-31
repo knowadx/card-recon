@@ -22,7 +22,8 @@ export const PUT = guarded(async (request: Request, { params }: Ctx) => {
   const splits: Array<{ amount: number; note?: string; accountingDate?: string; managerialCategoryId?: string; accountingCategoryId?: string; operationId?: string }> =
     body.splits;
 
-  // toda operação gravada (nos splits e, pelo 1º, na transação) precisa ser minha — antes de apagar qualquer coisa
+  // toda operação gravada precisa existir (lista global) — antes de apagar qualquer coisa. O split é o ÚNICO
+  // lugar da operação: a transação "é da operação X" se algum split for X (sem cópia na transação).
   const operationIds = new Set(splits.map((s) => s.operationId).filter(Boolean).map(String));
   for (const operationId of operationIds) await assertOperation(user, operationId);
 
@@ -38,12 +39,6 @@ export const PUT = guarded(async (request: Request, { params }: Ctx) => {
       accountingCategoryId: s.accountingCategoryId || null,
       operationId: s.operationId || null,
     })),
-  });
-
-  // operação da transação = a do 1º split (resumo); editável separadamente
-  await prisma.transaction.update({
-    where: { id },
-    data: { operationId: splits.find((s) => s.operationId)?.operationId || null },
   });
 
   return Response.json({ count: created.count });

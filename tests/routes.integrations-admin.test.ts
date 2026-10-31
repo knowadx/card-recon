@@ -223,13 +223,12 @@ describe("POST /api/sync/all", () => {
     expect(mercuryAttempts()).toEqual(["merc-pixel", "merc-pixel2"]);
   });
 
-  it("membro da operação sincroniza só a conta da operação (nem a outra conta da mesma empresa)", async () => {
+  it("membro só da operação não sincroniza: a operação mora no split, não dá conta nem empresa (404, sem chamar banco)", async () => {
     await seedSync();
     loginAs(s.users.operador);
     const res = await syncAll.POST(req("/api/sync/all", { method: "POST", json: { company: s.companies.pixel.id } }));
-    expect(res.status).toBe(200);
-    expect(await bodyIds(res)).toEqual([s.accounts.pixel.id]);
-    expect(mercuryAttempts()).toEqual(["merc-pixel"]);
+    expect(res.status).toBe(404);
+    expect(fetched).toEqual([]);
   });
 
   it("empresa de outro grupo = 404, sem chamar banco nenhum", async () => {

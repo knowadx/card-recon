@@ -38,37 +38,42 @@ export async function scopes(userId: string) {
 export function isSuperadmin(role: string): boolean {
   return role === "superadmin";
 }
-/** Pode gerenciar (criar usuários/operações/conceder acesso) — superadmin global, admin na sua holding. */
+/** Pode gerenciar (criar usuários/operações/conceder acesso) — superadmin global, admin no escopo dele. */
 export function isManager(role: string): boolean {
   return role === "superadmin" || role === "admin";
 }
 
 /**
- * Operações no escopo do usuário — a regra ÚNICA: superadmin = todas (null = sem filtro);
- * admin = as da(s) holding(s) dele ou que é membro; member = só as que é membro.
+ * Operações que o usuário OPERA — a regra ÚNICA pra conectar/desconectar/sincronizar o Meta de uma
+ * operação, ver os dados Meta dela e conceder acesso a ela: superadmin = todas (null = sem filtro);
+ * os demais = só as que é membro. A LISTA de operações (etiquetas) é global, igual pra todo mundo;
+ * isto aqui é quem manda em cada uma (decisão do dono em 2026-10-30: operação sem holding dona).
  */
-export async function accessibleOperationsWhere(user: { id: string; role: string }): Promise<Prisma.OperationWhereInput | null> {
+export async function memberOperationsWhere(user: { id: string; role: string }): Promise<Prisma.OperationWhereInput | null> {
   if (isSuperadmin(user.role)) return null;
-  const holdings = await accessibleHoldingIds(user.id, user.role);
-  const hids = holdings === "all" ? [] : holdings;
-  return {
-    OR: [
-      ...(hids.length ? [{ holdingId: { in: hids } }] : []),
-      { memberships: { some: { userId: user.id } } },
-    ],
-  };
+  return { memberships: { some: { userId: user.id } } };
 }
 
-/** A operação está no escopo do usuário (accessibleOperationsWhere)? Retorna a operação ou null. */
-export async function findAccessibleOperation(
+/** O usuário opera esta operação (memberOperationsWhere)? Retorna a operação ou null. */
+export async function findMemberOperation(
   user: { id: string; role: string },
   operationId: string,
 ): Promise<{ id: string; name: string } | null> {
-  const scope = await accessibleOperationsWhere(user);
+  const scope = await memberOperationsWhere(user);
   return prisma.operation.findFirst({
     where: { AND: [{ id: operationId }, ...(scope ? [scope] : [])] },
     select: { id: true, name: true },
   });
+}
+
+/**
+ * O que um gestor pode conceder/administrar: as holdings dele + as operações que ele opera.
+ * Superadmin = tudo. Peça única das rotas de usuários (era copiada nas duas).
+ */
+export async function manageScope(user: { id: string; role: string }) {
+  if (isSuperadmin(user.role)) return { all: true as const, holdingIds: [] as string[], operationIds: [] as string[] };
+  const { holdingIds, operationIds } = await scopes(user.id);
+  return { all: false as const, holdingIds, operationIds };
 }
 
 /** IDs de holdings que o usuário pode ver. Superadmin = todos; admin/member = as do vínculo. */
@@ -77,60 +82,3 @@ export async function accessibleHoldingIds(userId: string, role: string): Promis
   const m = await prisma.membership.findMany({ where: { userId }, select: { holdingId: true } });
   return m.map((x) => x.holdingId);
 }
-
-/** IDs de CONTAS que o usuário pode ver: contas das holdings dele OU das operações dele. */
-export async function accessibleAccountIds(userId: string, role: string): Promise<string[] | "all"> {
-  if (isSuperadmin(role)) return "all";
-  const { holdingIds, operationIds } = await scopes(userId);
-  if (holdingIds.length === 0 && operationIds.length === 0) return [];
-  const accounts = await prisma.account.findMany({
-    where: {
-      OR: [
-        ...(holdingIds.length ? [{ company: { holdingId: { in: holdingIds } } }] : []),
-        ...(operationIds.length ? [{ operationId: { in: operationIds } }] : []),
-      ],
-    },
-    select: { id: true },
-  });
-  return accounts.map((a) => a.id);
-}
-
-/** IDs de empresas que o usuário pode ver: das holdings dele + das contas das operações dele. */
-export async function accessibleCompanyIds(userId: string, role: string): Promise<string[] | "all"> {
-  if (isSuperadmin(role)) return "all";
-  const { holdingIds, operationIds } = await scopes(userId);
-  const ids = new Set<string>();
-  if (holdingIds.length) {
-    const c = await prisma.company.findMany({ where: { holdingId: { in: holdingIds } }, select: { id: true } });
-    c.forEach((x) => ids.add(x.id));
-  }
-  if (operationIds.length) {
-    const a = await prisma.account.findMany({ where: { operationId: { in: operationIds } }, select: { companyId: true } });
-    a.forEach((x) => ids.add(x.companyId));
-  }
-  return Array.from(ids);
-}
-
-/** Empresas que a sessão atual pode ver: "all" (superadmin) ou lista de ids. Role vem do DB. */
-export async function scopedCompanyIds(): Promise<string[] | "all"> {
-  const u = await getCurrentUser();
-  if (!u) return [];
-  return accessibleCompanyIds(u.id, u.role);
-}
-
-/** Contas que a sessão atual pode ver: "all" (superadmin) ou lista de ids. Role vem do DB. */
-export async function scopedAccountIds(): Promise<string[] | "all"> {
-  const u = await getCurrentUser();
-  if (!u) return [];
-  return accessibleAccountIds(u.id, u.role);
-}
-
-/** Escopos da sessão (holdings + operações) p/ filtro de transações. seeAll = superadmin. Role vem do DB. */
-export async function sessionScopes(): Promise<{ isAdmin: boolean; holdingIds: string[]; operationIds: string[] }> {
-  const u = await getCurrentUser();
-  if (!u) return { isAdmin: false, holdingIds: [], operationIds: [] };
-  if (isSuperadmin(u.role)) return { isAdmin: true, holdingIds: [], operationIds: [] };
-  const sc = await scopes(u.id);
-  return { isAdmin: false, ...sc };
-}
-

@@ -330,7 +330,6 @@ export async function syncWiseAccount(opts: {
     cardLast4: string | null;
     isMetaCharge: boolean;
     metaRef: string | null;
-    operationId: string | null;
   }> = [];
 
   type Candidate = (typeof candidates)[number];
@@ -381,7 +380,6 @@ export async function syncWiseAccount(opts: {
       cardLast4,
       isMetaCharge: isMetaMerchant(metaName, description),
       metaRef: extractMetaRef(metaName, description),
-      operationId: account.operationId,
     };
   });
 
