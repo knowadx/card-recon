@@ -3,7 +3,8 @@ import { apenasDigitos, btgGet, btgListarContas, BtgNaoConfigurado, BtgSemConsen
 import { isMetaMerchant, extractMetaRef } from "@/lib/metaCheck";
 import { getSyncPeriod } from "@/lib/settings";
 import { assertAccount, type AppUser } from "@/lib/access";
-import { markSynced, type SyncOutcome } from "./common";
+import { problemaDeExtracao, type SyncOutcome } from "./common";
+import { registrarCobertura } from "@/lib/cobertura";
 
 /** Movimento do extrato (GET /{CNPJ}/banking/accounts/{accountId}/statements — doc oficial do BTG). */
 type BtgMovimento = {
@@ -83,6 +84,9 @@ export async function syncBtgAccount(opts: {
     return { status: 502, body: { error: (e as Error).message } };
   }
 
+  const problema = await problemaDeExtracao({ account, chave: "btgAccountId", pedida: btgAccountId, rotulo: (v) => `BTG ${v ? `…${v.slice(-4)}` : "?"}` });
+  if (problema) return { status: 409, body: { error: problema } };
+
   if (opts.saveSyncConfig) {
     await prisma.account.update({ where: { id: accountId }, data: { syncConfig: JSON.stringify({ btgAccountId }) } });
   }
@@ -138,6 +142,6 @@ export async function syncBtgAccount(opts: {
     return { status: 502, body: { error: (e as Error).message } };
   }
 
-  if (completo) await markSynced(accountId, hoje);
+  if (completo) await registrarCobertura({ accountId, de, ate: hoje, fonte: "api", userId: user.id });
   return { status: 200, body: { imported, fetched, skipped: Math.max(0, fetched - imported), ...(completo ? {} : { incompleto: true as const }) } };
 }

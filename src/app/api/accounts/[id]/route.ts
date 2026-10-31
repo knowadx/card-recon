@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { AccessError, assertAccount, assertCompany, guarded, requireUser } from "@/lib/access";
 import { isManager } from "@/lib/auth";
+import { extracaoTrocada } from "@/lib/sync/common";
 
 /** Ligar a conta ao banco (token e ids da conta no banco) é configuração de integração: só superadmin e admins. */
 function requireBankLinkRights(role: string) {
@@ -43,6 +44,10 @@ export const PATCH = guarded(async (request: Request, { params }: Ctx) => {
   let config: Record<string, unknown> = {};
   try { config = acc.syncConfig ? JSON.parse(acc.syncConfig) : {}; } catch { config = {}; }
   const merged = { ...config, ...(body.syncConfig ?? {}) };
+  // uma conta = UMA extração: trocar a extração de uma conta que já tem lançamentos misturaria as duas
+  if (extracaoTrocada(config, merged) && (await prisma.transaction.findFirst({ where: { accountId: id }, select: { id: true } }))) {
+    return Response.json({ error: "esta conta já tem lançamentos de outra extração — crie uma conta para a nova extração" }, { status: 409 });
+  }
   await prisma.account.update({ where: { id }, data: { syncConfig: JSON.stringify(merged) } });
   return Response.json({ ok: true, syncConfig: merged });
 });

@@ -3,7 +3,8 @@ import { getValidAccessToken, REVOLUT_BASE } from "@/lib/revolut";
 import { isMetaMerchant, last4Of, extractMetaRef } from "@/lib/metaCheck";
 import { getSyncPeriod } from "@/lib/settings";
 import { assertAccount, type AppUser } from "@/lib/access";
-import { markSynced, type SyncOutcome } from "./common";
+import { problemaDeExtracao, type SyncOutcome } from "./common";
+import { inicioDoDia, registrarCobertura } from "@/lib/cobertura";
 
 interface RevolutTransaction {
   id: string;
@@ -68,6 +69,9 @@ export async function syncRevolutAccount(opts: {
 
   const account = await prisma.account.findUnique({ where: { id: accountId }, include: { company: true } });
   if (!account) return { status: 404, body: { error: "account not found" } };
+
+  const problema = await problemaDeExtracao({ account, chave: "revolutAccountId", pedida: revolutAccountId ?? null, rotulo: (v) => (v ? `Revolut …${v.slice(-4)}` : "Revolut (todas as contas)") });
+  if (problema) return { status: 409, body: { error: problema } };
 
   let accessToken: string;
   try {
@@ -202,7 +206,7 @@ export async function syncRevolutAccount(opts: {
     await prisma.transaction.updateMany({ where: { accountId, cardLast4: l4 }, data: { cardLabel: label } });
   }
 
-  // só marca "sincronizada até hoje" se leu a janela inteira (parar no teto de páginas = incompleto)
-  if (completo) await markSynced(accountId, new Date(toDate));
+  // só grava cobertura se leu a janela inteira (parar no teto de páginas = incompleto)
+  if (completo) await registrarCobertura({ accountId, de: inicioDoDia(fromDate), ate: new Date(toDate), fonte: "api", userId: user.id });
   return { status: 200, body: { imported, fetched, skipped: Math.max(0, fetched - imported), cardsLabeled: cardLabelByLast4.size, ...(completo ? {} : { incompleto: true }) } };
 }

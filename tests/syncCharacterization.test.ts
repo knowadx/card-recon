@@ -115,7 +115,7 @@ describe("POST /api/sync/mercury (caracterização)", () => {
     expect(JSON.parse((await syncConfigOf(acc.mercury.id))!)).toEqual({ mercuryAccountId: MERCURY_ACCT, mercuryEntity: "4ads" });
   });
 
-  it("nada novo: { imported: 0, skipped } sem range e SEM regravar o syncConfig", async () => {
+  it("nada novo: { imported: 0, skipped } sem range — e a extração fica gravada mesmo assim (é o que trava a conta nela)", async () => {
     const fake = installFakeBanks({ mercury: { [MERCURY_ACCT]: mercuryFixture() } });
     await post({ accountId: acc.mercury.id, mercuryAccountId: MERCURY_ACCT, from: FROM, to: TO });
     await prisma.account.update({ where: { id: acc.mercury.id }, data: { syncConfig: '{"marcador":1}' } });
@@ -123,7 +123,7 @@ describe("POST /api/sync/mercury (caracterização)", () => {
     const res = await post({ accountId: acc.mercury.id, mercuryAccountId: MERCURY_ACCT, from: FROM, to: TO });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ imported: 0, skipped: 503 });
-    expect(await syncConfigOf(acc.mercury.id)).toBe('{"marcador":1}');
+    expect(JSON.parse((await syncConfigOf(acc.mercury.id))!)).toMatchObject({ mercuryAccountId: MERCURY_ACCT });
   });
 
   it("sem from/to: start = período de sync (Setting) e end = hoje", async () => {

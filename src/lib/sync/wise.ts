@@ -4,7 +4,8 @@ import { NO_OWN_TOKEN_MESSAGE, resolveBankToken } from "@/lib/credentials";
 import { isSuperadmin } from "@/lib/auth";
 import { getSyncPeriod } from "@/lib/settings";
 import { assertAccount, type AppUser } from "@/lib/access";
-import { mapLimit, markSynced, type SyncOutcome } from "./common";
+import { mapLimit, type SyncOutcome } from "./common";
+import { registrarCobertura } from "@/lib/cobertura";
 
 const WISE_BASE = "https://api.wise.com";
 
@@ -68,6 +69,13 @@ export async function wiseProfileProblem(key: string, profileId: string, account
     select: { name: true },
   });
   if (dup) return `o perfil Wise "${label}" já é sincronizado na conta "${dup.name}" — sincronizar aqui duplicaria as transações`;
+  // uma conta = UMA extração (o perfil): trocar de perfil numa conta com dados misturaria os dois
+  const conta = await prisma.account.findUnique({ where: { id: accountId }, select: { name: true, syncConfig: true } });
+  let atual: string | null = null;
+  try { atual = conta?.syncConfig ? (JSON.parse(conta.syncConfig).wiseProfileId ?? null) : null; } catch { atual = null; }
+  if (atual && String(atual) !== String(profileId) && (await prisma.transaction.findFirst({ where: { accountId }, select: { id: true } }))) {
+    return `a conta ${conta!.name} é do perfil Wise ${atual} — puxar o perfil "${label}" nela misturaria os dois. Crie uma conta para esse perfil.`;
+  }
   return null;
 }
 
@@ -412,7 +420,8 @@ export async function syncWiseAccount(opts: {
       data: { syncConfig: JSON.stringify({ wiseProfileId: profileId }) },
     });
   }
-  await markSynced(accountId, new Date(end)); // leu a janela inteira (até hoje, ou o "to" pedido)
+  // leu a janela inteira (até agora, ou o fim do "to" pedido) → coberta de start até end
+  await registrarCobertura({ accountId, de: new Date(start), ate: new Date(Date.parse(end) + 1), fonte: "api", userId: user.id });
 
   return {
     status: 200,

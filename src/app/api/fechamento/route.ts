@@ -4,6 +4,7 @@ import { memberOperationsWhere, isSuperadmin, scopes } from "@/lib/auth";
 import { accountScope, assertCompany, companyScope, guarded, requireUser, transactionScope } from "@/lib/access";
 import { metaTokenStatus } from "@/lib/meta";
 import { SINCRONIZAVEIS, statusDoMes } from "@/lib/importStatus";
+import { cobertaAte, coberturaPorConta } from "@/lib/cobertura";
 import { COBRANCA_DO_FECHAMENTO, cobrancasDoMes, ondeCobrancasDoMes, resumoPorCartao, totaisDoMes } from "@/lib/cobrancasMeta";
 
 export const dynamic = "force-dynamic";
@@ -39,9 +40,10 @@ export const GET = guarded(async (request: Request) => {
   // cada mês: liberado só com a importação terminada (src/lib/importStatus.ts — regra única)
   const contasDoEscopo = await prisma.account.findMany({
     where: { AND: [await accountScope(user), ...(companyParam ? [{ companyId: companyParam }] : [])] },
-    select: { name: true, bank: true, syncConfig: true, syncedThrough: true },
+    select: { id: true, name: true, bank: true, syncConfig: true },
   });
-  const paraStatus = contasDoEscopo.map((c) => ({ nome: c.name, banco: c.bank, configurada: !!c.syncConfig, syncedThrough: c.syncedThrough }));
+  const coberturas = await coberturaPorConta(contasDoEscopo.map((c) => c.id));
+  const paraStatus = contasDoEscopo.map((c) => ({ nome: c.name, banco: c.bank, configurada: !!c.syncConfig, cobertura: coberturas.get(c.id) ?? [] }));
   const mesesStatus = Object.fromEntries(meses.map((m) => [m, statusDoMes(m, paraStatus, agora)]));
 
   // sem mês pedido: o mais recente LIBERADO (o mês corrente nunca está)
@@ -115,10 +117,11 @@ const dia = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : 
 async function contasDoPasso1(user: AppUserLike, companyId: string, dateRange: { gte: Date; lt: Date }) {
   const contas = await prisma.account.findMany({
     where: { AND: [await accountScope(user), ...(companyId ? [{ companyId }] : [])] },
-    select: { id: true, name: true, bank: true, currency: true, syncConfig: true, syncedThrough: true, apiToken: true, company: { select: { id: true, name: true } } },
+    select: { id: true, name: true, bank: true, currency: true, syncConfig: true, apiToken: true, company: { select: { id: true, name: true } } },
     orderBy: [{ bank: "asc" }, { name: "asc" }],
   });
   const ids = contas.map((c) => c.id);
+  const coberturas = await coberturaPorConta(ids);
   const [ultimas, metaNoMes, semCodigo, creds] = await Promise.all([
     prisma.transaction.groupBy({ by: ["accountId"], where: { accountId: { in: ids } }, _max: { date: true } }),
     prisma.transaction.groupBy({ by: ["accountId"], where: { accountId: { in: ids }, ...COBRANCA_DO_FECHAMENTO, date: dateRange }, _count: { _all: true } }),
@@ -139,7 +142,7 @@ async function contasDoPasso1(user: AppUserLike, companyId: string, dateRange: {
     configurada: !!c.syncConfig, // já sincronizou uma vez (o "Sincronizar todas" só pega estas)
     temChave: c.bank === "Revolut" ? temCred("revolut", c.company.name) : !!c.apiToken || temCred(c.bank.toLowerCase(), c.company.name),
     ultimaTransacao: dia(ultimas.find((u) => u.accountId === c.id)?._max.date),
-    sincronizadaAte: dia(c.syncedThrough), // fim do último sync completo — o que libera o mês
+    cobertaAte: dia(cobertaAte(coberturas.get(c.id) ?? [])), // último dia importado por inteiro (cobertura) — o que libera o mês
     cobrancasMetaNoMes: metaNoMes.find((m) => m.accountId === c.id)?._count._all ?? 0,
     semCodigoNoMes: semCodigo.find((m) => m.accountId === c.id)?._count._all ?? 0, // passo 2: CSV de qual conta falta
   }));

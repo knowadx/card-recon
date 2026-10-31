@@ -145,9 +145,9 @@ describe("sync da conta BTG", () => {
     ]);
     expect(r[0]).toMatchObject({ description: "Compra no cartão — FACEBK *ABCD1234XY", isMetaCharge: true, metaRef: "ABCD1234XY" });
     expect(r[1]).toMatchObject({ isMetaCharge: false, metaRef: null });
-    // lembrou a conta do BTG e marcou até quando está sincronizada
+    // lembrou a conta do BTG e gravou a cobertura (desde o "from" até agora)
     expect(await prisma.account.findUniqueOrThrow({ where: { id: contaBtg.id } })).toMatchObject({ syncConfig: JSON.stringify({ btgAccountId: CONTA_BTG }) });
-    expect((await prisma.account.findUniqueOrThrow({ where: { id: contaBtg.id } })).syncedThrough).not.toBeNull();
+    expect(await prisma.importCoverage.findMany({ where: { accountId: contaBtg.id }, select: { source: true } })).toEqual([{ source: "api" }]);
   });
 
   it("rodar de novo não duplica nada", async () => {

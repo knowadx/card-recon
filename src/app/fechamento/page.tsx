@@ -8,7 +8,7 @@ import ReceiptsImporter from "@/components/receipts-importer";
 type Passo = { feito: boolean };
 type Conta = {
   id: string; nome: string; banco: string; empresa: string; moeda: string;
-  manual: boolean; configurada: boolean; temChave: boolean; ultimaTransacao: string | null; sincronizadaAte: string | null;
+  manual: boolean; configurada: boolean; temChave: boolean; ultimaTransacao: string | null; cobertaAte: string | null;
   cobrancasMetaNoMes: number; semCodigoNoMes: number;
 };
 type ConexaoMeta = { operationId: string; operacao: string; conectado: boolean; valido: boolean | null; expiraEm: string | null; erro: string | null };
@@ -183,7 +183,7 @@ export default function FechamentoPage() {
   const sincronizaveis = contas.filter((c) => !c.manual);
   const configuradas = sincronizaveis.filter((c) => c.configurada && c.temChave);
   const fora = sincronizaveis.filter((c) => !c.configurada || !c.temChave);
-  const ateMin = configuradas.map((c) => c.sincronizadaAte).filter(Boolean).sort()[0] ?? null;
+  const ateMin = configuradas.map((c) => c.cobertaAte).filter(Boolean).sort()[0] ?? null;
   // passo 2: de qual conta Revolut falta o CSV
   const faltaCsv = contas.filter((c) => c.banco === "Revolut" && c.semCodigoNoMes > 0);
   // passo 3 (OPCIONAL): conexão Meta — não entra na conciliação (extrato × PDF casa pelo código).
@@ -243,16 +243,16 @@ export default function FechamentoPage() {
 
         <div className="bg-white rounded-xl border border-[#e8eaed]">
           <Passo n={1} titulo="Bancos importados" estado={fora.length ? "aviso" : configuradas.length ? "ok" : "pendente"}
-            status={<>{n(configuradas.length)} conta(s){ateMin ? ` · sincronizadas até ${br(ateMin)}` : ""}{fora.length ? ` · ${fora.length} fora do sync` : ""}</>}
+            status={<>{n(configuradas.length)} conta(s){ateMin ? ` · importadas até ${br(ateMin)}` : ""}{fora.length ? ` · ${fora.length} fora do sync` : ""}</>}
             acao={<button className={btn} onClick={() => alternar("contas")}>{aberto.contas ? "Ocultar contas" : "Ver contas"}</button>}>
             {(aberto.contas || data?.bloqueado) && (
               <table className="w-full text-[13px]">
-                <thead><tr className="text-left text-[11px] uppercase tracking-wider text-[#9ca3af]"><th className="py-1.5 font-semibold">Conta</th><th className="font-semibold">Sincronizada até</th><th className="font-semibold">Meta no mês</th><th className="font-semibold text-right">Situação</th></tr></thead>
+                <thead><tr className="text-left text-[11px] uppercase tracking-wider text-[#9ca3af]"><th className="py-1.5 font-semibold">Conta</th><th className="font-semibold">Importada até</th><th className="font-semibold">Meta no mês</th><th className="font-semibold text-right">Situação</th></tr></thead>
                 <tbody className="divide-y divide-[#f3f4f6]">
                   {contas.map((c) => (
                     <tr key={c.id}>
                       <td className="py-1.5 text-[#374151]">{c.banco} · <span className="text-[#6b7280]">{c.nome}</span></td>
-                      <td className="tabular-nums text-[#6b7280]">{br(c.sincronizadaAte)}</td>
+                      <td className="tabular-nums text-[#6b7280]">{br(c.cobertaAte)}</td>
                       <td className="tabular-nums text-[#6b7280]">{n(c.cobrancasMetaNoMes)}</td>
                       <td className="text-right text-[12px]">
                         {c.manual ? <span className="text-[#9ca3af]">planilha</span>

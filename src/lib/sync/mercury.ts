@@ -4,7 +4,8 @@ import { NO_OWN_TOKEN_MESSAGE, resolveBankToken } from "@/lib/credentials";
 import { isSuperadmin } from "@/lib/auth";
 import { getSyncPeriod } from "@/lib/settings";
 import { assertAccount, type AppUser } from "@/lib/access";
-import { markSynced, type SyncOutcome } from "./common";
+import { problemaDeExtracao, type SyncOutcome } from "./common";
+import { inicioDoDia, registrarCobertura } from "@/lib/cobertura";
 
 const MERCURY_BASE = "https://api.mercury.com/api/v1";
 
@@ -46,7 +47,7 @@ async function fetchCardMap(key: string, mercuryAccountId: string): Promise<Map<
   return map;
 }
 
-async function fetchAllTransactions(key: string, mercuryAccountId: string, start: string, end: string): Promise<MercuryTransaction[]> {
+export async function fetchAllTransactions(key: string, mercuryAccountId: string, start: string, end: string): Promise<MercuryTransaction[]> {
   const all: MercuryTransaction[] = [];
   let startAfter: string | null = null;
   const limit = 500;
@@ -84,7 +85,8 @@ async function fetchAllTransactions(key: string, mercuryAccountId: string, start
  *  - token: resolveBankToken (o da conta / da própria empresa; legados só p/ superadmin);
  *  - pagina por start_after; pula failed/cancelled e refs já gravadas;
  *  - grava cartão (últimos 4), cobrança Meta (isMetaCharge/metaRef) e a operação da conta;
- *  - saveSyncConfig: a rota lembra a conta escolhida no banco; o sync/all só LÊ o que está salvo.
+ *  - saveSyncConfig: a rota lembra a conta escolhida no banco; o sync/all só LÊ o que está salvo;
+ *  - uma conta = UMA extração (sub-conta) da Mercury: outra extração numa conta com dados = 409.
  * Erro da API do Mercury: lança (a rota responde 500; o sync/all reporta na conta).
  */
 export async function syncMercuryAccount(opts: {
@@ -109,6 +111,9 @@ export async function syncMercuryAccount(opts: {
     return { status: 400, body: { error: msg } };
   }
 
+  const problema = await problemaDeExtracao({ account, chave: "mercuryAccountId", pedida: mercuryAccountId, rotulo: (v) => `Mercury ${v ? `…${v.slice(-4)}` : "?"}` });
+  if (problema) return { status: 409, body: { error: problema } };
+
   const period = await getSyncPeriod();
   const end = to || new Date().toISOString().slice(0, 10); // sempre até HOJE (o "até" do período não trava)
   const start = from || period.from;
@@ -128,10 +133,18 @@ export async function syncMercuryAccount(opts: {
     (tx) => tx.status !== "failed" && tx.status !== "cancelled" && !existingRefs.has(tx.id)
   );
 
-  // terminou de ler a janela inteira → a conta está sincronizada até o fim dela
-  const ate = to ? new Date(`${to}T23:59:59.999Z`) : new Date();
+  // terminou de ler a janela inteira → a conta está coberta de `start` até o fim dela
+  const ate = to ? new Date(Date.parse(`${to}T00:00:00.000Z`) + 86_400_000) : new Date();
+  const cobrir = () => registrarCobertura({ accountId, de: inicioDoDia(start), ate, fonte: "api", userId: user.id });
+  // a extração fica gravada já no 1º sync, mesmo sem lançamento novo (é o que trava a conta nela)
+  if (opts.saveSyncConfig) {
+    await prisma.account.update({
+      where: { id: accountId },
+      data: { syncConfig: JSON.stringify({ mercuryAccountId, mercuryEntity: entity ?? "activeview" }) },
+    });
+  }
   if (toCreate.length === 0) {
-    await markSynced(accountId, ate);
+    await cobrir();
     return { status: 200, body: { imported: 0, skipped: transactions.length } };
   }
 
@@ -152,14 +165,7 @@ export async function syncMercuryAccount(opts: {
     }),
   });
 
-  if (opts.saveSyncConfig) {
-    await prisma.account.update({
-      where: { id: accountId },
-      data: { syncConfig: JSON.stringify({ mercuryAccountId, mercuryEntity: entity ?? "activeview" }) },
-    });
-  }
-
-  await markSynced(accountId, ate);
+  await cobrir();
   return {
     status: 200,
     body: { imported: toCreate.length, skipped: transactions.length - toCreate.length, range: { start, end } },

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, RefreshCw, Upload } from "lucide-react";
+import { Plus, Pencil, Trash2, RefreshCw, Upload, Split } from "lucide-react";
 import { cnpjValido } from "@/lib/cnpj";
 
 type Company = { id: string; name: string; color: string; cnpj?: string | null };
@@ -55,7 +55,12 @@ export default function AccountsPage() {
   const [mercuryAccountId, setMercuryAccountId] = useState("");
   const [mercurySyncFrom, setMercurySyncFrom] = useState(defaultSyncFrom);
   const [mercurySyncing, setMercurySyncing] = useState(false);
-  const [mercurySyncResult, setMercurySyncResult] = useState<{ imported: number; skipped: number } | null>(null);
+  const [mercurySyncResult, setMercurySyncResult] = useState<{ imported?: number; skipped?: number; error?: string } | null>(null);
+  // "Separar extrações" (Mercury): 1 conta por extração — plano (GET) antes de aplicar (POST)
+  type PlanoExtracoes = { conta: string; extracoes: Array<{ id: string; nome: string; tipo: string; lancamentos: number; fica: boolean; contaExistente: string | null }>; semExtracao: number; criadas?: Array<{ nome: string }>; duplicadas?: number; error?: string };
+  const [extracoesAlvo, setExtracoesAlvo] = useState<Account | null>(null);
+  const [extracoesPlano, setExtracoesPlano] = useState<PlanoExtracoes | null>(null);
+  const [extracoesRodando, setExtracoesRodando] = useState(false);
 
   const [wiseSyncOpen, setWiseSyncOpen] = useState(false);
   const [wiseSyncTarget, setWiseSyncTarget] = useState<Account | null>(null);
@@ -152,6 +157,22 @@ const save = async () => {
     setEditing(a);
     setForm({ name: a.name, bank: a.bank, currency: a.currency, companyId: a.company.id, apiToken: "" });
     setOpen(true);
+  };
+
+  const abrirExtracoes = async (a: Account) => {
+    setExtracoesAlvo(a);
+    setExtracoesPlano(null);
+    setExtracoesRodando(true);
+    setExtracoesPlano(await fetch(`/api/accounts/${a.id}/extracoes`).then((r) => r.json()).catch(() => ({ error: "falhou ao ler a Mercury" })));
+    setExtracoesRodando(false);
+  };
+  const separarExtracoes = async () => {
+    if (!extracoesAlvo) return;
+    setExtracoesRodando(true);
+    const r = await fetch(`/api/accounts/${extracoesAlvo.id}/extracoes`, { method: "POST" }).then((x) => x.json()).catch(() => ({ error: "falhou" }));
+    setExtracoesRodando(false);
+    setExtracoesPlano(r);
+    if (!r.error) load();
   };
 
   const openMercurySync = async (a: Account) => {
@@ -484,6 +505,15 @@ const save = async () => {
                               title="Sync via Mercury API"
                             >
                               <RefreshCw className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {a.bank === "Mercury" && (
+                            <button
+                              onClick={() => abrirExtracoes(a)}
+                              className="p-2 rounded-lg hover:bg-[#e6f7f5] text-[#9ca3af] hover:text-[#00b9a5] transition-colors"
+                              title="Separar extrações (1 conta por extração da Mercury)"
+                            >
+                              <Split className="w-3.5 h-3.5" />
                             </button>
                           )}
                           {a.bank === "Revolut" && (
@@ -879,8 +909,10 @@ const save = async () => {
               </div>
               {mercurySyncResult && (
                 <div className="rounded-xl border border-[#e8eaed] p-4 bg-[#fafbfc] text-[13px] space-y-1">
-                  <p><span className="text-emerald-600 font-semibold">{mercurySyncResult.imported} transactions imported</span></p>
-                  <p className="text-[#9ca3af]">{mercurySyncResult.skipped} already existed</p>
+                  {mercurySyncResult.error ? <p className="text-red-600">{mercurySyncResult.error}</p> : <>
+                    <p><span className="text-emerald-600 font-semibold">{mercurySyncResult.imported} transactions imported</span></p>
+                    <p className="text-[#9ca3af]">{mercurySyncResult.skipped} already existed</p>
+                  </>}
                 </div>
               )}
               <Button onClick={runMercurySync} disabled={mercurySyncing || !mercuryAccountId} className="w-full h-10 text-sm rounded-lg bg-[#00b9a5] hover:bg-[#00a896] text-white font-semibold">
@@ -888,6 +920,45 @@ const save = async () => {
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Separar extrações (Mercury) */}
+      <Dialog open={!!extracoesAlvo} onOpenChange={(v) => { if (!v) { setExtracoesAlvo(null); setExtracoesPlano(null); } }}>
+        <DialogContent className="rounded-2xl max-w-lg border-[#e8eaed] shadow-xl">
+          <DialogHeader>
+            <DialogTitle className="text-[17px] font-bold text-[#1a202c]">Extrações da Mercury</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-1 text-[13px]">
+            <p className="text-[#6b7280]">Cada extração (conta corrente, poupança, crédito) vira uma conta aqui, com a sua própria cobertura — assim dá pra ver se cada uma foi puxada inteira. Os lançamentos já importados vão pra conta da extração de onde vieram.</p>
+            {!extracoesPlano && <p className="text-[#9ca3af]">{extracoesRodando ? "Lendo as extrações na Mercury…" : ""}</p>}
+            {extracoesPlano?.error && <p className="text-red-600">{extracoesPlano.error}</p>}
+            {extracoesPlano?.extracoes && (
+              <>
+                <table className="w-full">
+                  <thead><tr className="text-left text-[11px] uppercase tracking-wider text-[#9ca3af]"><th className="py-1 font-semibold">Extração</th><th className="font-semibold text-right">Lançamentos</th><th className="font-semibold text-right">Vai para</th></tr></thead>
+                  <tbody className="divide-y divide-[#f3f4f6]">
+                    {extracoesPlano.extracoes.map((e) => (
+                      <tr key={e.id}>
+                        <td className="py-1.5 text-[#374151]">{e.nome} <span className="text-[#9ca3af]">· {e.tipo}</span></td>
+                        <td className="text-right tabular-nums">{e.lancamentos}</td>
+                        <td className="text-right text-[12px] text-[#6b7280]">{e.fica ? "fica nesta conta" : e.contaExistente ? e.contaExistente : "conta nova"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {extracoesPlano.semExtracao > 0 && <p className="text-amber-600">{extracoesPlano.semExtracao} lançamento(s) não aparecem em nenhuma extração da Mercury — ficam nesta conta.</p>}
+                {extracoesPlano.criadas
+                  ? <p className="text-emerald-700">✅ Separado: {extracoesPlano.criadas.length} conta(s) nova(s){extracoesPlano.duplicadas ? ` · ${extracoesPlano.duplicadas} duplicado(s) ficaram aqui` : ""}. Agora sincronize as contas novas desde o mês que você quer cobrir.</p>
+                  : extracoesPlano.extracoes.length > 1 && (
+                    <Button onClick={separarExtracoes} disabled={extracoesRodando} className="w-full h-10 text-sm rounded-lg bg-[#00b9a5] hover:bg-[#00a896] text-white font-semibold">
+                      {extracoesRodando ? "Separando…" : `Separar em ${extracoesPlano.extracoes.length} contas`}
+                    </Button>
+                  )}
+                {extracoesPlano.extracoes.length === 1 && !extracoesPlano.criadas && <p className="text-[#6b7280]">Esta chave tem uma extração só — nada a separar.</p>}
+              </>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 

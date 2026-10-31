@@ -5,6 +5,7 @@ import { isManager } from "@/lib/auth";
 import { lerOfx } from "@/lib/ofx";
 import { isMetaMerchant, extractMetaRef } from "@/lib/metaCheck";
 import { recomputeHasReceipt } from "@/lib/receipts";
+import { inicioDoDia, registrarCobertura } from "@/lib/cobertura";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,8 @@ export const dynamic = "force-dynamic";
  *  - moeda do arquivo diferente da conta = recusa;
  *  - a conta fica LIGADA à conta do primeiro OFX: arquivo de outra conta bancária = recusa.
  * Superadmin e admins (como as outras importações).
+ * Cobertura: o período do arquivo (DTSTART–DTEND, dias inteiros; o fim é inclusivo) vira um trecho
+ * importado da conta — dia sem lançamento também conta. Sem período no arquivo: do 1º ao último lançamento.
  */
 export const POST = guarded(async (request: Request) => {
   const user = await requireUser();
@@ -60,8 +63,14 @@ export const POST = guarded(async (request: Request) => {
   let filename: string | null = null;
   try { filename = decodeURIComponent(request.headers.get("x-filename") ?? "").slice(0, 200) || null; } catch { filename = null; }
   const resumo = { lancamentos: dados.length, gravados, jaExistiam: dados.length - gravados, linhasDeSaldoIgnoradas: extrato.linhasDeSaldo, contaBanco: `${extrato.banco ?? "?"}/${extrato.agencia ?? "?"}/${extrato.conta}`, conta: account.name, saldo: extrato.saldo };
-  await prisma.importLog.create({
+  const log = await prisma.importLog.create({
     data: { kind: "ofx", filename, userId: user.id, periodFrom: extrato.inicio, periodTo: extrato.fim, companyIds: [account.companyId], summary: JSON.stringify(resumo) },
+  });
+  const datas = extrato.lancamentos.map((l) => l.data.toISOString().slice(0, 10)).sort();
+  const diaDe = extrato.diaInicio ?? datas[0];
+  const diaAte = extrato.diaFim ?? datas[datas.length - 1];
+  await registrarCobertura({
+    accountId, de: inicioDoDia(diaDe), ate: new Date(inicioDoDia(diaAte).getTime() + 86_400_000), fonte: "ofx", userId: user.id, importLogId: log.id,
   });
   return NextResponse.json({ ok: true, ...resumo });
 });

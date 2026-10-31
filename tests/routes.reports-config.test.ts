@@ -274,17 +274,20 @@ describe("/api/fechamento", () => {
   beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-15T12:00:00Z") }); });
   afterEach(() => { vi.useRealTimers(); });
 
-  it("mês com a importação incompleta fica BLOQUEADO (com o motivo); sincronizada depois do fim, libera", async () => {
-    await prisma.account.update({ where: { id: s.accounts.pixel.id }, data: { syncConfig: JSON.stringify({ mercuryAccountId: "m1" }), syncedThrough: new Date("2026-10-20T00:00:00Z") } });
+  it("mês com a importação incompleta fica BLOQUEADO (com o motivo); coberto inteiro, libera", async () => {
+    await prisma.account.update({ where: { id: s.accounts.pixel.id }, data: { syncConfig: JSON.stringify({ mercuryAccountId: "m1" }) } });
+    const cobrir = (de: string, ate: string) => prisma.importCoverage.create({ data: { accountId: s.accounts.pixel.id, from: new Date(de), to: new Date(ate), source: "api" } });
+    await cobrir("2026-09-01T00:00:00Z", "2026-10-20T00:00:00Z");
     const r = await call(s.users.pixel, get());
     expect(r.status).toBe(200);
-    expect(r.body.bloqueado).toContain("falta sincronizar depois de 31/10/2026");
+    expect(r.body.bloqueado).toContain("falta importar o mês inteiro");
+    expect(r.body.bloqueado).toContain("importada até 19/10/2026");
     expect(r.body.passos).toBeUndefined(); // nada de conferência num mês incompleto
     expect(r.body.contas.map((c: { id: string }) => c.id)).toEqual([s.accounts.pixel.id]); // mas mostra qual conta falta
     expect(r.body.mesesStatus["2026-10"].liberado).toBe(false);
     expect(r.body.mesesStatus["2026-11"]).toEqual({ liberado: false, motivo: "o mês ainda não acabou" });
 
-    await prisma.account.update({ where: { id: s.accounts.pixel.id }, data: { syncedThrough: new Date("2026-11-02T00:00:00Z") } });
+    await cobrir("2026-10-15T00:00:00Z", "2026-11-02T00:00:00Z"); // emenda no trecho anterior → outubro inteiro
     const ok = await call(s.users.pixel, get());
     expect(ok.body.bloqueado).toBeUndefined();
     expect(ok.body.passos.bancos.transacoesMeta).toBe(1);
@@ -574,8 +577,8 @@ describe("/api/coverage (Control)", () => {
     expect(px.status).toBe(200);
     expect(px.body.companies.map((c: { id: string }) => c.id)).toEqual([s.companies.pixel.id]);
     expect(px.body.accounts.map((a: { id: string }) => a.id)).toEqual([s.accounts.pixel.id]);
-    const mes = Object.keys(px.body.matrix[s.companies.pixel.id]).find((m) => px.body.matrix[s.companies.pixel.id][m] > 0);
-    expect(mes).toBe("2026-10");
+    const meses = px.body.accounts[0].meses as Record<string, { total: number }>;
+    expect(Object.keys(meses).filter((m) => meses[m].total > 0)).toEqual(["2026-10"]);
     expect(JSON.stringify(px.body)).not.toContain(s.companies.outro.id);
   });
 });

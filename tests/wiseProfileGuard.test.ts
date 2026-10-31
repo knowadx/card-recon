@@ -32,7 +32,7 @@ describe("sync Wise confere o dono do perfil", () => {
     expect((await res.json()).error).toMatch(/não é da empresa "Pixel Ads LLC"/);
     expect(await importadas()).toBe(antes);
     expect((await prisma.account.findUniqueOrThrow({ where: { id: acc.wise.id } })).syncConfig).toBeNull();
-    expect((await prisma.account.findUniqueOrThrow({ where: { id: acc.wise.id } })).syncedThrough).toBeNull(); // recusado não conta como sincronizado
+    expect(await prisma.importCoverage.count({ where: { accountId: acc.wise.id } })).toBe(0); // recusado não conta como importado
   });
 
   it("perfil já ligado a OUTRA conta = 400 (duplicaria as transações)", async () => {
@@ -49,9 +49,10 @@ describe("sync Wise confere o dono do perfil", () => {
     installFakeBanks({ wise: { [WISE_PROFILE]: { ...wiseFixture(), profileName: "PIXEL ADS" } } });
     const antes = Date.now();
     expect((await sync()).status).toBe(200);
-    // sync que TERMINA marca até quando a conta está sincronizada (libera o Fechamento Meta do mês)
-    const ate = (await prisma.account.findUniqueOrThrow({ where: { id: acc.wise.id } })).syncedThrough;
-    expect(ate && ate.getTime() >= antes - 1000).toBe(true);
+    // sync que TERMINA grava a cobertura até agora (libera o Fechamento Meta do mês)
+    const cob = await prisma.importCoverage.findFirstOrThrow({ where: { accountId: acc.wise.id } });
+    expect(cob.source).toBe("api");
+    expect(cob.to.getTime() >= antes - 1000).toBe(true);
     expect(JSON.parse((await prisma.account.findUniqueOrThrow({ where: { id: acc.wise.id } })).syncConfig!)).toEqual({ wiseProfileId: WISE_PROFILE });
   });
 

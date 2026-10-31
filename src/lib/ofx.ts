@@ -22,6 +22,8 @@ export type ExtratoOfx = {
   moeda: string | null; // CURDEF
   inicio: Date | null;
   fim: Date | null;
+  diaInicio: string | null; // DTSTART/DTEND como o BANCO escreveu o dia (AAAA-MM-DD), sem conversão de fuso —
+  diaFim: string | null; //    é o período do arquivo, base da cobertura (src/lib/cobertura.ts)
   saldo: number | null; // LEDGERBAL
   lancamentos: LancamentoOfx[];
   linhasDeSaldo: number; // "SALDO ANTERIOR"/"SALDO DO DIA": o Itaú grava como lançamento — não são, ficam fora
@@ -51,6 +53,12 @@ export function dataOfx(bruto: string | null): Date | null {
   const data = new Date(`${a}-${me}-${d}T${h}:${mi}:${s ?? "00"}${offTxt}`);
   return Number.isNaN(data.getTime()) ? null : data;
 }
+
+/** O dia (AAAA-MM-DD) como o banco escreveu — os 8 primeiros dígitos, sem fuso. */
+const diaOfx = (bruto: string | null) => {
+  const m = bruto?.match(/^(\d{4})(\d{2})(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+};
 
 const numero = (bruto: string | null) => {
   if (!bruto) return null;
@@ -106,6 +114,8 @@ export function lerOfx(texto: string): { extrato?: ExtratoOfx; erro?: string } {
       moeda: folha(texto, "CURDEF"),
       inicio: dataOfx(folha(texto, "DTSTART")),
       fim: dataOfx(folha(texto, "DTEND")),
+      diaInicio: diaOfx(folha(texto, "DTSTART")),
+      diaFim: diaOfx(folha(texto, "DTEND")),
       saldo: numero(folha(texto.match(/<LEDGERBAL>([\s\S]*?)<\/LEDGERBAL>/i)?.[1] ?? "", "BALAMT")),
       lancamentos,
       linhasDeSaldo,
