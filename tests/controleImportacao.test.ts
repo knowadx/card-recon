@@ -111,6 +111,21 @@ describe("/api/coverage — dois checkpoints por conta e mês", () => {
     expect(body.accounts.find((a: { id: string }) => a.id === xpVazia.id)).toMatchObject({ nuncaImportada: true, fonte: null });
   });
 
+  it("linha do tempo: trechos importados (mesclados) recortados na janela de 13 meses", async () => {
+    const conta = s.accounts.pixel.id;
+    await prisma.importCoverage.createMany({ data: [
+      { accountId: conta, from: d("2025-06-01T00:00:00Z"), to: d("2025-12-15T00:00:00Z"), source: "ofx" }, // começa antes da janela (nov/25)
+      { accountId: conta, from: d("2026-08-01T00:00:00Z"), to: d("2026-09-10T00:00:00Z"), source: "api" },
+      { accountId: conta, from: d("2026-09-10T00:00:00Z"), to: d("2026-10-16T10:00:00Z"), source: "api" }, // encosta → um trecho só
+    ] });
+    loginAs(admin);
+    const px = (await json(await coverage.GET())).body.accounts.find((a: { id: string }) => a.id === conta);
+    expect(px.trechos).toEqual([
+      { de: "2025-11-01T00:00:00.000Z", ate: "2025-12-15T00:00:00.000Z" },
+      { de: "2026-08-01T00:00:00.000Z", ate: "2026-10-16T10:00:00.000Z" },
+    ]);
+  });
+
   it("detalhe da célula: as importações que cobrem o mês; outro grupo = 404; membro = 403", async () => {
     await prisma.importCoverage.create({ data: { accountId: s.accounts.pixel.id, from: d("2026-08-01T00:00:00Z"), to: d("2026-10-16T10:00:00Z"), source: "api", userId: admin.id } });
     const get = (accountId: string, mes: string) => detalhe.GET(req(`/api/coverage/detalhe?accountId=${accountId}&mes=${mes}`));

@@ -1,11 +1,14 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 
 /**
- * Controle de importação — por conta e mês, dois checkpoints SEPARADOS e só calculados (decisão do
- * dono em 2026-10-30): 1) o mês foi importado por inteiro? (cobertura, não contagem de lançamentos)
- * 2) está categorizado? Clique numa célula pra ver quais importações cobrem aquele mês.
+ * Controle de importação — dois checkpoints SEPARADOS e só calculados (decisão do dono em 2026-10-30),
+ * um por aba (2026-11-09: "a guia ficou muito poluída"):
+ *  - Importação: linha do tempo por conta — verde onde a importação cobriu, listrado onde há lançamento
+ *    sem importação registrada, vazio onde falta. Clique num mês pra ver quais importações o cobrem.
+ *  - Categorização: % dos lançamentos do mês com categoria gerencial.
+ * Empresas sem dado somem; contas sem nenhum dado ficam numa linha recolhida no fim.
  */
 
 type EstadoImp = "completo" | "parcial" | "sem_comprovacao" | "faltando" | "antes";
@@ -13,6 +16,7 @@ type Mes = { imp: EstadoImp; pedacos?: Array<{ de: string; ate: string }>; total
 type Conta = {
   id: string; name: string; bank: string; companyId: string; fonte: string | null; nuncaImportada: boolean; cobertaAte: string | null;
   ultimaImportacao: { quando: string; quem: string | null; fonte: string; arquivo: string | null } | null;
+  trechos: Array<{ de: string; ate: string }>;
   meses: Record<string, Mes>;
 };
 type Dados = { months: string[]; companies: Array<{ id: string; name: string; color: string }>; accounts: Conta[] };
@@ -22,31 +26,9 @@ const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "O
 const br = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
 /** Último dia coberto de um trecho (o fim é exclusivo). */
 const ultimoDia = (ateIso: string) => br(new Date(new Date(ateIso).getTime() - 1).toISOString());
-const diaDoMes = (iso: string) => String(new Date(iso).getUTCDate());
-
-function textoParcial(m: Mes) {
-  const p = m.pedacos ?? [];
-  if (p.length !== 1) return "parcial";
-  const de = new Date(p[0].de);
-  const fimDia = new Date(new Date(p[0].ate).getTime() - 1);
-  return de.getUTCDate() === 1 ? `até ${fimDia.getUTCDate()}` : `desde ${diaDoMes(p[0].de)}`;
-}
-
-function CelulaImp({ m }: { m: Mes }) {
-  switch (m.imp) {
-    case "completo": return <span className="text-[13px] font-bold text-emerald-600">✓</span>;
-    case "parcial": return <span className="text-[10.5px] font-semibold text-amber-600 whitespace-nowrap">{textoParcial(m)}</span>;
-    case "sem_comprovacao": return <span className="text-[12px] font-bold text-amber-500">?</span>;
-    case "faltando": return <span className="text-[12px] font-bold text-red-500">✕</span>;
-    default: return <span className="text-[#e5e7eb]">·</span>;
-  }
-}
-
-function CelulaCat({ total, semCategoria }: { total: number; semCategoria: number }) {
-  if (total === 0) return <span className="text-[10px] text-transparent">.</span>;
-  const pct = Math.floor(((total - semCategoria) / total) * 100);
-  return <span className={`text-[10px] tabular-nums ${semCategoria === 0 ? "text-emerald-600" : pct >= 75 ? "text-amber-600" : "text-red-500"}`}>{semCategoria === 0 ? "100%" : `${pct}%`}</span>;
-}
+const inicioMes = (m: string) => Date.UTC(+m.slice(0, 4), +m.slice(5, 7) - 1, 1);
+const fimMes = (m: string) => Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 1);
+const LISTRADO = "repeating-linear-gradient(135deg, #fcd34d 0 3px, #fef3c7 3px 6px)";
 
 function dicaImp(m: Mes) {
   switch (m.imp) {
@@ -61,25 +43,19 @@ function dicaImp(m: Mes) {
 export default function ControlPage() {
   const [dados, setDados] = useState<Dados | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const [aberto, setAberto] = useState<Record<string, boolean>>({});
+  const [aba, setAba] = useState<"importacao" | "categorizacao">("importacao");
+  const [recolhidas, setRecolhidas] = useState<Record<string, boolean>>({});
+  const [vaziasAbertas, setVaziasAbertas] = useState(false);
   const [detalhe, setDetalhe] = useState<{ conta: Conta; mes: string; importacoes: Importacao[] | null } | null>(null);
   const [desde, setDesde] = useState("");
   const [sincronizando, setSincronizando] = useState(false);
   const [resultadoSync, setResultadoSync] = useState<string | null>(null);
-  // abre já nos meses mais recentes (à direita) — em tela estreita os antigos ficam pra rolar
-  const tabelaRef = useRef<HTMLDivElement>(null);
-  const rolou = useRef(false);
-  useEffect(() => {
-    if (dados && tabelaRef.current && !rolou.current) {
-      tabelaRef.current.scrollLeft = tabelaRef.current.scrollWidth;
-      rolou.current = true;
-    }
-  }, [dados]);
+  const [agora, setAgora] = useState(0); // "hoje" da linha do tempo — lido ao carregar (render não lê relógio)
 
   const aplicar = useCallback((ok: boolean, d: Dados & { error?: string }) => {
     if (!ok) { setErro(d.error ?? "erro ao carregar"); return; }
     setDados(d);
-    setAberto((prev) => (Object.keys(prev).length ? prev : Object.fromEntries(d.companies.map((c) => [c.id, true]))));
+    setAgora(Date.now());
     setDesde((prev) => prev || d.months[d.months.length - 7]);
   }, []);
   const buscar = () => fetch("/api/coverage").then((r) => r.json().then((d) => ({ ok: r.ok, d })));
@@ -101,7 +77,7 @@ export default function ControlPage() {
     setSincronizando(true);
     setResultadoSync(null);
     const r = await fetch("/api/sync/all", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: `${desde}-01` }) })
-      .then((x) => x.json()).catch(() => ({ error: "falhou" }));
+      .then((x) => x.json()).catch(() => ({ error: "falhou (a tela desistiu de esperar — recarregue daqui a pouco pra ver o que entrou)" }));
     setSincronizando(false);
     if (r.error) setResultadoSync(`❌ ${r.error}`);
     else {
@@ -120,122 +96,175 @@ export default function ControlPage() {
     );
   }
 
-  const atual = new Date().toISOString().slice(0, 7);
-  const input = "h-8 rounded-lg border border-[#e8eaed] px-2 text-[13px]";
+  // janela da linha do tempo: do 1º dia do mês mais antigo ao fim do mês atual
+  const ini = inicioMes(dados.months[0]);
+  const fim = fimMes(dados.months[dados.months.length - 1]);
+  const pos = (t: number) => Math.min(100, Math.max(0, ((t - ini) / (fim - ini)) * 100));
+  const hoje = pos(agora);
+
+  const comDado = dados.accounts.filter((c) => !c.nuncaImportada);
+  const vazias = dados.accounts.filter((c) => c.nuncaImportada);
+  const nomeEmpresa = (id: string) => dados.companies.find((e) => e.id === id)?.name ?? "";
+  const empresas = dados.companies
+    .map((e) => ({ ...e, contas: comDado.filter((c) => c.companyId === e.id && (aba === "importacao" || dados.months.some((m) => c.meses[m].total > 0))) }))
+    .filter((e) => e.contas.length > 0);
+
+  const colunas = "grid grid-cols-[minmax(150px,260px)_1fr] items-center";
   const btn = "h-8 px-3 rounded-lg border border-[#e8eaed] bg-white text-[13px] font-medium text-[#374151] hover:bg-[#f9fafb] disabled:opacity-50";
+
+  const trilha = (c: Conta) => {
+    const comeco = dados!.months.find((m) => c.meses[m].imp !== "antes");
+    const desdeDado = comeco ? pos(inicioMes(comeco)) : 100;
+    return (
+      <div
+        className="relative h-6 cursor-pointer"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          const t = ini + ((e.clientX - r.left) / r.width) * (fim - ini);
+          const mes = dados!.months.find((m) => t >= inicioMes(m) && t < fimMes(m));
+          if (mes && c.meses[mes].imp !== "antes") abrirDetalhe(c, mes);
+        }}
+      >
+        {/* trilho (o que falta) do 1º dado da conta até hoje — dia que ainda não aconteceu não "falta" */}
+        {hoje > desdeDado && <div className="absolute top-2 h-2 rounded-full bg-[#e5e7eb]" style={{ left: `${desdeDado}%`, width: `${hoje - desdeDado}%` }} />}
+        {/* meses com lançamento mas sem importação registrada */}
+        {dados!.months.filter((m) => c.meses[m].imp === "sem_comprovacao").map((m) => (
+          <div key={m} className="absolute top-2 h-2" style={{ left: `${pos(inicioMes(m))}%`, width: `${Math.min(pos(fimMes(m)), hoje) - pos(inicioMes(m))}%`, background: LISTRADO }}
+            title={`${MESES[+m.slice(5, 7) - 1]}/${m.slice(0, 4)}: ${dicaImp(c.meses[m])}`} />
+        ))}
+        {/* o que foi importado */}
+        {c.trechos.map((t, i) => (
+          <div key={i} className="absolute top-2 h-2 rounded-full bg-emerald-500" style={{ left: `${pos(Date.parse(t.de))}%`, width: `${pos(Date.parse(t.ate)) - pos(Date.parse(t.de))}%` }}
+            title={`importado de ${br(t.de)} a ${ultimoDia(t.ate)}`} />
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col h-screen bg-[#f8fafc]">
-      <div className="px-8 py-5 bg-white border-b border-[#e8eaed] flex flex-wrap items-end justify-between gap-4">
+      <div className="px-8 py-5 bg-white border-b border-[#e8eaed] flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-[#1a202c]">Controle de importação</h1>
-          <p className="text-[13px] text-[#6b7280] mt-0.5">Por conta e mês: <strong>importado por inteiro?</strong> (em cima) e <strong>categorizado?</strong> (embaixo). Clique numa célula pra ver o que foi importado.</p>
+          <p className="text-[13px] text-[#6b7280] mt-0.5">{aba === "importacao" ? "O que já foi importado de cada conta. Clique num mês pra ver de onde veio." : "Quanto de cada mês já tem categoria."}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[12px] text-[#6b7280]">Sincronizar contas com API desde</span>
-          <input type="month" className={input} value={desde} onChange={(e) => setDesde(e.target.value)} />
-          <button className={btn} onClick={sincronizar} disabled={sincronizando || !desde}>{sincronizando ? "Sincronizando…" : "Sincronizar"}</button>
+        <div className="flex items-center gap-3">
+          <div className="flex rounded-lg border border-[#e8eaed] bg-[#f8fafc] p-0.5 text-[13px]">
+            {([["importacao", "Importação"], ["categorizacao", "Categorização"]] as const).map(([k, rotulo]) => (
+              <button key={k} onClick={() => setAba(k)} className={`px-3 h-7 rounded-md font-medium ${aba === k ? "bg-white shadow-sm text-[#1a202c]" : "text-[#6b7280]"}`}>{rotulo}</button>
+            ))}
+          </div>
+          {aba === "importacao" && (
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] text-[#6b7280]">Sincronizar APIs desde</span>
+              <input type="month" className="h-8 rounded-lg border border-[#e8eaed] px-2 text-[13px]" value={desde} onChange={(e) => setDesde(e.target.value)} />
+              <button className={btn} onClick={sincronizar} disabled={sincronizando || !desde}>{sincronizando ? "Sincronizando…" : "Sincronizar"}</button>
+            </div>
+          )}
         </div>
       </div>
-      {resultadoSync && <div className="px-8 py-2 text-[12.5px] bg-white border-b border-[#e8eaed] text-[#374151]">{resultadoSync}</div>}
+      {resultadoSync && aba === "importacao" && <div className="px-8 py-2 text-[12.5px] bg-white border-b border-[#e8eaed] text-[#374151]">{resultadoSync}</div>}
 
       <div className="flex-1 overflow-auto p-8">
-        <div ref={tabelaRef} className="bg-white rounded-2xl border border-[#e8eaed] overflow-auto">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="border-b border-[#f3f4f6]">
-                <th className="text-left px-6 py-4 text-[12px] font-semibold text-[#9ca3af] uppercase tracking-wider sticky left-0 bg-white min-w-[300px] z-10">Empresa / conta</th>
+        <div className="bg-white rounded-2xl border border-[#e8eaed] px-5 py-3">
+          {/* cabeçalho dos meses */}
+          <div className={`${colunas} pb-2 border-b border-[#f3f4f6]`}>
+            <div />
+            {aba === "importacao" ? (
+              <div className="relative h-5">
                 {dados.months.map((m) => (
-                  <th key={m} className={`px-1 py-4 text-center min-w-[52px] ${m === atual ? "bg-[#f0fdf9]" : ""}`}>
-                    <div className={`text-[12px] font-semibold ${m === atual ? "text-[#00b9a5]" : "text-[#9ca3af]"}`}>{MESES[+m.slice(5, 7) - 1]}</div>
-                    <div className="text-[10px] text-[#d1d5db] mt-0.5">{m.slice(0, 4)}</div>
-                  </th>
+                  <div key={m} className="absolute text-center text-[11px] font-semibold text-[#9ca3af]" style={{ left: `${pos(inicioMes(m))}%`, width: `${pos(fimMes(m)) - pos(inicioMes(m))}%` }}>
+                    {MESES[+m.slice(5, 7) - 1]}{m.endsWith("-01") || m === dados.months[0] ? <span className="font-normal text-[#d1d5db]"> {m.slice(2, 4)}</span> : null}
+                  </div>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {dados.companies.map((empresa) => {
-                const contas = dados.accounts.filter((a) => a.companyId === empresa.id);
-                return (
-                  <React.Fragment key={empresa.id}>
-                    <tr className="border-b border-[#e8eaed] bg-[#fafbfc] cursor-pointer hover:bg-[#f3f4f6]" onClick={() => setAberto((p) => ({ ...p, [empresa.id]: !p[empresa.id] }))}>
-                      <td className="px-6 py-3 sticky left-0 bg-[#fafbfc] z-10">
-                        <div className="flex items-center gap-2.5">
-                          <span className="text-[#9ca3af] text-[11px] font-mono w-3 select-none">{aberto[empresa.id] ? "▾" : "▸"}</span>
-                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: empresa.color }} />
-                          <span className="text-[13.5px] font-semibold text-[#374151]">{empresa.name}</span>
-                          <span className="text-[11px] text-[#9ca3af]">{contas.length} conta{contas.length !== 1 ? "s" : ""}</span>
-                        </div>
-                      </td>
-                      {dados.months.map((m, i) => {
-                        // conta nunca importada conta como faltando — esconder deixaria uma conta esquecida sumir —
-                        // mas só a partir do 1º mês em que a empresa teve algum dado (antes disso não havia o que importar)
-                        const empresaJaTinhaDado = dados.months.slice(0, i + 1).some((mm) => contas.some((c) => !c.nuncaImportada && c.meses[mm].imp !== "antes"));
-                        const emUso = contas.filter((c) => (c.nuncaImportada && empresaJaTinhaDado) || (!c.nuncaImportada && c.meses[m].imp !== "antes"));
-                        const completas = emUso.filter((c) => c.meses[m].imp === "completo").length;
-                        const total = contas.reduce((s, c) => s + c.meses[m].total, 0);
-                        const sem = contas.reduce((s, c) => s + c.meses[m].semCategoria, 0);
-                        return (
-                          <td key={m} className={`px-1 py-2 text-center ${m === atual ? "bg-[#f0fdf9]" : ""}`} title={emUso.length ? `${completas} de ${emUso.length} conta(s) importadas por inteiro` : ""}>
-                            <div className="flex flex-col items-center gap-0.5 leading-none">
-                              {emUso.length === 0 ? <span className="text-[#e5e7eb]">·</span>
-                                : completas === emUso.length ? <span className="text-[13px] font-bold text-emerald-600">✓</span>
-                                : <span className="text-[10.5px] font-semibold text-amber-600 tabular-nums">{completas}/{emUso.length}</span>}
-                              <CelulaCat total={total} semCategoria={sem} />
+              </div>
+            ) : (
+              <div className="grid" style={{ gridTemplateColumns: `repeat(${dados.months.length}, minmax(0, 1fr))` }}>
+                {dados.months.map((m) => (
+                  <div key={m} className="text-center text-[11px] font-semibold text-[#9ca3af]">
+                    {MESES[+m.slice(5, 7) - 1]}{m.endsWith("-01") || m === dados.months[0] ? <span className="font-normal text-[#d1d5db]"> {m.slice(2, 4)}</span> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="relative">
+            {/* divisas dos meses e o "hoje", atrás das linhas */}
+            {aba === "importacao" && (
+              <div className={`${colunas} absolute inset-0 pointer-events-none`}>
+                <div />
+                <div className="relative h-full">
+                  {dados.months.slice(1).map((m) => <div key={m} className="absolute top-0 bottom-0 w-px bg-[#f3f4f6]" style={{ left: `${pos(inicioMes(m))}%` }} />)}
+                  <div className="absolute top-0 bottom-0 w-px bg-[#00b9a5]/40" style={{ left: `${hoje}%` }} title="hoje" />
+                </div>
+              </div>
+            )}
+
+            {empresas.map((e) => (
+              <div key={e.id} className="py-1.5">
+                <button className="flex items-center gap-2 py-1 text-left" onClick={() => setRecolhidas((p) => ({ ...p, [e.id]: !p[e.id] }))}>
+                  <span className="text-[#9ca3af] text-[10px] w-3">{recolhidas[e.id] ? "▸" : "▾"}</span>
+                  <span className="w-2 h-2 rounded-full" style={{ background: e.color }} />
+                  <span className="text-[12.5px] font-semibold text-[#374151]">{e.name}</span>
+                </button>
+                {!recolhidas[e.id] && e.contas.map((c) => (
+                  <div key={c.id} className={`${colunas} relative`}>
+                    <div className="flex items-center gap-1.5 pl-5 pr-3 min-w-0"
+                      title={`${c.bank} · ${c.cobertaAte ? `importada até ${br(c.cobertaAte)}` : "nenhuma importação registrada"}${c.ultimaImportacao ? ` · última em ${br(c.ultimaImportacao.quando)}${c.ultimaImportacao.quem ? ` por ${c.ultimaImportacao.quem}` : ""}` : ""}`}>
+                      <span className="text-[12.5px] text-[#374151] truncate">{c.name}</span>
+                      {c.fonte && <span className="shrink-0 text-[9.5px] font-semibold px-1 rounded bg-[#f3f4f6] text-[#6b7280]">{c.fonte === "ofx" ? "OFX" : "API"}</span>}
+                    </div>
+                    {aba === "importacao" ? trilha(c) : (
+                      <div className="grid h-6 items-center" style={{ gridTemplateColumns: `repeat(${dados.months.length}, minmax(0, 1fr))` }}>
+                        {dados.months.map((m) => {
+                          const { total, semCategoria } = c.meses[m];
+                          if (!total) return <div key={m} />;
+                          const pct = Math.floor(((total - semCategoria) / total) * 100);
+                          return (
+                            <div key={m} className="text-center" title={`${total} lançamento(s), ${semCategoria} sem categoria`}>
+                              <span className={`text-[11px] tabular-nums font-medium ${semCategoria === 0 ? "text-emerald-600" : pct >= 75 ? "text-amber-600" : "text-red-500"}`}>{pct}%</span>
                             </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                    {aberto[empresa.id] && contas.map((c) => (
-                      <tr key={c.id} className="border-b border-[#f3f4f6] hover:bg-[#fafbfc]">
-                        <td className="sticky left-0 bg-white z-10">
-                          <div className="pl-10 pr-6 py-2.5">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[13px] text-[#374151] font-medium">{c.name}</span>
-                              <span className="text-[10.5px] font-medium px-1.5 py-0.5 rounded-full bg-[#f3f4f6] text-[#6b7280]">{c.bank}</span>
-                              {c.fonte && <span className="text-[10.5px] font-medium px-1.5 py-0.5 rounded-full bg-[#e6f7f5] text-[#007a6e]">{c.fonte === "ofx" ? "OFX" : "API"}</span>}
-                            </div>
-                            <div className="text-[11px] mt-0.5">
-                              {c.nuncaImportada ? <span className="text-red-500">nunca importada</span>
-                                : <span className="text-[#9ca3af]">
-                                    {c.cobertaAte ? `importada até ${br(c.cobertaAte)}` : "nenhuma importação registrada"}
-                                    {c.ultimaImportacao && ` · última em ${br(c.ultimaImportacao.quando)}${c.ultimaImportacao.quem ? ` por ${c.ultimaImportacao.quem}` : ""}`}
-                                  </span>}
-                            </div>
-                          </div>
-                        </td>
-                        {c.nuncaImportada
-                          ? <td colSpan={dados.months.length} className="text-[12px] text-red-400 px-4">nenhum dado importado nesta conta — importe ou apague a conta se ela não é usada</td>
-                          : dados.months.map((m) => {
-                            const mes = c.meses[m];
-                            return (
-                              <td key={m} className={`px-1 py-2 text-center ${m === atual ? "bg-[#f0fdf9]" : ""} ${mes.imp !== "antes" ? "cursor-pointer hover:bg-[#f3f4f6]" : ""}`}
-                                title={`${dicaImp(mes)}${mes.total ? ` · ${mes.total} lançamento(s), ${mes.semCategoria} sem categoria` : ""}`}
-                                onClick={() => mes.imp !== "antes" && abrirDetalhe(c, m)}>
-                                <div className="flex flex-col items-center gap-0.5 leading-none">
-                                  <CelulaImp m={mes} />
-                                  <CelulaCat total={mes.total} semCategoria={mes.semCategoria} />
-                                </div>
-                              </td>
-                            );
-                          })}
-                      </tr>
-                    ))}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+
+          {vazias.length > 0 && (
+            <div className="border-t border-[#f3f4f6] mt-2 pt-2">
+              <button className="text-[12.5px] text-[#6b7280] hover:text-[#374151]" onClick={() => setVaziasAbertas((v) => !v)}>
+                {vaziasAbertas ? "▾" : "▸"} {vazias.length} conta{vazias.length !== 1 ? "s" : ""} sem nenhum dado
+              </button>
+              {vaziasAbertas && (
+                <ul className="mt-1 pl-5 text-[12px] text-[#6b7280] space-y-0.5">
+                  {vazias.map((c) => <li key={c.id}>{nomeEmpresa(c.companyId)} · {c.name} <span className="text-[#9ca3af]">({c.bank})</span></li>)}
+                  <li className="text-[11.5px] text-[#9ca3af] pt-1">Importe em Contas — ou apague a conta, se ela não é usada.</li>
+                </ul>
+              )}
+            </div>
+          )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-4 px-1 text-[12px] text-[#6b7280]">
-          <span><b className="text-emerald-600">✓</b> mês importado por inteiro</span>
-          <span><b className="text-amber-600">até 16</b> importado só até o dia 16</span>
-          <span><b className="text-amber-500">?</b> tem lançamentos, mas nenhuma importação registrada cobre o mês</span>
-          <span><b className="text-red-500">✕</b> nada importado</span>
-          <span><b className="text-emerald-600">100%</b> / <b className="text-amber-600">62%</b> lançamentos do mês com categoria</span>
-          <span><b>2/3</b> na empresa = contas importadas por inteiro</span>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-3 px-1 text-[12px] text-[#6b7280]">
+          {aba === "importacao" ? (
+            <>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-5 h-2 rounded-full bg-emerald-500" /> importado</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-5 h-2" style={{ background: LISTRADO }} /> tem lançamento, mas nenhuma importação registrada</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-5 h-2 rounded-full bg-[#e5e7eb]" /> falta importar</span>
+            </>
+          ) : (
+            <>
+              <span><b className="text-emerald-600">100%</b> tudo com categoria</span>
+              <span><b className="text-amber-600">75–99%</b></span>
+              <span><b className="text-red-500">&lt;75%</b></span>
+              <span className="text-[#9ca3af]">mês sem lançamento fica em branco</span>
+            </>
+          )}
         </div>
       </div>
 
@@ -255,7 +284,7 @@ export default function ControlPage() {
             <div>
               <h3 className="text-[11px] uppercase tracking-wider font-semibold text-[#9ca3af] mb-1">Importações que cobrem o mês</h3>
               {!detalhe.importacoes ? <p className="text-[12px] text-[#9ca3af]">carregando…</p>
-                : detalhe.importacoes.length === 0 ? <p className="text-[12px] text-[#6b7280]">Nenhuma. {detalhe.conta.fonte === "ofx" || !detalhe.conta.fonte ? "Importe o OFX do período em Contas." : "Sincronize desde este mês (botão no topo)."}</p>
+                : detalhe.importacoes.length === 0 ? <p className="text-[12px] text-[#6b7280]">Nenhuma. {detalhe.conta.fonte === "ofx" || !detalhe.conta.fonte ? "Importe o OFX do período em Contas." : "Sincronize desde este mês (no topo)."}</p>
                 : (
                   <ul className="divide-y divide-[#f3f4f6] text-[12.5px]">
                     {detalhe.importacoes.map((i, k) => (
