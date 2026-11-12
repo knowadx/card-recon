@@ -329,7 +329,7 @@ function OpcaoArquivo({ conta, kind, avisar, depois }: Opcao & { conta: ContaDoC
     const r = await json(fetch(cfg.rota, { method: "POST", body: fd }));
     setOcupado(false);
     if (r.error) return avisar(false, `${cfg.titulo}: ${r.error}`);
-    avisar(true, `${f.name}: ${r.imported ?? 0} lançamento(s) novo(s)${r.skipped != null ? ` · ${r.skipped} já existiam` : ""}${r.naoConcluidos ? ` · ${r.naoConcluidos} não concluído(s) ficaram de fora` : ""}. Confirme o período que o arquivo cobre.`);
+    avisar(true, `${f.name}: ${r.imported ?? 0} lançamento(s) novo(s)${r.skipped != null ? ` · ${r.skipped} já existiam` : ""}${r.naoConcluidos ? ` · ${r.naoConcluidos} não concluído(s) ficaram de fora` : ""}${r.quebrasDeSaldo ? ` · ⚠️ o saldo do arquivo não fecha em ${r.quebrasDeSaldo} ponto(s) — falta lançamento no arquivo` : r.quebrasDeSaldo === 0 ? " · saldo do arquivo confere" : ""}. Confirme o período que o arquivo cobre.`);
     if (r.importLogId && r.periodo) setPendente({ importLogId: r.importLogId, de: r.periodo.de, ate: r.periodo.ate });
     depois();
   }

@@ -6,16 +6,22 @@ import { dataPayoneer, lerPayoneer, valorPayoneer } from "@/lib/payoneer";
 import { loginAs, req, resetRequest, seedTwoGroups } from "./helpers";
 
 /**
- * CSV do Payoneer (pedido do dono em 2026-11-12). Sintético, no MESMO formato do arquivo real da Pixel Ads:
- * data "DD Mon, AAAA" entre aspas, valor "-18,070.48", Transaction ID com tab e espaços no fim.
+ * CSV de movimentação do Payoneer (pedido do dono em 2026-11-12). Sintético, no MESMO formato do arquivo real:
+ * data MM-DD-AAAA + hora UTC, débito negativo, saldo corrido, "Card charge (FACEBK *código)". Ordem: mais novo primeiro.
+ * Saldos encadeados (do mais antigo): 950 → (−50) 900 → (+500) 1400 → (−50) 1350 → (−50) 1300 — as duas últimas são
+ * cobranças idênticas no mesmo segundo.
  */
-const CSV = [
-  "Date,Description,Amount,Currency,Status,Transaction ID  ",
-  '"07 Nov, 2026",Payment to Fornecedor Exemplo,"-18,070.48",USD,Completed,1000000001\t   ',
-  '"06 Nov, 2026",Payment from Cliente Exemplo (EMPRESA EXEMPLO),"28,383.30",USD,Completed,1000000002\t   ',
-  '"05 Nov, 2026",Payment to Outro Fornecedor,"-500.00",USD,Pending,1000000003\t   ',
-  '"30 Jan, 2026",Payment from Cliente Exemplo,"68,050.77",USD,Completed,1000000004',
-].join("\n");
+const CAB = "Currency,Payout method,Transaction date,Transaction time,Time zone,Credit amount,Debit amount,Status,Running balance,Description";
+const L = {
+  e5: "EUR,EUR balance,12-31-2025,12:00:00,UTC,0,-50,Completed,1300,Card charge (FACEBK *AAAA1111B2)",
+  e4: "EUR,EUR balance,12-31-2025,12:00:00,UTC,0,-50,Completed,1350,Card charge (FACEBK *AAAA1111B2)",
+  e3: "EUR,EUR balance,12-30-2025,09:00:00,UTC,500,0,Completed,1400,Transfer from Cliente Exemplo",
+  e2: "EUR,EUR balance,12-29-2025,18:30:00,UTC,0,-50,Completed,900,Card charge (FACEBK *CCCC3333D2)",
+  e1: "EUR,EUR balance,12-28-2025,03:49:54,UTC,0,-100,Completed,950,Card charge (FACEBK *EEEE5555F2)",
+  pend: "EUR,EUR balance,12-31-2025,13:00:00,UTC,0,-10,Pending,1290,Card charge (FACEBK *GGGG7777H2)",
+  usd: "USD,USD balance,12-15-2025,10:00:00,UTC,2000,0,Completed,2000,Transfer from Cliente Exemplo",
+};
+const CSV = [CAB, L.pend, L.e5, L.e4, L.e3, L.e2, L.e1, L.usd].join("\n");
 
 let s: Awaited<ReturnType<typeof seedTwoGroups>>;
 let admin: { id: string; email: string };
@@ -25,50 +31,56 @@ beforeEach(async () => {
   s = await seedTwoGroups();
   admin = await prisma.user.create({ data: { email: "adm-px@teste.com", role: "admin", name: "Admin Pixel" } });
   await prisma.membership.create({ data: { userId: admin.id, holdingId: s.holdings.pixel.id } });
-  conta = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "Payoneer", currency: "USD", name: "Payoneer Pixel" } });
+  conta = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "Payoneer", currency: "EUR", name: "Payoneer Pixel" } });
 });
 
 const enviar = (accountId: string, texto = CSV) => {
   const fd = new FormData();
-  fd.append("file", new File([texto], "report.csv"));
+  fd.append("file", new File([texto], "payoneer.csv"));
   fd.append("accountId", accountId);
   return importPayoneer.POST(new Request("http://localhost/x", { method: "POST", body: fd }));
 };
 
 describe("leitura do CSV do Payoneer", () => {
-  it("data 'DD Mon, AAAA', valor com vírgula de milhar e sinal, ID sem o tab; só Completed", () => {
-    expect(dataPayoneer("07 Nov, 2026")?.toISOString()).toBe("2026-11-07T12:00:00.000Z");
-    expect(dataPayoneer("Nov 7, 2026")?.toISOString()).toBe("2026-11-07T12:00:00.000Z");
-    expect(dataPayoneer("31 Fev, 2026")).toBeNull();
-    expect(valorPayoneer("-18,070.48")).toBe(-18070.48);
+  it("data MM-DD-AAAA + hora UTC, valor = crédito + débito, moeda da linha, só Completed", () => {
+    expect(dataPayoneer("12-31-2025", "12:51:50", "UTC")?.toISOString()).toBe("2025-12-31T12:51:50.000Z");
+    expect(dataPayoneer("12-31-2025", "12:51:50", "EST")?.toISOString()).toBe("2025-12-31T12:00:00.000Z"); // outro fuso: só o dia
+    expect(dataPayoneer("02-31-2025", "10:00:00", "UTC")).toBeNull();
+    expect(valorPayoneer("-1,234.50")).toBe(-1234.5);
     const { extrato } = lerPayoneer(CSV);
-    expect(extrato!.lancamentos.map((l) => [l.id, l.valor, l.moeda, l.data.toISOString().slice(0, 10)])).toEqual([
-      ["1000000001", -18070.48, "USD", "2026-11-07"],
-      ["1000000002", 28383.3, "USD", "2026-11-06"],
-      ["1000000004", 68050.77, "USD", "2026-01-30"],
+    expect(extrato!.lancamentos.map((l) => [l.moeda, l.valor, l.data.toISOString().slice(0, 10)])).toEqual([
+      ["EUR", -50, "2025-12-31"], ["EUR", -50, "2025-12-31"], ["EUR", 500, "2025-12-30"], ["EUR", -50, "2025-12-29"], ["EUR", -100, "2025-12-28"], ["USD", 2000, "2025-12-15"],
     ]);
     expect(extrato!.naoConcluidos).toBe(1);
   });
 
-  it("arquivo de outro formato = erro claro, com as colunas que vieram", () => {
-    expect(lerPayoneer("Data;Historico;Valor\n01/01/2026;x;1").erro).toMatch(/não parece o CSV do Payoneer/);
+  it("duas cobranças idênticas no mesmo segundo viram 1ª e 2ª ocorrência (as duas entram)", () => {
+    const [a, b] = lerPayoneer(CSV).extrato!.lancamentos;
+    expect(a.chave).not.toBe(b.chave);
+    expect([a.chave.endsWith(":1"), b.chave.endsWith(":2")]).toEqual([true, true]);
+  });
+
+  it("sequência do saldo: confere no arquivo inteiro; tirar uma linha do meio = quebra", () => {
+    expect(lerPayoneer(CSV).extrato!.quebrasDeSaldo).toBe(0);
+    expect(lerPayoneer([CAB, L.e5, L.e4, L.e2, L.e1].join("\n")).extrato!.quebrasDeSaldo).toBe(1); // sem o crédito de 500
+  });
+
+  it("arquivo de outro formato (ex.: o de Transaction ID) = erro claro, com as colunas que vieram", () => {
+    const r = lerPayoneer('Date,Description,Amount,Currency,Status,Transaction ID\n"07 Nov, 2026",X,"-1.00",USD,Completed,1');
+    expect(r.erro).toMatch(/não parece o CSV de movimentação do Payoneer/);
   });
 });
 
 describe("POST /api/transactions/import/payoneer", () => {
-  it("importa os concluídos, reimportar não duplica, sugere o período e a confirmação cobre", async () => {
+  it("importa, marca as cobranças Meta (FACEBK), reimportar não duplica, sugere o período e a confirmação cobre", async () => {
     loginAs(admin);
     const r = await (await enviar(conta.id)).json();
-    expect(r).toMatchObject({ imported: 3, skipped: 0, naoConcluidos: 1, periodo: { de: "2026-01-30", ate: "2026-11-07" } });
-    const r2 = await (await enviar(conta.id)).json();
-    expect(r2).toMatchObject({ imported: 0, skipped: 3 });
-    const linhas = await prisma.transaction.findMany({ where: { accountId: conta.id }, select: { reference: true, amount: true, currency: true }, orderBy: { reference: "asc" } });
-    expect(linhas).toEqual([
-      { reference: "payoneer:1000000001", amount: -18070.48, currency: "USD" },
-      { reference: "payoneer:1000000002", amount: 28383.3, currency: "USD" },
-      { reference: "payoneer:1000000004", amount: 68050.77, currency: "USD" },
-    ]);
-    expect((await periodo.POST(req("/api/coverage/periodo", { method: "POST", json: { accountId: conta.id, importLogId: r.importLogId, de: "2026-01-01", ate: "2026-11-07" } }))).status).toBe(200);
+    expect(r).toMatchObject({ imported: 6, skipped: 0, naoConcluidos: 1, quebrasDeSaldo: 0, periodo: { de: "2025-12-15", ate: "2025-12-31" } });
+    expect((await (await enviar(conta.id)).json())).toMatchObject({ imported: 0, skipped: 6 });
+    const meta = await prisma.transaction.findMany({ where: { accountId: conta.id, isMetaCharge: true }, select: { metaRef: true }, orderBy: { metaRef: "asc" } });
+    expect(meta.map((m) => m.metaRef)).toEqual(["AAAA1111B2", "AAAA1111B2", "CCCC3333D2", "EEEE5555F2"]);
+    expect(await prisma.transaction.count({ where: { accountId: conta.id, currency: "USD" } })).toBe(1);
+    expect((await periodo.POST(req("/api/coverage/periodo", { method: "POST", json: { accountId: conta.id, importLogId: r.importLogId, de: "2025-12-01", ate: "2025-12-31" } }))).status).toBe(200);
     expect(await prisma.importCoverage.findMany({ where: { accountId: conta.id }, select: { source: true } })).toEqual([{ source: "arquivo" }]);
   });
 
@@ -77,7 +89,7 @@ describe("POST /api/transactions/import/payoneer", () => {
     expect((await enviar(s.accounts.pixel.id)).status).toBe(400); // Mercury
     loginAs(s.users.pixel);
     expect((await enviar(conta.id)).status).toBe(403);
-    const outro = await prisma.account.create({ data: { companyId: s.companies.outro.id, bank: "Payoneer", currency: "USD", name: "Payoneer Outro" } });
+    const outro = await prisma.account.create({ data: { companyId: s.companies.outro.id, bank: "Payoneer", currency: "EUR", name: "Payoneer Outro" } });
     loginAs(admin);
     expect((await enviar(outro.id)).status).toBe(404);
     expect(await prisma.transaction.count({ where: { reference: { startsWith: "payoneer:" } } })).toBe(0);

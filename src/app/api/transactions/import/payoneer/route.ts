@@ -9,10 +9,11 @@ import { registrarArquivo } from "@/lib/importacaoArquivo";
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/transactions/import/payoneer (form: file, accountId) — extrato CSV do Payoneer numa conta Payoneer
- * (src/lib/payoneer.ts). Uma linha por lançamento concluído: reference payoneer:<Transaction ID> (reimportar não
- * duplica); a moeda é a da linha. O arquivo não diz o período → devolve o sugerido e a tela pergunta
- * (src/lib/importacaoArquivo.ts). Administradores, como as outras importações de extrato.
+ * POST /api/transactions/import/payoneer (form: file, accountId) — CSV de movimentação do Payoneer numa conta
+ * Payoneer (src/lib/payoneer.ts). Uma linha por lançamento concluído: reference payoneer:<chave> (moeda + data/hora
+ * + valor + descrição + ocorrência — o arquivo não tem id; reimportar não duplica); a moeda é a da linha; o código
+ * FACEBK vira cobrança Meta. Devolve as quebras na sequência do saldo (falta lançamento no arquivo). O arquivo não
+ * diz o período → devolve o sugerido e a tela pergunta (src/lib/importacaoArquivo.ts). Administradores.
  */
 export const POST = guarded(async (request: Request) => {
   const user = await requireUser();
@@ -30,7 +31,7 @@ export const POST = guarded(async (request: Request) => {
 
   const dados = extrato.lancamentos.map((l) => ({
     accountId,
-    reference: `payoneer:${l.id}`,
+    reference: `payoneer:${l.chave}`,
     date: l.data,
     description: l.descricao,
     amount: l.valor,
@@ -42,7 +43,7 @@ export const POST = guarded(async (request: Request) => {
   const { count: imported } = await prisma.transaction.createMany({ data: dados, skipDuplicates: true });
   if (dados.some((d) => d.isMetaCharge)) await recomputeHasReceipt();
 
-  const resumo = { imported, skipped: dados.length - imported, naoConcluidos: extrato.naoConcluidos, invalidos: extrato.invalidos };
+  const resumo = { imported, skipped: dados.length - imported, naoConcluidos: extrato.naoConcluidos, invalidos: extrato.invalidos, quebrasDeSaldo: extrato.quebrasDeSaldo };
   const arquivo = await registrarArquivo({ kind: "payoneer", filename: file.name, userId: user.id, account, datas: dados.map((d) => d.date), resumo });
   return Response.json({ ...resumo, ...arquivo });
 });
