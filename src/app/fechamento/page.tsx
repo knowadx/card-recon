@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, AlertCircle, XCircle, Circle, ChevronDown, ChevronRight, Upload, Download } from "lucide-react";
+import { CheckCircle2, AlertCircle, XCircle, Circle, ChevronDown, ChevronRight, Download } from "lucide-react";
 import ReceiptsImporter from "@/components/receipts-importer";
 
 type Passo = { feito: boolean };
@@ -41,9 +41,7 @@ type Data = {
     faturas: Passo & { comFatura: number; semFatura: number };
   };
 };
-type Msg = { tipo: "ok" | "aviso" | "erro"; texto: string };
 type Estado = "ok" | "aviso" | "erro" | "pendente";
-type J = Record<string, unknown>;
 
 const br = (d: string | null | undefined) => (d ? d.slice(0, 10).split("-").reverse().join("/") : "—");
 const brCurto = (d: string | null | undefined) => (d ? br(d).slice(0, 5) : "—");
@@ -63,17 +61,6 @@ const SITUACAO: Record<Situacao, { texto: string; cor: string }> = {
   sem_codigo: { texto: "Sem código", cor: "bg-rose-50 text-rose-700" },
 };
 const hora = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-
-/** Resposta do import do CSV → uma frase. */
-function msgCsv(j: J): Msg {
-  const falta = num(j.semTransacaoNoBanco);
-  return {
-    tipo: falta ? "aviso" : "ok",
-    texto: `CSV da Revolut: ${n(num(j.metaRefGravados))} código(s) gravado(s), ${n(num(j.jaTinhamOMesmoCodigo))} já tinham` +
-      (num(j.marcadasMeta) || num(j.cartoesPreenchidos) ? ` · consertou ${n(num(j.marcadasMeta))} cobrança(s) sem a marca Meta e ${n(num(j.cartoesPreenchidos))} sem cartão` : "") +
-      (falta ? ` · ${n(falta)} do CSV ainda não estão no banco — sincronize a Revolut na aba Accounts e suba de novo.` : "."),
-  };
-}
 
 /** Uma linha do histórico → resultado curto. */
 function resultadoImportacao(i: Importacao): string {
@@ -112,8 +99,6 @@ export default function FechamentoPage() {
   const [data, setData] = useState<Data | null>(null);
   const [month, setMonth] = useState("");
   const [company, setCompany] = useState(""); // "" = todas as empresas do escopo
-  const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<Msg | null>(null);
   const [aberto, setAberto] = useState<{ contas: boolean; pdfs: boolean }>({ contas: false, pdfs: false });
   // resumo por cartão: qual cartão está aberto e as transações já buscadas (chave inclui mês/empresa/recarga)
   const [cartaoAberto, setCartaoAberto] = useState<string | null>(null);
@@ -139,18 +124,6 @@ export default function FechamentoPage() {
     window.addEventListener("focus", reload);
     return () => window.removeEventListener("focus", reload);
   }, [reload]);
-
-  async function onCsv(file: File) {
-    setBusy("csv"); setMsg(null);
-    try {
-      const r = await fetch("/api/admin/import-revolut-csv", { method: "POST", headers: { "Content-Type": "text/csv", "x-filename": encodeURIComponent(file.name) }, body: await file.text() });
-      const j: J = await r.json().catch(() => ({}));
-      setMsg(r.ok ? msgCsv(j) : { tipo: "erro", texto: `CSV da Revolut: ${String(j.error ?? `erro ${r.status}`)}` });
-      recarregarTudo();
-    } catch (e) {
-      setMsg({ tipo: "erro", texto: `CSV da Revolut: ${(e as Error).message}` });
-    } finally { setBusy(null); }
-  }
 
   const alternar = (k: keyof typeof aberto) => setAberto((a) => ({ ...a, [k]: !a[k] }));
   const qsCobrancas = (extra: Record<string, string>) => {
@@ -265,19 +238,14 @@ export default function FechamentoPage() {
                 </tbody>
               </table>
             )}
-            {aberto.contas && <p className="mt-2 text-[12px] text-[#9ca3af]">Sincronizar é na aba <Link href="/accounts" className="text-[#00a896] hover:underline">Accounts</Link>.</p>}
+            {aberto.contas && <p className="mt-2 text-[12px] text-[#9ca3af]">Importar e sincronizar é no <Link href="/control" className="text-[#00a896] hover:underline">Controle de importação</Link> — clique na conta.</p>}
           </Passo>
 
           {!data?.bloqueado && (
             <>
               <Passo n={2} titulo="Códigos Revolut (CSV)" estado={faltaCsv.length ? "aviso" : total ? "ok" : "pendente"}
                 status={faltaCsv.length ? <>falta o CSV de {faltaCsv.map((c) => `${c.nome} (${n(c.semCodigoNoMes)})`).join(" · ")}</> : "todas as cobranças Revolut com código"}
-                acao={
-                  <label className={`${btn} cursor-pointer`}>
-                    <Upload className="w-3.5 h-3.5" />{busy === "csv" ? "Importando…" : "Subir CSV"}
-                    <input type="file" accept=".csv,text/csv" className="hidden" disabled={busy !== null} onChange={(e) => { const f = e.target.files?.[0]; if (f) onCsv(f); e.target.value = ""; }} />
-                  </label>
-                } />
+                acao={<Link href="/control" className={btn} title="O CSV da Revolut sobe no painel da conta Revolut, no Controle de importação">Importar no Controle</Link>} />
 
               {temMeta && (
                 <Passo n={3} titulo="Conexão Meta (opcional)" estado={metaRuim.length ? "aviso" : "ok"}
@@ -297,10 +265,6 @@ export default function FechamentoPage() {
             </>
           )}
         </div>
-
-        {msg && (
-          <div className={`rounded-xl border px-4 py-2.5 text-[13px] ${msg.tipo === "erro" ? "border-rose-200 bg-rose-50 text-rose-800" : msg.tipo === "aviso" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>{msg.texto}</div>
-        )}
 
         {!data?.bloqueado && (
           <div>

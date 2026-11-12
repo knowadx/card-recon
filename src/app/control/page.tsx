@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { resumoDoMes as resumoDaEmpresa, type EstadoImp } from "@/lib/mesFechado";
+import { INICIO_DOS_FECHAMENTOS, resumoDoMes as resumoDaEmpresa } from "@/lib/mesFechado";
+import { PainelDaConta, rotuloDaConta, type ContaDoControle } from "@/components/control/PainelDaConta";
 
 /**
  * Controle de importação — MÊS A MÊS num quadro só (escolha do dono em 2026-11-12, sobre a proposta A:
@@ -11,17 +12,12 @@ import { resumoDoMes as resumoDaEmpresa, type EstadoImp } from "@/lib/mesFechado
  *  - importação: quantas contas da empresa foram importadas do 1º ao último dia do mês;
  *  - categorização: quantos lançamentos do mês estão sem categoria;
  *  - FECHADO = as duas coisas completas (todas as contas importadas E nada sem categoria).
- * A empresa abre conta a conta; clique numa conta mostra quais importações cobrem o mês.
+ * A empresa abre conta a conta; clique numa conta abre o painel dela (o que cobre o mês + TODAS as opções
+ * de importação daquela conta — src/components/control/PainelDaConta.tsx). Meses desde INICIO_DOS_FECHAMENTOS.
  */
 
-type Mes = { imp: EstadoImp; pedacos?: Array<{ de: string; ate: string }>; total: number; semCategoria: number };
-type Conta = {
-  id: string; name: string; bank: string; companyId: string; fonte: string | null; nuncaImportada: boolean; cobertaAte: string | null;
-  ultimaImportacao: { quando: string; quem: string | null; fonte: string; arquivo: string | null } | null;
-  meses: Record<string, Mes>;
-};
+type Conta = ContaDoControle;
 type Dados = { months: string[]; companies: Array<{ id: string; name: string; color: string }>; accounts: Conta[] };
-type Importacao = { de: string; ate: string; fonte: string; quando: string; quem: string | null; arquivo: string | null };
 
 const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 const MESES_LONGOS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -30,22 +26,12 @@ const br = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
 const ultimoDia = (ateIso: string) => br(new Date(new Date(ateIso).getTime() - 1).toISOString());
 const n = (x: number) => x.toLocaleString("pt-BR");
 
-function dicaImp(m: Mes) {
-  switch (m.imp) {
-    case "completo": return "importado por inteiro";
-    case "parcial": return `importado só em parte: ${(m.pedacos ?? []).map((p) => `${br(p.de)}–${ultimoDia(p.ate)}`).join(", ")}`;
-    case "sem_comprovacao": return `${m.total} lançamento(s), mas nenhuma importação registrada cobre o mês`;
-    case "faltando": return "nada importado neste mês";
-    default: return "a conta ainda não tinha dados";
-  }
-}
-
 export default function ControlPage() {
   const [dados, setDados] = useState<Dados | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [abertas, setAbertas] = useState<Record<string, boolean>>({});
   const [vaziasAbertas, setVaziasAbertas] = useState(false);
-  const [detalhe, setDetalhe] = useState<{ conta: Conta; mes: string; importacoes: Importacao[] | null } | null>(null);
+  const [painelId, setPainelId] = useState<string | null>(null);
   const [desde, setDesde] = useState("");
   const [sincronizando, setSincronizando] = useState(false);
   const [resultadoSync, setResultadoSync] = useState<string | null>(null);
@@ -54,7 +40,7 @@ export default function ControlPage() {
   const aplicar = useCallback((ok: boolean, d: Dados & { error?: string }) => {
     if (!ok) { setErro(d.error ?? "erro ao carregar"); return; }
     setDados(d);
-    setDesde((prev) => prev || d.months[d.months.length - 7]);
+    setDesde((prev) => prev || INICIO_DOS_FECHAMENTOS);
   }, []);
   const buscar = () => fetch("/api/coverage").then((r) => r.json().then((d) => ({ ok: r.ok, d })));
   const carregar = () => buscar().then(({ ok, d }) => aplicar(ok, d));
@@ -63,12 +49,6 @@ export default function ControlPage() {
     buscar().then(({ ok, d }) => { if (vivo) aplicar(ok, d); });
     return () => { vivo = false; };
   }, [aplicar]);
-
-  async function abrirDetalhe(conta: Conta, mes: string) {
-    setDetalhe({ conta, mes, importacoes: null });
-    const r = await fetch(`/api/coverage/detalhe?accountId=${conta.id}&mes=${mes}`).then((x) => x.json()).catch(() => ({ importacoes: [] }));
-    setDetalhe({ conta, mes, importacoes: r.importacoes ?? [] });
-  }
 
   async function sincronizar() {
     if (!desde) return;
@@ -102,14 +82,15 @@ export default function ControlPage() {
     .filter((e) => e.contas.some((c) => !c.nuncaImportada));
   const vazias = dados.accounts.filter((c) => c.nuncaImportada && !empresas.some((e) => e.id === c.companyId));
   const nomeEmpresa = (id: string) => dados.companies.find((e) => e.id === id)?.name ?? "";
+  // o painel lê a conta dos dados ATUAIS (depois de importar, a tela recarrega e o painel acompanha)
+  const contaDoPainel = painelId ? dados.accounts.find((a) => a.id === painelId) ?? null : null;
   const resumoDoMes = (m: string) => empresas
     .map((e) => ({ empresa: e, r: resumoDaEmpresa(e.contas, meses, m) }))
     .filter(({ r }) => !r.vazio || r.total > 0);
-  // meses na faixa: do 1º com alguma empresa ativa até o atual
-  const primeiro = meses.findIndex((m) => resumoDoMes(m).length > 0);
-  const faixa = primeiro < 0 ? [atual] : meses.slice(primeiro);
+  // faixa = todos os meses dos fechamentos (desde INICIO_DOS_FECHAMENTOS), uma linha por ano
+  const anos = [...new Set(meses.map((m) => m.slice(0, 4)))];
   // padrão: o último mês que já acabou
-  const mes = mesEscolhido && faixa.includes(mesEscolhido) ? mesEscolhido : faixa.length > 1 ? faixa[faixa.length - 2] : atual;
+  const mes = mesEscolhido && meses.includes(mesEscolhido) ? mesEscolhido : meses.length > 1 ? meses[meses.length - 2] : atual;
   const nomeMes = `${MESES_LONGOS[+mes.slice(5, 7) - 1]} ${mes.slice(0, 4)}`;
   const linhas = resumoDoMes(mes).sort((a, b) => Number(a.r.fechado) - Number(b.r.fechado) || b.r.pend - a.r.pend || a.empresa.name.localeCompare(b.empresa.name));
   const fechadas = linhas.filter((l) => l.r.fechado).length;
@@ -124,14 +105,14 @@ export default function ControlPage() {
     ? <span className="rounded-md bg-emerald-50 text-emerald-700 font-medium px-2.5 py-0.5 text-[12px]">Fechado</span>
     : <span className="rounded-md bg-amber-50 text-amber-700 font-medium px-2.5 py-0.5 text-[12px]">Aberto</span>;
 
-  /** O que dizer da importação de UMA conta no mês selecionado. */
+  /** O que dizer da importação de UMA conta no mês selecionado (clicar na conta abre o painel pra importar). */
   const linhaDaConta = (c: Conta): { texto: string; cor: string } => {
-    if (c.nuncaImportada) return { texto: "nunca importada — importe em Contas (ou apague a conta, se não é usada)", cor: "text-red-500" };
+    if (c.nuncaImportada) return { texto: "nunca importada — clique pra importar (ou apague a conta em Contas, se não é usada)", cor: "text-red-500" };
     const m = c.meses[mes];
     if (m.imp === "completo") return { texto: "importado", cor: "text-emerald-600" };
     if (m.imp === "parcial") return { texto: `importado só ${(m.pedacos ?? []).map((p) => `de ${br(p.de).slice(0, 5)} a ${ultimoDia(p.ate).slice(0, 5)}`).join(", ")}`, cor: "text-amber-600" };
     if (m.imp === "antes") return { texto: "ainda sem dados neste mês", cor: "text-[#9ca3af]" };
-    return { texto: c.fonte === "ofx" || !c.fonte ? `não importado — importe o OFX de ${abreviado}` : `não importado — sincronizar desde ${abreviado}`, cor: "text-red-500" };
+    return { texto: `não importado — clique pra importar ${abreviado}`, cor: "text-red-500" };
   };
 
   return (
@@ -151,22 +132,29 @@ export default function ControlPage() {
 
       <div className="flex-1 overflow-auto p-8">
         <div className="max-w-5xl space-y-4">
-          {/* faixa dos meses */}
-          <div className="flex flex-wrap gap-2">
-            {faixa.map((m) => {
-              const rs = resumoDoMes(m);
-              const f = rs.filter(({ r }) => r.fechado).length;
-              const ativo = m === mes;
-              return (
-                <button key={m} onClick={() => setMesEscolhido(m)}
-                  className={`text-left rounded-lg bg-white px-3 py-2 text-[12.5px] ${ativo ? "border-2 border-[#00b9a5]" : "border border-[#e8eaed] hover:border-[#cbd5e1]"}`}>
-                  <div className={`font-medium ${ativo ? "text-[#1a202c]" : "text-[#4b5563]"}`}>{MESES[+m.slice(5, 7) - 1]}<span className="text-[#c4c9d0] font-normal"> {m.slice(2, 4)}</span></div>
-                  {m === atual ? <div className="text-[#9ca3af]">em andamento</div>
-                    : rs.length === 0 ? <div className="text-[#d1d5db]">sem dados</div>
-                    : <div className={f === rs.length ? "text-emerald-600" : "text-amber-700"}>{f}/{rs.length} fechadas</div>}
-                </button>
-              );
-            })}
+          {/* faixa dos meses: uma linha por ano */}
+          <div className="space-y-1.5">
+            {anos.map((ano) => (
+              <div key={ano} className="grid grid-cols-[40px_repeat(12,minmax(0,1fr))] gap-1.5 items-stretch">
+                <span className="self-center text-[12px] text-[#9ca3af]">{ano}</span>
+                {Array.from({ length: 12 }, (_, i) => `${ano}-${String(i + 1).padStart(2, "0")}`).map((m) => {
+                  if (!meses.includes(m)) return <span key={m} />;
+                  const rs = resumoDoMes(m);
+                  const f = rs.filter(({ r }) => r.fechado).length;
+                  const ativo = m === mes;
+                  return (
+                    <button key={m} onClick={() => setMesEscolhido(m)}
+                      className={`rounded-lg bg-white px-1 py-1.5 text-center text-[12px] leading-tight ${ativo ? "border-2 border-[#00b9a5]" : "border border-[#e8eaed] hover:border-[#cbd5e1]"}`}>
+                      <div className={`font-medium ${ativo ? "text-[#1a202c]" : "text-[#4b5563]"}`}>{MESES[+m.slice(5, 7) - 1]}</div>
+                      {m === atual ? <div className="text-[11px] text-[#9ca3af]">agora</div>
+                        : rs.length === 0 ? <div className="text-[11px] text-[#d1d5db]">—</div>
+                        : <div className={`text-[11px] ${f === rs.length ? "text-emerald-600" : "text-amber-700"}`}>{f}/{rs.length}</div>}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            <p className="text-[11.5px] text-[#9ca3af]">Em cada mês: empresas fechadas / empresas com dados.</p>
           </div>
 
           {/* números do mês */}
@@ -213,10 +201,10 @@ export default function ControlPage() {
                         const l = linhaDaConta(c);
                         const m = c.nuncaImportada ? null : c.meses[mes];
                         return (
-                          <div key={c.id} className={`${grade} px-5 py-1.5 text-[12.5px] ${m && m.imp !== "antes" ? "cursor-pointer hover:bg-[#fafbfc]" : ""}`}
-                            onClick={() => m && m.imp !== "antes" && abrirDetalhe(c, mes)}
-                            title={`${c.cobertaAte ? `importada até ${br(c.cobertaAte)}` : "nenhuma importação registrada"}${c.ultimaImportacao ? ` · última em ${br(c.ultimaImportacao.quando)}${c.ultimaImportacao.quem ? ` por ${c.ultimaImportacao.quem}` : ""}` : ""}`}>
-                            <span className="pl-8 text-[#4b5563] truncate">{c.name} <span className="text-[#9ca3af]">· {c.fonte === "ofx" ? "OFX" : c.fonte === "api" ? "API" : c.bank}</span></span>
+                          <div key={c.id} className={`${grade} px-5 py-1.5 text-[12.5px] cursor-pointer hover:bg-[#f3f4f6]`}
+                            onClick={() => setPainelId(c.id)}
+                            title={`${c.cobertaAte ? `importada até ${br(c.cobertaAte)}` : "nenhuma importação registrada"}${c.ultimaImportacao ? ` · última em ${br(c.ultimaImportacao.quando)}${c.ultimaImportacao.quem ? ` por ${c.ultimaImportacao.quem}` : ""}` : ""} · clique pra ver e importar`}>
+                            <span className="pl-8 truncate">{(() => { const r = rotuloDaConta(c, e.name); return <><span className="font-medium text-[#374151]">{r.titulo}</span>{r.detalhe && <span className="text-[#9ca3af]"> · {r.detalhe}</span>}</>; })()}</span>
                             <span className={`${l.cor} ${c.nuncaImportada ? "col-span-3" : ""}`}>{l.texto}</span>
                             {!c.nuncaImportada && <span className="text-[#6b7280]">{m && m.semCategoria > 0 ? `${n(m.semCategoria)} pendente${m.semCategoria !== 1 ? "s" : ""}` : ""}</span>}
                             {!c.nuncaImportada && <span />}
@@ -230,7 +218,7 @@ export default function ControlPage() {
             })}
           </div>
 
-          <p className="text-[12px] text-[#6b7280]">Mês <strong className="text-emerald-700">fechado</strong> = todas as contas importadas do dia 1 ao último dia e nenhum lançamento sem categoria. Clique na empresa pra ver conta a conta; clique numa conta pra ver quais importações cobrem o mês.</p>
+          <p className="text-[12px] text-[#6b7280]">Mês <strong className="text-emerald-700">fechado</strong> = todas as contas importadas do dia 1 ao último dia e nenhum lançamento sem categoria. Clique na empresa pra ver conta a conta; clique numa conta pra ver o mês dela e <strong>importar só ela</strong>.</p>
 
           {vazias.length > 0 && (
             <div>
@@ -239,8 +227,14 @@ export default function ControlPage() {
               </button>
               {vaziasAbertas && (
                 <ul className="mt-1 pl-5 text-[12px] text-[#6b7280] space-y-0.5">
-                  {vazias.map((c) => <li key={c.id}>{nomeEmpresa(c.companyId)} · {c.name} <span className="text-[#9ca3af]">({c.bank})</span></li>)}
-                  <li className="text-[11.5px] text-[#9ca3af] pt-1">Importe em Contas — ou apague a conta, se ela não é usada.</li>
+                  {vazias.map((c) => (
+                    <li key={c.id}>
+                      <button className="hover:text-[#00a896] hover:underline" onClick={() => setPainelId(c.id)}>
+                        {nomeEmpresa(c.companyId)} · {rotuloDaConta(c, nomeEmpresa(c.companyId)).titulo}{rotuloDaConta(c, nomeEmpresa(c.companyId)).detalhe ? ` · ${rotuloDaConta(c, nomeEmpresa(c.companyId)).detalhe}` : ""}
+                      </button>
+                    </li>
+                  ))}
+                  <li className="text-[11.5px] text-[#9ca3af] pt-1">Clique pra importar — ou apague a conta em Contas, se ela não é usada.</li>
                 </ul>
               )}
             </div>
@@ -248,37 +242,8 @@ export default function ControlPage() {
         </div>
       </div>
 
-      {detalhe && (
-        <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50 p-4" onClick={() => setDetalhe(null)}>
-          <div className="bg-white rounded-2xl border border-[#e8eaed] shadow-xl max-w-lg w-full p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-[15px] font-bold text-[#1a202c]">{detalhe.conta.name}</h2>
-                <p className="text-[12px] text-[#6b7280]">{MESES[+detalhe.mes.slice(5, 7) - 1]}/{detalhe.mes.slice(0, 4)} · {dicaImp(detalhe.conta.meses[detalhe.mes])}</p>
-              </div>
-              <button className="text-[#9ca3af] hover:text-[#374151]" onClick={() => setDetalhe(null)}>✕</button>
-            </div>
-            <p className="text-[13px] text-[#374151]">
-              {detalhe.conta.meses[detalhe.mes].total} lançamento(s) no mês · {detalhe.conta.meses[detalhe.mes].semCategoria} sem categoria
-            </p>
-            <div>
-              <h3 className="text-[11px] uppercase tracking-wider font-semibold text-[#9ca3af] mb-1">Importações que cobrem o mês</h3>
-              {!detalhe.importacoes ? <p className="text-[12px] text-[#9ca3af]">carregando…</p>
-                : detalhe.importacoes.length === 0 ? <p className="text-[12px] text-[#6b7280]">Nenhuma. {detalhe.conta.fonte === "ofx" || !detalhe.conta.fonte ? "Importe o OFX do período em Contas." : "Sincronize desde este mês (no topo)."}</p>
-                : (
-                  <ul className="divide-y divide-[#f3f4f6] text-[12.5px]">
-                    {detalhe.importacoes.map((i, k) => (
-                      <li key={k} className="py-1.5">
-                        <span className="font-medium text-[#374151]">{i.fonte === "ofx" ? "OFX" : "Sync da API"}</span>
-                        <span className="text-[#6b7280]"> · cobre {br(i.de)} a {ultimoDia(i.ate)}</span>
-                        <div className="text-[11.5px] text-[#9ca3af]">em {br(i.quando)} {new Date(i.quando).toISOString().slice(11, 16)} UTC{i.quem ? ` por ${i.quem}` : ""}{i.arquivo ? ` · ${i.arquivo}` : ""}</div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-            </div>
-          </div>
-        </div>
+      {contaDoPainel && (
+        <PainelDaConta conta={contaDoPainel} empresa={nomeEmpresa(contaDoPainel.companyId)} mes={mes} onFechar={() => setPainelId(null)} onImportou={carregar} />
       )}
     </div>
   );

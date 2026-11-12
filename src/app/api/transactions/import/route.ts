@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { assertAccount, guarded, requireUser } from "@/lib/access";
+import { registrarArquivo } from "@/lib/importacaoArquivo";
 
 // Proper CSV parser that handles quoted fields with commas inside
 function parseCSV(text: string): Record<string, string>[] {
@@ -85,6 +86,7 @@ export const POST = guarded(async (request: Request) => {
     return Response.json({ error: "could not detect date/description/amount columns", headers }, { status: 422 });
   }
 
+  const datas: Date[] = [];
   const results = await Promise.allSettled(
     rows.map(async (row) => {
       // Skip failed transactions
@@ -96,6 +98,7 @@ export const POST = guarded(async (request: Request) => {
 
       const date = parseDate(row[dateCol]);
       if (isNaN(date.getTime())) return null;
+      datas.push(date);
 
       // Use original currency if available, otherwise account currency
       const currency = currencyCol && row[currencyCol]?.trim()
@@ -119,5 +122,6 @@ export const POST = guarded(async (request: Request) => {
     (r) => r.status === "fulfilled" && r.value !== null
   ).length;
 
-  return Response.json({ imported });
+  const arquivo = await registrarArquivo({ kind: "csv", filename: file.name, userId: user.id, account, datas, resumo: { imported } });
+  return Response.json({ imported, ...arquivo });
 });

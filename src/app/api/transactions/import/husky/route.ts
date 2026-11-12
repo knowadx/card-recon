@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { AccessError, assertAccount, guarded, requireUser } from "@/lib/access";
 import * as XLSX from "xlsx";
+import { registrarArquivo } from "@/lib/importacaoArquivo";
 
 export const POST = guarded(async (request: Request) => {
   const user = await requireUser();
@@ -73,11 +74,9 @@ export const POST = guarded(async (request: Request) => {
         await prisma.transaction.createMany({ data: toCreate });
     }
 
-    return Response.json({
-      imported: toCreate.length,
-      skipped: candidates.length - toCreate.length,
-      total: candidates.length,
-    });
+    const resumo = { imported: toCreate.length, skipped: candidates.length - toCreate.length, total: candidates.length };
+    const arquivo = await registrarArquivo({ kind: "husky", filename: file.name, userId: user.id, account, datas: candidates.map((c) => c.date), resumo });
+    return Response.json({ ...resumo, ...arquivo });
   } catch (e) {
     if (e instanceof AccessError) throw e; // vira 404/401 no guarded, não "Erro interno"
     console.error("Husky import error:", e);

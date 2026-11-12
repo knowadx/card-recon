@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { assertAccount, guarded, requireUser } from "@/lib/access";
+import { registrarArquivo } from "@/lib/importacaoArquivo";
 
 // Proper CSV parser that handles quoted fields (same as generic import)
 function parseCSV(text: string): Record<string, string>[] {
@@ -78,6 +79,7 @@ export const POST = guarded(async (request: Request) => {
 
   let imported = 0;
   let skipped = 0;
+  const datas: Date[] = [];
 
   for (const row of rows) {
     // Only import Completed
@@ -95,6 +97,7 @@ export const POST = guarded(async (request: Request) => {
 
     const date = parseDolafyDate(rawDate);
     if (isNaN(date.getTime())) continue;
+    datas.push(date);
 
     const reference = `dolafy:${rawDate}:${description}:${row["amount"] ?? rawAmount}`;
     if (existingRefs.has(reference)) { skipped++; continue; }
@@ -108,5 +111,6 @@ export const POST = guarded(async (request: Request) => {
     } catch { skipped++; }
   }
 
-  return Response.json({ imported, skipped });
+  const arquivo = await registrarArquivo({ kind: "dolafy", filename: file.name, userId: user.id, account, datas, resumo: { imported, skipped } });
+  return Response.json({ imported, skipped, ...arquivo });
 });

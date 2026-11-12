@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Upload, Plus, X, FileText, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
@@ -55,10 +55,6 @@ export default function TransactionsPage() {
   const [splitTab, setSplitTab] = useState<"managerial" | "accounting">("managerial");
   const [savingAccounting, setSavingAccounting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [importing, setImporting] = useState(false);
-  const [importAccount, setImportAccount] = useState("");
-  const [importOpen, setImportOpen] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
   const docRef = useRef<HTMLInputElement>(null);
 
   // Column filters
@@ -273,19 +269,6 @@ export default function TransactionsPage() {
       alert(e instanceof Error ? e.message : "falha ao anexar");
     }
     refreshTx(selected.id);
-  };
-
-  const importCSV = async () => {
-    if (!fileRef.current?.files?.[0] || !importAccount) return;
-    setImporting(true);
-    const fd = new FormData();
-    fd.append("file", fileRef.current.files[0]);
-    fd.append("accountId", importAccount);
-    const res = await fetch("/api/transactions/import", { method: "POST", body: fd }).then((r) => r.json());
-    setImporting(false);
-    setImportOpen(false);
-    alert(`${res.imported} transactions imported.`);
-    load();
   };
 
   const managerial = categories.filter((c) => c.type === "MANAGERIAL");
@@ -817,36 +800,6 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
           <p className="text-center text-[12px] text-[#d1d5db] py-4">{total} transactions total</p>
         )}
       </div>
-
-      {/* Import dialog */}
-      <Dialog open={importOpen} onOpenChange={setImportOpen}>
-        <DialogContent className="rounded-2xl max-w-md border-[#e8eaed] shadow-xl">
-          <DialogHeader>
-            <DialogTitle className="text-[17px] font-bold text-[#1a202c]">Import CSV Statement</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 pt-2">
-            <div className="space-y-2">
-              <Label className="text-[13px] font-medium text-[#374151]">Destination account</Label>
-              <Select value={importAccount} onValueChange={(v) => setImportAccount(v ?? "")}>
-                <SelectTrigger className="h-10 text-sm rounded-lg border-[#e8eaed]">
-                  <SelectValue placeholder="Select account" />
-                </SelectTrigger>
-                <SelectContent>
-                  {accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name} — {a.bank} · {a.currency}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-[13px] font-medium text-[#374151]">CSV File</Label>
-              <Input type="file" accept=".csv" ref={fileRef} className="h-10 text-sm rounded-lg border-[#e8eaed]" />
-              <p className="text-[12px] text-[#9ca3af]">Supported: Mercury, Wise, Revolut, Husky. Columns detected automatically.</p>
-            </div>
-            <Button onClick={importCSV} disabled={importing} className="w-full h-10 text-sm rounded-lg bg-[#00b9a5] hover:bg-[#00a896] text-white font-semibold">
-              {importing ? "Importing..." : "Import"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Transaction detail panel */}
       <Dialog open={!!selected} onOpenChange={(v) => { if (!v) setSelected(null); }}>

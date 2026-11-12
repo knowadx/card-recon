@@ -7,6 +7,9 @@
  * Entrada = o que /api/coverage devolve por conta.
  */
 
+/** 1º mês dos fechamentos (decisão do dono em 2026-11-12: "quero os fechamentos iniciando em janeiro de 2025"). */
+export const INICIO_DOS_FECHAMENTOS = "2025-01";
+
 export type EstadoImp = "completo" | "parcial" | "sem_comprovacao" | "faltando" | "antes";
 export type ContaNoMes = { imp: EstadoImp; total: number; semCategoria: number };
 export type ContaDaEmpresa = { nuncaImportada: boolean; meses: Record<string, ContaNoMes> };

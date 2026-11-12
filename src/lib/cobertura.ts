@@ -84,7 +84,7 @@ export async function registrarCobertura(c: {
   accountId: string;
   de: Date;
   ate: Date;
-  fonte: "api" | "ofx";
+  fonte: "api" | "ofx" | "arquivo";
   userId?: string | null;
   importLogId?: string | null;
 }): Promise<void> {

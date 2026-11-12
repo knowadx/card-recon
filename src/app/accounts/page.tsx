@@ -1,29 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, RefreshCw, Upload, Split } from "lucide-react";
+import { Plus, Pencil, Trash2, RefreshCw } from "lucide-react";
 import { cnpjValido } from "@/lib/cnpj";
 
 type Company = { id: string; name: string; color: string; cnpj?: string | null };
 type Account = { id: string; name: string; bank: string; currency: string; company: Company; syncConfig?: string | null };
-type MercuryAccount = { id: string; name: string; availableBalance?: number; kind: string; legalBusinessName?: string; entity: string };
-type WiseProfile = { id: string; label: string };
 type ApiStatus = { ok: boolean | null; label: string };
 
 const BANKS = ["Revolut", "Husky", "Wise", "Mercury", "Dolafy", "BTG", "XP", "Itaú"];
-// bancos com botão "Importar extrato OFX" (o servidor ainda recusa conta ligada a API — uma fonte por conta)
-const BANCOS_OFX = ["XP", "BTG", "Itaú"];
 const CURRENCIES = ["USD", "BRL", "EUR", "GBP", "ARS", "CLP", "MXN", "COP"];
 const EMPTY = { name: "", bank: "Mercury", currency: "USD", companyId: "", apiToken: "" };
-
-// Sem janela hardcoded: o "de" vem do período persistido (Setting), carregado no mount.
-// Fica vazio só até o fetch resolver; o backend também cai no período se vier vazio.
-const defaultSyncFrom = () => "";
 
 const BANK_COLORS: Record<string, string> = {
   Mercury: "bg-blue-50 text-blue-700",
@@ -36,12 +28,6 @@ const BANK_COLORS: Record<string, string> = {
   "Itaú": "bg-amber-50 text-amber-800",
 };
 
-/** Texto do OFX: o cabeçalho pode mentir (o da XP diz CHARSET:1252 e é UTF-8) → tenta UTF-8, senão Windows-1252. */
-async function textoDoOfx(arquivo: File): Promise<string> {
-  const bytes = await arquivo.arrayBuffer();
-  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { return new TextDecoder("windows-1252").decode(bytes); }
-}
-
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -49,65 +35,11 @@ export default function AccountsPage() {
   const [editing, setEditing] = useState<Account | null>(null);
   const [open, setOpen] = useState(false);
 
-  const [mercurySyncOpen, setMercurySyncOpen] = useState(false);
-  const [mercurySyncTarget, setMercurySyncTarget] = useState<Account | null>(null);
-  const [mercuryAccounts, setMercuryAccounts] = useState<MercuryAccount[]>([]);
-  const [mercuryAccountId, setMercuryAccountId] = useState("");
-  const [mercurySyncFrom, setMercurySyncFrom] = useState(defaultSyncFrom);
-  const [mercurySyncing, setMercurySyncing] = useState(false);
-  const [mercurySyncResult, setMercurySyncResult] = useState<{ imported?: number; skipped?: number; error?: string } | null>(null);
-  // "Separar extrações" (Mercury): 1 conta por extração — plano (GET) antes de aplicar (POST)
-  type PlanoExtracoes = { conta: string; extracoes: Array<{ id: string; nome: string; tipo: string; lancamentos: number; fica: boolean; contaExistente: string | null }>; semExtracao: number; criadas?: Array<{ nome: string }>; duplicadas?: number; error?: string };
-  const [extracoesAlvo, setExtracoesAlvo] = useState<Account | null>(null);
-  const [extracoesPlano, setExtracoesPlano] = useState<PlanoExtracoes | null>(null);
-  const [extracoesRodando, setExtracoesRodando] = useState(false);
-
-  const [wiseSyncOpen, setWiseSyncOpen] = useState(false);
-  const [wiseSyncTarget, setWiseSyncTarget] = useState<Account | null>(null);
-  const [wiseProfiles, setWiseProfiles] = useState<WiseProfile[]>([]);
-  const [wiseProfileId, setWiseProfileId] = useState("");
-  const [wiseSyncFrom, setWiseSyncFrom] = useState(defaultSyncFrom);
-  const [wiseSyncing, setWiseSyncing] = useState(false);
-  const [wiseSyncResult, setWiseSyncResult] = useState<{ imported: number; skipped?: number; alreadyExisted?: number; parseFailed?: number; error?: string; warning?: string } | null>(null);
-
-  const [huskyOpen, setHuskyOpen] = useState(false);
-  const [huskyTarget, setHuskyTarget] = useState<Account | null>(null);
-  const [huskyImporting, setHuskyImporting] = useState(false);
-  const [huskyResult, setHuskyResult] = useState<{ imported: number; skipped: number; error?: string } | null>(null);
-  const [huskyDebug, setHuskyDebug] = useState<{ headers: unknown[]; sampleRows: unknown[][] } | null>(null);
-  const [huskyDebugging, setHuskyDebugging] = useState(false);
-  const huskyFileRef = useRef<HTMLInputElement>(null);
-
-  const [dolafyOpen, setDolafyOpen] = useState(false);
-  const [dolafyTarget, setDolafyTarget] = useState<Account | null>(null);
-  const [dolafyImporting, setDolafyImporting] = useState(false);
-  const [dolafyResult, setDolafyResult] = useState<{ imported: number; skipped: number; error?: string } | null>(null);
-  const [dolafyFileName, setDolafyFileName] = useState<string | null>(null);
-  const dolafyFileRef = useRef<HTMLInputElement>(null);
-
-  const [wiseConnected, setWiseConnected] = useState<boolean | null>(null);
   const [revolutConnected, setRevolutConnected] = useState<boolean | null>(null);
   // BTG Pactual Empresas (API direta da conta PJ): configurado no servidor? quais empresas conectadas?
   const [btgStatus, setBtgStatus] = useState<{ configurado: boolean; ambiente: string | null; empresas: string[] }>({ configurado: false, ambiente: null, empresas: [] });
-  const [btgSyncTarget, setBtgSyncTarget] = useState<Account | null>(null);
-  const [btgContas, setBtgContas] = useState<{ accountId: string; agencia: string | null; numero: string | null }[]>([]);
-  const [btgContaId, setBtgContaId] = useState("");
-  const [btgSyncFrom, setBtgSyncFrom] = useState(defaultSyncFrom);
-  const [btgSyncing, setBtgSyncing] = useState(false);
-  const [btgSyncResult, setBtgSyncResult] = useState<{ imported?: number; skipped?: number; error?: string } | null>(null);
-  // Importar OFX (bancos sem API — começou pela XP Empresas)
-  const ofxRef = useRef<HTMLInputElement>(null);
-  const [ofxAlvo, setOfxAlvo] = useState<Account | null>(null);
-  const [ofxMsg, setOfxMsg] = useState<{ ok: boolean; texto: string } | null>(null);
   const [revConnectedCompanies, setRevConnectedCompanies] = useState<string[]>([]);
   const [revClientId, setRevClientId] = useState("");
-  const [revolutSyncOpen, setRevolutSyncOpen] = useState(false);
-  const [revolutSyncTarget, setRevolutSyncTarget] = useState<Account | null>(null);
-  const [revolutAccounts, setRevolutAccounts] = useState<{ id: string; name: string; currency: string; balance: number }[]>([]);
-  const [revolutAccountId, setRevolutAccountId] = useState("");
-  const [revolutSyncFrom, setRevolutSyncFrom] = useState(defaultSyncFrom);
-  const [revolutSyncing, setRevolutSyncing] = useState(false);
-  const [revolutSyncResult, setRevolutSyncResult] = useState<{ imported: number; skipped: number; error?: string } | null>(null);
 
   const [apiStatus, setApiStatus] = useState<Record<string, ApiStatus>>({});
   const [checkingStatus, setCheckingStatus] = useState(false);
@@ -129,12 +61,7 @@ export default function AccountsPage() {
     load();
     loadStatus();
     fetch("/api/revolut/status").then(r => r.json()).then(d => { setRevolutConnected(d.connected); setRevConnectedCompanies(d.companies ?? []); });
-    fetch("/api/wise/status").then(r => r.json()).then(d => setWiseConnected(d.connected));
     fetch("/api/btg/status").then(r => (r.ok ? r.json() : null)).then(d => d && setBtgStatus(d)).catch(() => {});
-    // período de sync persistido (fonte única) — preenche os "de" de todas as integrações
-    fetch("/api/settings/sync-period").then(r => r.json()).then(p => {
-      if (p?.from) { setMercurySyncFrom(p.from); setWiseSyncFrom(p.from); setRevolutSyncFrom(p.from); setBtgSyncFrom(p.from); }
-    }).catch(() => {});
   }, []);
 
 const save = async () => {
@@ -157,224 +84,6 @@ const save = async () => {
     setEditing(a);
     setForm({ name: a.name, bank: a.bank, currency: a.currency, companyId: a.company.id, apiToken: "" });
     setOpen(true);
-  };
-
-  const abrirExtracoes = async (a: Account) => {
-    setExtracoesAlvo(a);
-    setExtracoesPlano(null);
-    setExtracoesRodando(true);
-    setExtracoesPlano(await fetch(`/api/accounts/${a.id}/extracoes`).then((r) => r.json()).catch(() => ({ error: "falhou ao ler a Mercury" })));
-    setExtracoesRodando(false);
-  };
-  const separarExtracoes = async () => {
-    if (!extracoesAlvo) return;
-    setExtracoesRodando(true);
-    const r = await fetch(`/api/accounts/${extracoesAlvo.id}/extracoes`, { method: "POST" }).then((x) => x.json()).catch(() => ({ error: "falhou" }));
-    setExtracoesRodando(false);
-    setExtracoesPlano(r);
-    if (!r.error) load();
-  };
-
-  const openMercurySync = async (a: Account) => {
-    setMercurySyncTarget(a);
-    setMercurySyncResult(null);
-    setMercuryAccountId("");
-    setMercurySyncOpen(true);
-    const list: MercuryAccount[] = await fetch(`/api/sync/mercury/accounts?accountId=${a.id}`).then((r) => r.json());
-
-    // Filter to only accounts belonging to this company, matched by legalBusinessName or entity key
-    const companyName = a.company.name.toLowerCase();
-    const filtered = list.filter((m) => {
-      const lbn = (m.legalBusinessName ?? "").toLowerCase();
-      const ent = (m.entity ?? "").toLowerCase();
-      return lbn.includes(companyName) || companyName.includes(lbn) ||
-             ent.includes(companyName) || companyName.includes(ent);
-    });
-
-    // Auto-select if only one option and pre-fill from syncConfig
-    const syncConfig = a.syncConfig ? JSON.parse(a.syncConfig) : null;
-    if (syncConfig?.mercuryAccountId) setMercuryAccountId(syncConfig.mercuryAccountId);
-    else if (filtered.length === 1) setMercuryAccountId(filtered[0].id);
-
-    setMercuryAccounts(filtered.length > 0 ? filtered : list);
-  };
-
-  const runMercurySync = async () => {
-    if (!mercurySyncTarget || !mercuryAccountId) return;
-    setMercurySyncing(true);
-    setMercurySyncResult(null);
-    const res = await fetch("/api/sync/mercury", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mercuryAccountId,
-        accountId: mercurySyncTarget.id,
-        from: mercurySyncFrom,
-        entity: mercuryAccounts.find((m) => m.id === mercuryAccountId)?.entity,
-        kind: mercuryAccounts.find((m) => m.id === mercuryAccountId)?.kind === "credit" ? "creditCard" : "account",
-      }),
-    }).then((r) => r.json());
-    setMercurySyncing(false);
-    setMercurySyncResult(res);
-  };
-
-  const openHuskyImport = (a: Account) => {
-    setHuskyTarget(a);
-    setHuskyResult(null);
-    setHuskyOpen(true);
-  };
-
-  const runHuskyDebug = async () => {
-    if (!huskyFileRef.current?.files?.[0]) return;
-    setHuskyDebugging(true);
-    setHuskyDebug(null);
-    const fd = new FormData();
-    fd.append("file", huskyFileRef.current.files[0]);
-    const res = await fetch("/api/transactions/import/husky/debug", { method: "POST", body: fd }).then((r) => r.json());
-    setHuskyDebugging(false);
-    setHuskyDebug(res);
-  };
-
-  const runHuskyImport = async () => {
-    if (!huskyTarget || !huskyFileRef.current?.files?.[0]) return;
-    setHuskyImporting(true);
-    setHuskyResult(null);
-    const fd = new FormData();
-    fd.append("file", huskyFileRef.current.files[0]);
-    fd.append("accountId", huskyTarget.id);
-    const res = await fetch("/api/transactions/import/husky", { method: "POST", body: fd }).then((r) => r.json());
-    setHuskyImporting(false);
-    setHuskyResult(res);
-    if (!res.error) load();
-  };
-
-  const openRevolutSync = async (a: Account) => {
-    setRevolutSyncTarget(a);
-    setRevolutSyncResult(null);
-    setRevolutAccountId("");
-    setRevolutSyncOpen(true);
-    const res = await fetch(`/api/revolut/accounts?accountId=${a.id}`).then(r => r.json());
-    if (Array.isArray(res)) {
-      setRevolutAccounts(res.map((acc: { id: string; name: string; currency: string; balance: number }) => ({
-        id: acc.id,
-        name: acc.name,
-        currency: acc.currency,
-        balance: acc.balance,
-      })));
-    }
-  };
-
-  const runRevolutSync = async () => {
-    if (!revolutSyncTarget) return;
-    setRevolutSyncing(true);
-    setRevolutSyncResult(null);
-    const res = await fetch("/api/sync/revolut", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accountId: revolutSyncTarget.id, revolutAccountId: revolutAccountId || null, from: revolutSyncFrom }),
-    }).then(r => r.json());
-    setRevolutSyncing(false);
-    setRevolutSyncResult(res);
-  };
-
-  const openBtgSync = async (a: Account) => {
-    setBtgSyncTarget(a);
-    setBtgSyncResult(null);
-    setBtgContaId("");
-    setBtgContas([]);
-    const res = await fetch(`/api/btg/contas?accountId=${a.id}`).then(r => r.json()).catch(() => ({ error: "sem resposta do servidor" }));
-    if (Array.isArray(res)) { setBtgContas(res); if (res.length === 1) setBtgContaId(res[0].accountId); }
-    else setBtgSyncResult({ error: res.error });
-  };
-
-  const runBtgSync = async () => {
-    if (!btgSyncTarget) return;
-    setBtgSyncing(true);
-    setBtgSyncResult(null);
-    const res = await fetch("/api/sync/btg", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accountId: btgSyncTarget.id, btgAccountId: btgContaId || null, from: btgSyncFrom }),
-    }).then(r => r.json()).catch(() => ({ error: "sem resposta do servidor" }));
-    setBtgSyncing(false);
-    setBtgSyncResult(res);
-    if (!res.error) load();
-  };
-
-  const importarOfx = async (arquivo: File) => {
-    if (!ofxAlvo) return;
-    setOfxMsg({ ok: true, texto: `Importando ${arquivo.name} em ${ofxAlvo.name}…` });
-    const res = await fetch(`/api/import/ofx?accountId=${encodeURIComponent(ofxAlvo.id)}`, {
-      method: "POST", headers: { "Content-Type": "application/x-ofx", "x-filename": encodeURIComponent(arquivo.name) }, body: await textoDoOfx(arquivo),
-    }).then(r => r.json()).catch(() => ({ error: "sem resposta do servidor" }));
-    setOfxMsg(res.error
-      ? { ok: false, texto: `❌ ${res.error}` }
-      : { ok: true, texto: `✅ ${ofxAlvo.name}: ${res.gravados} lançamento(s) novo(s) · ${res.jaExistiam} já existiam${res.linhasDeSaldoIgnoradas ? ` · ${res.linhasDeSaldoIgnoradas} linha(s) de saldo ignorada(s)` : ""} · conta do arquivo ${res.contaBanco}${res.saldo != null ? ` · saldo no arquivo ${Number(res.saldo).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : ""}` });
-    setOfxAlvo(null);
-    if (!res.error) load();
-  };
-
-  const openWiseSync = async (a: Account) => {
-    setWiseSyncTarget(a);
-    setWiseSyncResult(null);
-    setWiseSyncOpen(true);
-
-    // Pre-select profile from saved syncConfig
-    const savedProfileId = a.syncConfig ? (JSON.parse(a.syncConfig) as { wiseProfileId?: string }).wiseProfileId ?? "" : "";
-    setWiseProfileId(savedProfileId);
-
-    const list: WiseProfile[] = await fetch(`/api/sync/wise/accounts?accountId=${a.id}`).then((r) => r.json());
-    const profiles = Array.isArray(list) ? list : [];
-
-    const companyName = a.company.name.toLowerCase();
-    const accountName = a.name.toLowerCase();
-    const matches = (label: string) => {
-      const l = label.toLowerCase();
-      return l.includes(companyName) || companyName.includes(l) || l.includes(accountName) || accountName.includes(l);
-    };
-
-    // Pré-seleciona pelo profile salvo; senão tenta casar pelo nome da conta/empresa
-    const match = savedProfileId
-      ? profiles.find((p) => p.id === savedProfileId)
-      : profiles.find((p) => matches(p.label));
-
-    if (match) {
-      setWiseProfileId(match.id);
-      // Show only the matched profile — user doesn't need to pick
-      setWiseProfiles([match]);
-    } else {
-      // No match found — show all so user can pick manually
-      setWiseProfiles(profiles);
-    }
-  };
-
-  const runWiseSync = async () => {
-    if (!wiseSyncTarget || !wiseProfileId) return;
-    setWiseSyncing(true);
-    setWiseSyncResult(null);
-    const res = await fetch("/api/sync/wise", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profileId: wiseProfileId, accountId: wiseSyncTarget.id, from: wiseSyncFrom }),
-    }).then((r) => r.json());
-    setWiseSyncing(false);
-    setWiseSyncResult(res);
-    if (!res.error) {
-      setTimeout(() => { setWiseSyncOpen(false); setWiseSyncResult(null); }, 2500);
-    }
-  };
-
-  const runDolafyImport = async () => {
-    if (!dolafyTarget || !dolafyFileRef.current?.files?.[0]) return;
-    setDolafyImporting(true);
-    setDolafyResult(null);
-    const fd = new FormData();
-    fd.append("file", dolafyFileRef.current.files[0]);
-    fd.append("accountId", dolafyTarget.id);
-    const res = await fetch("/api/transactions/import/dolafy", { method: "POST", body: fd }).then((r) => r.json());
-    setDolafyImporting(false);
-    setDolafyResult(res);
-    if (!res.error) setTimeout(() => { setDolafyOpen(false); setDolafyResult(null); }, 2500);
   };
 
   const grouped = companies.map((c) => ({
@@ -415,13 +124,9 @@ const save = async () => {
       </div>
 
       <div className="flex-1 overflow-auto p-8 space-y-6">
-        <input ref={ofxRef} type="file" accept=".ofx,application/x-ofx" className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) importarOfx(f); e.target.value = ""; }} />
-        {ofxMsg && (
-          <div className={`rounded-xl border px-4 py-2.5 text-[13px] ${ofxMsg.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800"}`}>
-            {ofxMsg.texto} <button className="ml-2 text-[12px] underline opacity-70" onClick={() => setOfxMsg(null)}>fechar</button>
-          </div>
-        )}
+        <div className="rounded-xl border border-[#e8eaed] bg-white px-4 py-2.5 text-[13px] text-[#4b5563]">
+          Aqui ficam o cadastro e a conexão das contas (token, conectar Revolut e BTG). <a href="/control" className="text-[#00a896] hover:underline">Importar e sincronizar ficam no Controle de importação</a> — clique na conta lá.
+        </div>
         {accounts.length === 0 && (
           <div className="bg-white rounded-2xl border border-[#e8eaed] p-16 text-center">
             <p className="text-[#9ca3af] text-sm">No accounts registered.</p>
@@ -489,78 +194,13 @@ const save = async () => {
                       </td>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-1.5 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                          {a.bank === "Husky" && (
-                            <button
-                              onClick={() => openHuskyImport(a)}
-                              className="p-2 rounded-lg hover:bg-orange-50 text-[#9ca3af] hover:text-orange-500 transition-colors"
-                              title="Import Husky statement (XLS)"
-                            >
-                              <Upload className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          {a.bank === "Mercury" && (
-                            <button
-                              onClick={() => openMercurySync(a)}
-                              className="p-2 rounded-lg hover:bg-[#e6f7f5] text-[#9ca3af] hover:text-[#00b9a5] transition-colors"
-                              title="Sync via Mercury API"
-                            >
-                              <RefreshCw className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          {a.bank === "Mercury" && (
-                            <button
-                              onClick={() => abrirExtracoes(a)}
-                              className="p-2 rounded-lg hover:bg-[#e6f7f5] text-[#9ca3af] hover:text-[#00b9a5] transition-colors"
-                              title="Separar extrações (1 conta por extração da Mercury)"
-                            >
-                              <Split className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          {a.bank === "Revolut" && (
-                            <button
-                              onClick={() => openRevolutSync(a)}
-                              className="p-2 rounded-lg hover:bg-purple-50 text-[#9ca3af] hover:text-purple-600 transition-colors"
-                              title="Sync via Revolut API"
-                            >
-                              <RefreshCw className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          {BANCOS_OFX.includes(a.bank) && (
-                            <button
-                              onClick={() => { setOfxAlvo(a); ofxRef.current?.click(); }}
-                              className="p-2 rounded-lg hover:bg-zinc-100 text-[#9ca3af] hover:text-zinc-800 transition-colors"
-                              title="Importar extrato OFX"
-                            >
-                              <Upload className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          {a.bank === "BTG" && (
-                            <button
-                              onClick={() => openBtgSync(a)}
-                              className="p-2 rounded-lg hover:bg-sky-50 text-[#9ca3af] hover:text-sky-600 transition-colors"
-                              title="Sync via BTG API"
-                            >
-                              <RefreshCw className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          {a.bank === "Wise" && (
-                            <button
-                              onClick={() => openWiseSync(a)}
-                              className="p-2 rounded-lg hover:bg-[#e6f7f5] text-[#9ca3af] hover:text-[#00b9a5] transition-colors"
-                              title="Sync via Wise API"
-                            >
-                              <RefreshCw className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          {a.bank === "Dolafy" && (
-                            <button
-                              onClick={() => { setDolafyTarget(a); setDolafyResult(null); setDolafyOpen(true); }}
-                              className="p-2 rounded-lg hover:bg-yellow-50 text-[#9ca3af] hover:text-yellow-600 transition-colors"
-                              title="Import Dolafy statement (CSV)"
-                            >
-                              <Upload className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                          <a
+                            href="/control"
+                            className="px-2 py-1 rounded-lg hover:bg-[#e6f7f5] text-[12px] text-[#6b7280] hover:text-[#00a896] transition-colors"
+                            title="Importar e sincronizar agora ficam no Controle de importação (clique na conta lá)"
+                          >
+                            Importar no Controle
+                          </a>
                           <button
                             onClick={() => openEdit(a)}
                             className="p-2 rounded-lg hover:bg-[#f3f4f6] text-[#9ca3af] hover:text-[#374151] transition-colors"
@@ -583,180 +223,6 @@ const save = async () => {
           </div>
         ))}
       </div>
-
-      {/* Husky import dialog */}
-      <Dialog open={huskyOpen} onOpenChange={(v) => { setHuskyOpen(v); if (!v) setHuskyResult(null); }}>
-        <DialogContent className="rounded-2xl max-w-sm border-[#e8eaed] shadow-xl">
-          <DialogHeader>
-            <DialogTitle className="text-[17px] font-bold text-[#1a202c]">Import Husky Statement</DialogTitle>
-          </DialogHeader>
-          {huskyTarget && (
-            <div className="space-y-4 pt-2">
-              <p className="text-[13px] text-[#6b7280]">
-                Conta: <span className="text-[#1a202c] font-semibold">{huskyTarget.name}</span>
-              </p>
-              <div className="space-y-2">
-                <Label className="text-[13px] font-medium text-[#374151]">XLS file</Label>
-                <Input
-                  type="file"
-                  accept=".xls,.xlsx"
-                  ref={huskyFileRef}
-                  className="h-10 text-sm rounded-lg border-[#e8eaed]"
-                />
-                <p className="text-[12px] text-[#9ca3af]">Formato exportado pelo Husky (colunas: Date, Event, Payer, Beneficiary, Payout Amount…)</p>
-              </div>
-              <button
-                onClick={runHuskyDebug}
-                disabled={huskyDebugging}
-                className="text-[12px] text-[#9ca3af] hover:text-[#374151] underline underline-offset-2 transition-colors"
-              >
-                {huskyDebugging ? "Inspecting..." : "Inspect file columns"}
-              </button>
-              {huskyDebug && (
-                <div className="rounded-xl border border-[#e8eaed] bg-[#fafbfc] p-3 space-y-2 text-[12px]">
-                  <p className="font-semibold text-[#374151]">Headers (row 0):</p>
-                  <div className="flex flex-wrap gap-1">
-                    {(huskyDebug.headers as string[]).map((h, i) => (
-                      <span key={i} className="bg-white border border-[#e8eaed] rounded px-1.5 py-0.5 font-mono text-[11px]">
-                        [{i}] {h || <em className="text-[#9ca3af]">vazio</em>}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="font-semibold text-[#374151] pt-1">Primeiras linhas de dados:</p>
-                  <div className="overflow-auto max-h-48">
-                    <pre className="text-[10px] text-[#374151] whitespace-pre-wrap break-all">
-                      {JSON.stringify(huskyDebug.sampleRows, null, 2)}
-                    </pre>
-                  </div>
-                </div>
-              )}
-              {huskyResult && (
-                <div className={`rounded-xl border p-4 text-[13px] space-y-1 ${huskyResult.error ? "border-rose-200 bg-rose-50" : "border-[#e8eaed] bg-[#fafbfc]"}`}>
-                  {huskyResult.error
-                    ? <p className="text-rose-600">{huskyResult.error}</p>
-                    : <>
-                        <p><span className="text-emerald-600 font-semibold">{huskyResult.imported} transactions imported</span></p>
-                        <p className="text-[#9ca3af]">{huskyResult.skipped} already existed</p>
-                      </>
-                  }
-                </div>
-              )}
-              <Button
-                onClick={runHuskyImport}
-                disabled={huskyImporting}
-                className="w-full h-10 text-sm rounded-lg bg-[#00b9a5] hover:bg-[#00a896] text-white font-semibold"
-              >
-                {huskyImporting ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Importing...</> : "Importar"}
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Revolut sync dialog */}
-      <Dialog open={revolutSyncOpen} onOpenChange={(v) => { setRevolutSyncOpen(v); if (!v) setRevolutSyncResult(null); }}>
-        <DialogContent className="rounded-2xl max-w-sm border-[#e8eaed] shadow-xl">
-          <DialogHeader>
-            <DialogTitle className="text-[17px] font-bold text-[#1a202c]">Sync via Revolut</DialogTitle>
-          </DialogHeader>
-          {revolutSyncTarget && (
-            <div className="space-y-4 pt-2">
-              <p className="text-[13px] text-[#6b7280]">
-                Local account: <span className="text-[#1a202c] font-semibold">{revolutSyncTarget.name}</span>
-              </p>
-              {revolutAccounts.length > 0 && (
-                <div className="space-y-2">
-                  <Label className="text-[13px] font-medium text-[#374151]">Revolut account (optional)</Label>
-                  <Select value={revolutAccountId} onValueChange={(v) => setRevolutAccountId(v ?? "")}>
-                    <SelectTrigger className="h-10 text-sm rounded-lg border-[#e8eaed]">
-                      <span className="flex-1 text-left text-sm truncate">
-                        {revolutAccountId
-                          ? revolutAccounts.find(a => a.id === revolutAccountId)?.name ?? revolutAccountId
-                          : "All accounts"}
-                      </span>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">All accounts</SelectItem>
-                      {revolutAccounts.map(acc => (
-                        <SelectItem key={acc.id} value={acc.id}>
-                          {acc.name} · {acc.currency} {new Intl.NumberFormat("en-US", { minimumFractionDigits: 2 }).format(acc.balance)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              <div className="space-y-2">
-                <Label className="text-[13px] font-medium text-[#374151]">Import from</Label>
-                <Input type="date" value={revolutSyncFrom} onChange={(e) => setRevolutSyncFrom(e.target.value)} className="h-10 text-sm rounded-lg border-[#e8eaed]" />
-              </div>
-              {revolutSyncResult && (
-                <div className={`rounded-xl border p-4 text-[13px] space-y-1 ${revolutSyncResult.error ? "border-rose-200 bg-rose-50" : "border-[#e8eaed] bg-[#fafbfc]"}`}>
-                  {revolutSyncResult.error
-                    ? <p className="text-rose-600">{revolutSyncResult.error}</p>
-                    : <>
-                        <p><span className="text-emerald-600 font-semibold">{revolutSyncResult.imported} transactions imported</span></p>
-                        <p className="text-[#9ca3af]">{revolutSyncResult.skipped} already existed</p>
-                      </>
-                  }
-                </div>
-              )}
-              <Button onClick={runRevolutSync} disabled={revolutSyncing} className="w-full h-10 text-sm rounded-lg bg-[#00b9a5] hover:bg-[#00a896] text-white font-semibold">
-                {revolutSyncing ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Syncing...</> : "Sincronizar"}
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* BTG sync dialog */}
-      <Dialog open={!!btgSyncTarget} onOpenChange={(v) => { if (!v) { setBtgSyncTarget(null); setBtgSyncResult(null); } }}>
-        <DialogContent className="rounded-2xl max-w-sm border-[#e8eaed] shadow-xl">
-          <DialogHeader>
-            <DialogTitle className="text-[17px] font-bold text-[#1a202c]">Sync via BTG{btgStatus.ambiente === "sandbox" ? " (ambiente de testes)" : ""}</DialogTitle>
-          </DialogHeader>
-          {btgSyncTarget && (
-            <div className="space-y-4 pt-2">
-              <p className="text-[13px] text-[#6b7280]">
-                Conta local: <span className="text-[#1a202c] font-semibold">{btgSyncTarget.name}</span>
-              </p>
-              {btgContas.length > 0 && (
-                <div className="space-y-2">
-                  <Label className="text-[13px] font-medium text-[#374151]">Conta no BTG</Label>
-                  <Select value={btgContaId} onValueChange={(v) => setBtgContaId(v ?? "")}>
-                    <SelectTrigger className="h-10 text-sm rounded-lg border-[#e8eaed]">
-                      <span className="flex-1 text-left text-sm truncate">
-                        {btgContaId ? (() => { const c = btgContas.find(x => x.accountId === btgContaId); return c ? `Ag. ${c.agencia ?? "?"} · Conta ${c.numero ?? "?"}` : btgContaId; })() : "Escolha a conta"}
-                      </span>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {btgContas.map(c => <SelectItem key={c.accountId} value={c.accountId}>Ag. {c.agencia ?? "?"} · Conta {c.numero ?? "?"}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              <div className="space-y-2">
-                <Label className="text-[13px] font-medium text-[#374151]">Importar a partir de</Label>
-                <Input type="date" value={btgSyncFrom} onChange={(e) => setBtgSyncFrom(e.target.value)} className="h-10 text-sm rounded-lg border-[#e8eaed]" />
-              </div>
-              {btgSyncResult && (
-                <div className={`rounded-xl border p-4 text-[13px] space-y-1 ${btgSyncResult.error ? "border-rose-200 bg-rose-50" : "border-[#e8eaed] bg-[#fafbfc]"}`}>
-                  {btgSyncResult.error
-                    ? <p className="text-rose-600">{btgSyncResult.error}</p>
-                    : <>
-                        <p><span className="text-emerald-600 font-semibold">{btgSyncResult.imported ?? 0} transações importadas</span></p>
-                        <p className="text-[#9ca3af]">{btgSyncResult.skipped ?? 0} já existiam</p>
-                      </>
-                  }
-                </div>
-              )}
-              <Button onClick={runBtgSync} disabled={btgSyncing || (btgContas.length > 1 && !btgContaId)} className="w-full h-10 text-sm rounded-lg bg-[#00b9a5] hover:bg-[#00a896] text-white font-semibold">
-                {btgSyncing ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Sincronizando...</> : "Sincronizar"}
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
 
       {/* Edit/create dialog */}
       <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditing(null); setForm(EMPTY); } }}>
@@ -873,201 +339,6 @@ const save = async () => {
         </DialogContent>
       </Dialog>
 
-      {/* Mercury sync dialog */}
-      <Dialog open={mercurySyncOpen} onOpenChange={(v) => { setMercurySyncOpen(v); if (!v) setMercurySyncResult(null); }}>
-        <DialogContent className="rounded-2xl max-w-sm border-[#e8eaed] shadow-xl">
-          <DialogHeader>
-            <DialogTitle className="text-[17px] font-bold text-[#1a202c]">Sync via Mercury</DialogTitle>
-          </DialogHeader>
-          {mercurySyncTarget && (
-            <div className="space-y-4 pt-2">
-              <p className="text-[13px] text-[#6b7280]">
-                Local account: <span className="text-[#1a202c] font-semibold">{mercurySyncTarget.name}</span>
-              </p>
-              <div className="space-y-2">
-                <Label className="text-[13px] font-medium text-[#374151]">Mercury account</Label>
-                <Select value={mercuryAccountId} onValueChange={(v) => setMercuryAccountId(v ?? "")}>
-                  <SelectTrigger className="h-10 text-sm rounded-lg border-[#e8eaed]">
-                    <span className="flex-1 text-left truncate text-sm">
-                      {mercuryAccountId
-                        ? (() => { const m = mercuryAccounts.find(a => a.id === mercuryAccountId); return m ? `${m.kind === "credit" ? "💳 " : ""}${m.legalBusinessName ?? m.name} · ${m.name}` : mercuryAccountId; })()
-                        : <span className="text-[#9ca3af]">{mercuryAccounts.length ? "Select" : "Loading..."}</span>}
-                    </span>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {mercuryAccounts.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.kind === "credit" ? "💳 " : ""}{m.legalBusinessName ?? m.name} · {m.name}{m.availableBalance != null ? ` — $${new Intl.NumberFormat("en-US").format(m.availableBalance)}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-[13px] font-medium text-[#374151]">Import from</Label>
-                <Input type="date" value={mercurySyncFrom} onChange={(e) => setMercurySyncFrom(e.target.value)} className="h-10 text-sm rounded-lg border-[#e8eaed]" />
-              </div>
-              {mercurySyncResult && (
-                <div className="rounded-xl border border-[#e8eaed] p-4 bg-[#fafbfc] text-[13px] space-y-1">
-                  {mercurySyncResult.error ? <p className="text-red-600">{mercurySyncResult.error}</p> : <>
-                    <p><span className="text-emerald-600 font-semibold">{mercurySyncResult.imported} transactions imported</span></p>
-                    <p className="text-[#9ca3af]">{mercurySyncResult.skipped} already existed</p>
-                  </>}
-                </div>
-              )}
-              <Button onClick={runMercurySync} disabled={mercurySyncing || !mercuryAccountId} className="w-full h-10 text-sm rounded-lg bg-[#00b9a5] hover:bg-[#00a896] text-white font-semibold">
-                {mercurySyncing ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Syncing...</> : "Sincronizar"}
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Separar extrações (Mercury) */}
-      <Dialog open={!!extracoesAlvo} onOpenChange={(v) => { if (!v) { setExtracoesAlvo(null); setExtracoesPlano(null); } }}>
-        <DialogContent className="rounded-2xl max-w-lg border-[#e8eaed] shadow-xl">
-          <DialogHeader>
-            <DialogTitle className="text-[17px] font-bold text-[#1a202c]">Extrações da Mercury</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 pt-1 text-[13px]">
-            <p className="text-[#6b7280]">Cada extração (conta corrente, poupança, crédito) vira uma conta aqui, com a sua própria cobertura — assim dá pra ver se cada uma foi puxada inteira. Os lançamentos já importados vão pra conta da extração de onde vieram.</p>
-            {!extracoesPlano && <p className="text-[#9ca3af]">{extracoesRodando ? "Lendo as extrações na Mercury…" : ""}</p>}
-            {extracoesPlano?.error && <p className="text-red-600">{extracoesPlano.error}</p>}
-            {extracoesPlano?.extracoes && (
-              <>
-                <table className="w-full">
-                  <thead><tr className="text-left text-[11px] uppercase tracking-wider text-[#9ca3af]"><th className="py-1 font-semibold">Extração</th><th className="font-semibold text-right">Lançamentos</th><th className="font-semibold text-right">Vai para</th></tr></thead>
-                  <tbody className="divide-y divide-[#f3f4f6]">
-                    {extracoesPlano.extracoes.map((e) => (
-                      <tr key={e.id}>
-                        <td className="py-1.5 text-[#374151]">{e.nome} <span className="text-[#9ca3af]">· {e.tipo}</span></td>
-                        <td className="text-right tabular-nums">{e.lancamentos}</td>
-                        <td className="text-right text-[12px] text-[#6b7280]">{e.fica ? "fica nesta conta" : e.contaExistente ? e.contaExistente : "conta nova"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {extracoesPlano.semExtracao > 0 && <p className="text-amber-600">{extracoesPlano.semExtracao} lançamento(s) não aparecem em nenhuma extração da Mercury — ficam nesta conta.</p>}
-                {extracoesPlano.criadas
-                  ? <p className="text-emerald-700">✅ Separado: {extracoesPlano.criadas.length} conta(s) nova(s){extracoesPlano.duplicadas ? ` · ${extracoesPlano.duplicadas} duplicado(s) ficaram aqui` : ""}. Agora sincronize as contas novas desde o mês que você quer cobrir.</p>
-                  : extracoesPlano.extracoes.length > 1 && (
-                    <Button onClick={separarExtracoes} disabled={extracoesRodando} className="w-full h-10 text-sm rounded-lg bg-[#00b9a5] hover:bg-[#00a896] text-white font-semibold">
-                      {extracoesRodando ? "Separando…" : `Separar em ${extracoesPlano.extracoes.length} contas`}
-                    </Button>
-                  )}
-                {extracoesPlano.extracoes.length === 1 && !extracoesPlano.criadas && <p className="text-[#6b7280]">Esta chave tem uma extração só — nada a separar.</p>}
-              </>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Wise sync dialog */}
-      <Dialog open={wiseSyncOpen} onOpenChange={(v) => { setWiseSyncOpen(v); if (!v) setWiseSyncResult(null); }}>
-        <DialogContent className="rounded-2xl max-w-sm border-[#e8eaed] shadow-xl">
-          <DialogHeader>
-            <DialogTitle className="text-[17px] font-bold text-[#1a202c]">Sync via Wise</DialogTitle>
-          </DialogHeader>
-          {wiseSyncTarget && (
-            <div className="space-y-4 pt-2">
-              <p className="text-[13px] text-[#6b7280]">
-                Local account: <span className="text-[#1a202c] font-semibold">{wiseSyncTarget.name}</span>
-              </p>
-              <div className="space-y-2">
-                <Label className="text-[13px] font-medium text-[#374151]">Wise profile</Label>
-                <Select value={wiseProfileId} onValueChange={(v) => {
-                  const val = v ?? "";
-                  setWiseProfileId(val);
-                  // persiste a empresa (profile) escolhida na conta na hora
-                  if (val && wiseSyncTarget) {
-                    fetch(`/api/accounts/${wiseSyncTarget.id}`, {
-                      method: "PATCH",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ syncConfig: { wiseProfileId: val } }),
-                    });
-                  }
-                }}>
-                  <SelectTrigger className="h-10 text-sm rounded-lg border-[#e8eaed]"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>
-                    {wiseProfiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-[13px] font-medium text-[#374151]">Import from</Label>
-                <Input type="date" value={wiseSyncFrom} onChange={(e) => setWiseSyncFrom(e.target.value)} className="h-10 text-sm rounded-lg border-[#e8eaed]" />
-              </div>
-              {wiseSyncResult && (
-                <div className={`rounded-xl border p-4 text-[13px] space-y-1 ${wiseSyncResult.error ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`}>
-                  {wiseSyncResult.error
-                    ? <p className="text-rose-600 font-medium">{wiseSyncResult.error}</p>
-                    : <>
-                        <p className="text-emerald-700 font-semibold">✓ Sync complete! Closing...</p>
-                        <p className="text-emerald-600">{wiseSyncResult.imported} transactions imported</p>
-                        <p className="text-[#9ca3af]">{wiseSyncResult.alreadyExisted ?? wiseSyncResult.skipped ?? 0} already existed · {wiseSyncResult.parseFailed ?? 0} parse failures</p>
-                      </>
-                  }
-                  {wiseSyncResult.warning && <p className="text-amber-600 pt-1">{wiseSyncResult.warning}</p>}
-                </div>
-              )}
-              <Button onClick={runWiseSync} disabled={wiseSyncing || !wiseProfileId || (!!wiseSyncResult && !wiseSyncResult.error)} className="w-full h-10 text-sm rounded-lg bg-[#00b9a5] hover:bg-[#00a896] text-white font-semibold disabled:opacity-50">
-                {wiseSyncing ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Syncing...</> : "Sincronizar"}
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Dolafy import dialog */}
-      <Dialog open={dolafyOpen} onOpenChange={(v) => { setDolafyOpen(v); if (!v) { setDolafyResult(null); setDolafyFileName(null); } }}>
-        <DialogContent className="rounded-2xl max-w-sm border-[#e8eaed] shadow-xl">
-          <DialogHeader>
-            <DialogTitle className="text-[17px] font-bold text-[#1a202c]">Import Dolafy statement</DialogTitle>
-          </DialogHeader>
-          {dolafyTarget && (
-            <div className="space-y-4 pt-2">
-              <p className="text-[13px] text-[#6b7280]">
-                Local account: <span className="text-[#1a202c] font-semibold">{dolafyTarget.name}</span>
-              </p>
-              <div className="space-y-2">
-                <Label className="text-[13px] font-medium text-[#374151]">CSV file</Label>
-                <label className={`flex items-center gap-3 w-full h-10 px-3 rounded-lg border cursor-pointer transition-colors ${dolafyFileName ? "border-emerald-300 bg-emerald-50" : "border-[#e8eaed] bg-white hover:bg-[#f9fafb]"}`}>
-                  <Upload className={`w-4 h-4 shrink-0 ${dolafyFileName ? "text-emerald-600" : "text-[#9ca3af]"}`} />
-                  <span className={`text-[13px] truncate flex-1 ${dolafyFileName ? "text-emerald-700 font-medium" : "text-[#9ca3af]"}`}>
-                    {dolafyFileName ?? "Select file..."}
-                  </span>
-                  <input
-                    ref={dolafyFileRef}
-                    type="file"
-                    accept=".csv,.tsv,.txt"
-                    className="hidden"
-                    onChange={(e) => setDolafyFileName(e.target.files?.[0]?.name ?? null)}
-                  />
-                </label>
-              </div>
-              {dolafyResult && (
-                <div className={`rounded-xl border p-4 text-[13px] space-y-1 ${dolafyResult.error ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`}>
-                  {dolafyResult.error
-                    ? <p className="text-rose-600 font-medium">{dolafyResult.error}</p>
-                    : <>
-                        <p className="text-emerald-700 font-semibold">✓ Import complete! Closing...</p>
-                        <p className="text-emerald-600">{dolafyResult.imported} transactions imported</p>
-                        <p className="text-[#9ca3af]">{dolafyResult.skipped} already existed ou ignoradas</p>
-                      </>
-                  }
-                </div>
-              )}
-              <Button
-                onClick={runDolafyImport}
-                disabled={dolafyImporting || (!!dolafyResult && !dolafyResult.error)}
-                className="w-full h-10 text-sm rounded-lg bg-[#00b9a5] hover:bg-[#00a896] text-white font-semibold disabled:opacity-50"
-              >
-                {dolafyImporting ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Importing...</> : "Importar"}
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -2,6 +2,8 @@ import { prisma } from "@/lib/db";
 import { AccessError, accountScope, companyScope, guarded, requireUser } from "@/lib/access";
 import { isManager } from "@/lib/auth";
 import { cobertaAte, coberturaDoMes, coberturaPorConta, inicioDoMes } from "@/lib/cobertura";
+import { INICIO_DOS_FECHAMENTOS } from "@/lib/mesFechado";
+import { EXTRACAO_CHAVES } from "@/lib/sync/common";
 
 /**
  * Control — o que já foi importado e categorizado, por conta e mês (decisão do dono em 2026-10-30:
@@ -11,30 +13,43 @@ import { cobertaAte, coberturaDoMes, coberturaPorConta, inicioDoMes } from "@/li
  *  - categorização: lançamentos do mês sem categoria gerencial.
  * Estados da importação no mês: completo · parcial (trechos) · sem_comprovacao (tem lançamento mas
  * nenhuma importação registrada cobre) · faltando (nada) · antes (a conta ainda não tinha dado nenhum).
- * Superadmin vê todas as empresas; admin só as do grupo dele; member não vê (decisão de 2026-10-16).
+ * Meses: de INICIO_DOS_FECHAMENTOS até o atual. Superadmin vê todas as empresas; admin só as do grupo dele;
+ * member não vê (decisão de 2026-10-16).
  */
 
 type EstadoImp = "completo" | "parcial" | "sem_comprovacao" | "faltando" | "antes";
 type Mes = { imp: EstadoImp; pedacos?: Array<{ de: string; ate: string }>; total: number; semCategoria: number };
 
+/** Id da extração gravada no syncConfig (uma chave por banco — src/lib/sync/common.ts). */
+function extracaoDe(syncConfig: string | null): string | null {
+  try {
+    const c = syncConfig ? JSON.parse(syncConfig) : {};
+    const v = EXTRACAO_CHAVES.map((k) => c[k]).find((x) => x != null);
+    return v == null ? null : String(v);
+  } catch { return null; }
+}
+
 export const GET = guarded(async () => {
   const user = await requireUser();
   if (!isManager(user.role)) throw new AccessError(403, "só administradores veem o Control");
 
-  const now = new Date();
+  // do 1º mês dos fechamentos até o mês atual
   const months: string[] = [];
-  for (let i = 12; i >= 0; i--) months.push(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)).toISOString().slice(0, 7));
+  const agora = new Date().toISOString().slice(0, 7);
+  for (let d = inicioDoMes(INICIO_DOS_FECHAMENTOS); d.toISOString().slice(0, 7) <= agora; d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1))) {
+    months.push(d.toISOString().slice(0, 7));
+  }
   const desde = inicioDoMes(months[0]);
 
   const companies = await prisma.company.findMany({
     where: await companyScope(user),
-    select: { id: true, name: true, color: true, accounts: { where: await accountScope(user), select: { id: true, name: true, bank: true, syncConfig: true }, orderBy: { name: "asc" } } },
+    select: { id: true, name: true, color: true, accounts: { where: await accountScope(user), select: { id: true, name: true, bank: true, currency: true, syncConfig: true }, orderBy: [{ bank: "asc" }, { name: "asc" }] } },
     orderBy: { name: "asc" },
   });
   const contas = companies.flatMap((c) => c.accounts.map((a) => ({ ...a, companyId: c.id })));
   const ids = contas.map((a) => a.id);
 
-  const [coberturas, porMes, primeiras, ultimas] = await Promise.all([
+  const [coberturas, porMes, primeiras, ultimas, contasOfx] = await Promise.all([
     coberturaPorConta(ids),
     ids.length
       ? prisma.$queryRaw<Array<{ accountId: string; mes: string; total: number; sem_categoria: number }>>`
@@ -55,6 +70,12 @@ export const GET = guarded(async () => {
           distinct: ["accountId"],
           select: { accountId: true, createdAt: true, source: true, user: { select: { name: true, email: true } }, importLog: { select: { filename: true } } },
         })
+      : [],
+    // nº da conta no banco de quem recebe OFX (ofx:<banco>:<conta>:<chave>) — o que identifica a conta na tela
+    ids.length
+      ? prisma.$queryRaw<Array<{ accountId: string; conta: string }>>`
+          SELECT DISTINCT ON (t."accountId") t."accountId", split_part(t."reference", ':', 3) AS conta
+            FROM "Transaction" t WHERE t."accountId" = ANY(${ids}) AND t."reference" LIKE 'ofx:%'`
       : [],
   ]);
 
@@ -81,7 +102,10 @@ export const GET = guarded(async () => {
     }
     const ult = ultimas.find((u) => u.accountId === a.id);
     return {
-      id: a.id, name: a.name, bank: a.bank, companyId: a.companyId,
+      id: a.id, name: a.name, bank: a.bank, currency: a.currency, companyId: a.companyId,
+      configurada: !!a.syncConfig, // já tem a extração da API escolhida
+      extracao: extracaoDe(a.syncConfig), // qual (id no banco); Revolut configurada com null = todas as contas
+      contaBanco: contasOfx.find((o) => o.accountId === a.id)?.conta ?? null,
       fonte: ult?.source ?? (a.syncConfig ? "api" : null),
       nuncaImportada: !primeiroDado,
       cobertaAte: cobertaAte(trechos)?.toISOString() ?? null,
