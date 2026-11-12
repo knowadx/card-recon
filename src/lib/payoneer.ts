@@ -1,23 +1,24 @@
-import { createHash } from "crypto";
-
 /**
  * Leitura do CSV do Payoneer (pedido do dono em 2026-11-12: "conectar contas Payoneer via CSV"). Formato =
- * o relatório de movimentação por saldo (o dono mandou um primeiro arquivo e corrigiu: "errei o formato"):
- *   Currency,Payout method,Transaction date,Transaction time,Time zone,Credit amount,Debit amount,Status,Running balance,Description
- *   EUR,EUR balance,12-31-2025,12:51:50,UTC,0,-133.8,Completed,30359.33,Card charge (FACEBK *S5THJA9WR2)
- * - data MM-DD-AAAA + hora + fuso (UTC → instante exato; outro fuso → meio-dia UTC do dia, sem chutar a hora);
- * - valor = crédito + débito (o débito já vem negativo); moeda da linha (um arquivo pode ter EUR e USD);
+ * o extrato COMPLETO, com Transaction ID (o dono testou 3 exportações e escolheu esta: "tem transaction ID e
+ * já vem com a info de facebk que precisamos na descrição"):
+ *   Transaction Date,Transaction Time,Time Zone,Transaction ID,Description,Credit Amount,Debit Amount,Currency,
+ *   Transfer Amount,Transfer Amount Currency,Status,Running Balance,Additional Description,Store Name,Source,Target,Reference ID
+ *   11/08/2026,03:00:16,UTC,1058836869,Payment to …,,18070.48,USD,,,Completed,3057.59,Loan payment,,USD balance,…,
+ * - data MM/DD/AAAA + hora + fuso (UTC → instante exato; outro fuso → meio-dia UTC do dia, sem chutar a hora);
+ * - valor = crédito − débito (o débito vem POSITIVO neste formato; o sinal é ignorado); moeda da linha;
+ * - Transaction ID = chave do lançamento (reimportar não duplica) — só UM formato aceito: outro formato
+ *   geraria outra chave pro mesmo lançamento (duplicaria);
+ * - descrição = Description + Store Name + Additional Description (o FACEBK *código pode vir em qualquer uma);
  * - só entra Status "Completed";
- * - SEM id por lançamento → chave = moeda + data/hora + valor + descrição (o FACEBK *código é único) + ordem de
- *   ocorrência (duas linhas idênticas no mesmo segundo seguem separadas) — reimportar não duplica;
- * - "Running balance" confere a SEQUÊNCIA por moeda: saldo da linha = saldo da anterior + valor; quebra =
- *   falta lançamento no arquivo (avisado na tela);
+ * - "Running Balance" confere a SEQUÊNCIA por moeda: saldo da linha = saldo da anterior + valor; quebra = falta
+ *   lançamento no arquivo (avisado na tela);
  * - o arquivo não diz o período que cobre → a tela pergunta (src/lib/importacaoArquivo.ts).
  */
 export type LancamentoPayoneer = { chave: string; data: Date; descricao: string; valor: number; moeda: string };
 export type ExtratoPayoneer = { lancamentos: LancamentoPayoneer[]; naoConcluidos: number; invalidos: number; quebrasDeSaldo: number };
 
-const COLUNAS = ["currency", "transaction date", "transaction time", "credit amount", "debit amount", "status", "running balance", "description"];
+const COLUNAS = ["transaction date", "transaction time", "transaction id", "description", "credit amount", "debit amount", "currency", "status", "running balance"];
 
 /** Uma linha de CSV com aspas (vírgula dentro de aspas não separa; "" = aspa). */
 function campos(linha: string): string[] {
@@ -36,7 +37,7 @@ function campos(linha: string): string[] {
   return out.map((x) => x.trim());
 }
 
-/** "12-31-2025" + "12:51:50" + "UTC" → instante; fuso que não é UTC → meio-dia UTC do dia; inválida → null. */
+/** "11/08/2026" + "03:00:16" + "UTC" → instante; fuso que não é UTC → meio-dia UTC do dia; inválida → null. */
 export function dataPayoneer(dia: string, hora: string, fuso: string): Date | null {
   const m = dia.trim().match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
   if (!m) return null;
@@ -50,7 +51,7 @@ export function dataPayoneer(dia: string, hora: string, fuso: string): Date | nu
   return Number.isNaN(data.getTime()) || data.toISOString().slice(0, 10) !== base ? null : data;
 }
 
-/** "-133.8", "1,234.50", "" → número (vazio = 0); inválido → null. */
+/** "18070.48", "1,234.50", "-5" → número (vazio = 0); inválido → null. */
 export function valorPayoneer(bruto: string): number | null {
   const t = bruto.replace(/[\s,]/g, "");
   if (!t) return 0;
@@ -66,43 +67,38 @@ export function lerPayoneer(texto: string): { extrato?: ExtratoPayoneer; erro?: 
   const cab = campos(linhas[0]).map((c) => c.toLowerCase());
   const faltam = COLUNAS.filter((c) => !cab.includes(c));
   if (faltam.length) {
-    return { erro: `não parece o CSV de movimentação do Payoneer — faltam as colunas ${faltam.join(", ")} (veio: ${campos(linhas[0]).join(", ")})` };
+    return { erro: `não parece o extrato completo do Payoneer (o que tem Transaction ID) — faltam as colunas ${faltam.join(", ")} (veio: ${campos(linhas[0]).join(", ")})` };
   }
   const i = (nome: string) => cab.indexOf(nome);
+  const col = (c: string[], nome: string) => (i(nome) >= 0 ? c[i(nome)] ?? "" : "").trim();
 
-  type Linha = LancamentoPayoneer & { saldo: number | null; base: string };
+  type Linha = LancamentoPayoneer & { saldo: number | null; ordem: number };
   const lidas: Linha[] = [];
+  const vistas = new Set<string>();
   let naoConcluidos = 0, invalidos = 0;
-  for (const linha of linhas.slice(1)) {
+  for (const [ordem, linha] of linhas.slice(1).entries()) {
     const c = campos(linha);
-    if ((c[i("status")] ?? "").toLowerCase() !== "completed") { naoConcluidos++; continue; }
-    const data = dataPayoneer(c[i("transaction date")] ?? "", c[i("transaction time")] ?? "", i("time zone") >= 0 ? c[i("time zone")] ?? "" : "UTC");
-    const credito = valorPayoneer(c[i("credit amount")] ?? "");
-    const debito = valorPayoneer(c[i("debit amount")] ?? "");
-    const moeda = (c[i("currency")] ?? "").toUpperCase();
-    if (!data || credito === null || debito === null || !moeda) { invalidos++; continue; }
-    const valor = (Math.abs(credito) - Math.abs(debito));
-    const descricao = (c[i("description")] ?? "").trim() || "Payoneer";
-    const saldo = valorPayoneer(c[i("running balance")] ?? "");
-    const base = `${moeda}:${data.toISOString()}:${valor.toFixed(2)}:${createHash("sha1").update(descricao).digest("hex").slice(0, 12)}`;
-    lidas.push({ chave: "", data, descricao, valor, moeda, saldo: c[i("running balance")]?.trim() ? saldo : null, base });
+    if (col(c, "status").toLowerCase() !== "completed") { naoConcluidos++; continue; }
+    const data = dataPayoneer(col(c, "transaction date"), col(c, "transaction time"), i("time zone") >= 0 ? col(c, "time zone") : "UTC");
+    const credito = valorPayoneer(col(c, "credit amount"));
+    const debito = valorPayoneer(col(c, "debit amount"));
+    const moeda = col(c, "currency").toUpperCase();
+    const chave = col(c, "transaction id");
+    if (!data || credito === null || debito === null || !moeda || !chave || vistas.has(chave)) { invalidos++; continue; }
+    vistas.add(chave);
+    const descricao = [col(c, "description"), col(c, "store name"), col(c, "additional description")]
+      .filter((x, k, arr) => x && arr.indexOf(x) === k).join(" — ") || "Payoneer";
+    const saldoBruto = col(c, "running balance");
+    lidas.push({ chave, data, descricao, valor: Math.abs(credito) - Math.abs(debito), moeda, saldo: saldoBruto ? valorPayoneer(saldoBruto) : null, ordem });
   }
   if (!lidas.length) return { erro: naoConcluidos ? `nenhum lançamento concluído (${naoConcluidos} não concluído(s))` : "nenhum lançamento válido no arquivo" };
-
-  // chave: base + ordem de ocorrência (1ª, 2ª… da mesma moeda/hora/valor/descrição)
-  const ocorrencias = new Map<string, number>();
-  for (const l of lidas) {
-    const n = (ocorrencias.get(l.base) ?? 0) + 1;
-    ocorrencias.set(l.base, n);
-    l.chave = `${l.base}:${n}`;
-  }
 
   // sequência do saldo por moeda, do mais antigo pro mais novo (mesmo instante: a ordem do arquivo, invertida)
   let quebrasDeSaldo = 0;
   const porMoeda = new Map<string, Linha[]>();
   lidas.forEach((l) => porMoeda.set(l.moeda, [...(porMoeda.get(l.moeda) ?? []), l]));
   for (const lista of porMoeda.values()) {
-    const ord = lista.map((l, k) => ({ l, k })).sort((a, b) => a.l.data.getTime() - b.l.data.getTime() || b.k - a.k).map((x) => x.l);
+    const ord = [...lista].sort((a, b) => a.data.getTime() - b.data.getTime() || b.ordem - a.ordem);
     for (let k = 1; k < ord.length; k++) {
       const antes = ord[k - 1].saldo, agora = ord[k].saldo;
       if (antes !== null && agora !== null && centavos(antes + ord[k].valor) !== centavos(agora)) quebrasDeSaldo++;

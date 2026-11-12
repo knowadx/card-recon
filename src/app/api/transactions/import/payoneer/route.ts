@@ -9,11 +9,11 @@ import { registrarArquivo } from "@/lib/importacaoArquivo";
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/transactions/import/payoneer (form: file, accountId) — CSV de movimentação do Payoneer numa conta
- * Payoneer (src/lib/payoneer.ts). Uma linha por lançamento concluído: reference payoneer:<chave> (moeda + data/hora
- * + valor + descrição + ocorrência — o arquivo não tem id; reimportar não duplica); a moeda é a da linha; o código
- * FACEBK vira cobrança Meta. Devolve as quebras na sequência do saldo (falta lançamento no arquivo). O arquivo não
- * diz o período → devolve o sugerido e a tela pergunta (src/lib/importacaoArquivo.ts). Administradores.
+ * POST /api/transactions/import/payoneer (form: file, accountId) — extrato completo do Payoneer (com Transaction
+ * ID) numa conta Payoneer (src/lib/payoneer.ts). Uma linha por lançamento concluído: reference
+ * payoneer:<Transaction ID> (reimportar não duplica); a moeda é a da linha; o código FACEBK (em qualquer parte da
+ * descrição) vira cobrança Meta. Devolve as quebras na sequência do saldo (falta lançamento no arquivo). O arquivo
+ * não diz o período → devolve o sugerido e a tela pergunta (src/lib/importacaoArquivo.ts). Administradores.
  */
 export const POST = guarded(async (request: Request) => {
   const user = await requireUser();
