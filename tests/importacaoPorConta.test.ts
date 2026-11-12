@@ -82,6 +82,19 @@ describe("arquivo sem período: importa, sugere o período e só a confirmação
 });
 
 describe("/api/coverage para o painel da conta", () => {
+  it("por conta e mês: total, sem categoria e com comprovante (anexo OU fatura Meta casada)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-12T12:00:00Z") });
+    const conta = s.accounts.pixel.id; // já tem a transação de 01/10 (split só com operação = sem categoria)
+    const cat = await prisma.category.create({ data: { type: "MANAGERIAL", name: "Custos" } });
+    await prisma.transaction.create({ data: { accountId: conta, date: d("2026-10-05"), description: "Meta", amount: -10, currency: "USD", reference: "px-meta", isMetaCharge: true, hasReceipt: true } });
+    const anexo = await prisma.transaction.create({ data: { accountId: conta, date: d("2026-10-06"), description: "Nota", amount: -5, currency: "USD", reference: "px-nota", splits: { create: { amount: -5, managerialCategoryId: cat.id } } } });
+    await prisma.document.create({ data: { transactionId: anexo.id, filename: "nota.pdf", path: "r2:tx/x/nota.pdf" } });
+    loginAs(admin);
+    const px = (await (await coverage.GET()).json()).accounts.find((a: { id: string }) => a.id === conta);
+    expect(px.meses["2026-10"]).toMatchObject({ total: 3, semCategoria: 2, comComprovante: 2 });
+  });
+
+
   it("meses desde jan/2025; cada conta diz moeda, se a extração está escolhida, qual, e o nº da conta do OFX", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-12T12:00:00Z") });
     await prisma.account.update({ where: { id: s.accounts.pixel.id }, data: { syncConfig: JSON.stringify({ mercuryAccountId: "merc-chk" }) } });

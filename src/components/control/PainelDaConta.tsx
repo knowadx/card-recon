@@ -17,7 +17,7 @@ import { textoDoArquivo } from "@/lib/textoDoArquivo";
  *    cobre, já preenchido com a 1ª e a última data lidas — só a confirmação grava a cobertura.
  */
 
-export type MesDaConta = { imp: EstadoImp; pedacos?: Array<{ de: string; ate: string }>; total: number; semCategoria: number };
+export type MesDaConta = { imp: EstadoImp; pedacos?: Array<{ de: string; ate: string }>; total: number; semCategoria: number; comComprovante: number };
 export type ContaDoControle = {
   id: string; name: string; bank: string; currency: string; companyId: string;
   fonte: string | null; configurada: boolean; extracao: string | null; contaBanco: string | null;
@@ -115,7 +115,7 @@ export function PainelDaConta({ conta, irmas, empresa, mes, onFechar, onImportou
             <div className="text-[12px] text-[#6b7280]">{MESES_LONGOS[+mes.slice(5, 7) - 1]} {mes.slice(0, 4)}</div>
             <div>
               <span className={m.imp === "completo" ? "text-emerald-700" : m.imp === "parcial" ? "text-amber-700" : m.imp === "antes" ? "text-[#6b7280]" : "text-red-600"}>{dicaImp(m)}</span>
-              {m.total > 0 && <span className="text-[#374151]"> · {m.total} lançamento(s) · <span className={m.semCategoria ? "text-amber-700" : "text-emerald-700"}>{m.semCategoria} sem categoria</span></span>}
+              {m.total > 0 && <span className="text-[#374151]"> · {m.total} lançamento(s) · {m.total - m.semCategoria} categorizado(s) · <span className={m.semCategoria ? "text-amber-700" : "text-emerald-700"}>{m.semCategoria} pendente(s)</span> · {m.comComprovante} com comprovante</span>}
             </div>
             {!importacoes ? <div className="text-[12px] text-[#9ca3af]">carregando…</div>
               : importacoes.length === 0 ? <div className="text-[12px] text-[#9ca3af]">Nenhuma importação cobre este mês.</div>

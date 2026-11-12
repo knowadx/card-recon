@@ -11,9 +11,9 @@
 export const INICIO_DOS_FECHAMENTOS = "2025-01";
 
 export type EstadoImp = "completo" | "parcial" | "sem_comprovacao" | "faltando" | "antes";
-export type ContaNoMes = { imp: EstadoImp; total: number; semCategoria: number };
+export type ContaNoMes = { imp: EstadoImp; total: number; semCategoria: number; comComprovante?: number };
 export type ContaDaEmpresa = { nuncaImportada: boolean; meses: Record<string, ContaNoMes> };
-export type ResumoDoMes = { contas: number; importadas: number; pend: number; total: number; fechado: boolean; vazio: boolean };
+export type ResumoDoMes = { contas: number; importadas: number; pend: number; total: number; comComprovante: number; fechado: boolean; vazio: boolean };
 
 export function resumoDoMes(contas: ContaDaEmpresa[], meses: string[], m: string): ResumoDoMes {
   const i = meses.indexOf(m);
@@ -22,5 +22,6 @@ export function resumoDoMes(contas: ContaDaEmpresa[], meses: string[], m: string
   const importadas = emUso.filter((c) => !c.nuncaImportada && c.meses[m].imp === "completo").length;
   const pend = contas.reduce((s, c) => s + (c.nuncaImportada ? 0 : c.meses[m].semCategoria), 0);
   const total = contas.reduce((s, c) => s + (c.nuncaImportada ? 0 : c.meses[m].total), 0);
-  return { contas: emUso.length, importadas, pend, total, vazio: emUso.length === 0, fechado: emUso.length > 0 && importadas === emUso.length && pend === 0 };
+  const comComprovante = contas.reduce((s, c) => s + (c.nuncaImportada ? 0 : c.meses[m].comComprovante ?? 0), 0);
+  return { contas: emUso.length, importadas, pend, total, comComprovante, vazio: emUso.length === 0, fechado: emUso.length > 0 && importadas === emUso.length && pend === 0 };
 }

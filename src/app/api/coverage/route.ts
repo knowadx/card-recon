@@ -10,7 +10,9 @@ import { EXTRACAO_CHAVES } from "@/lib/sync/common";
  * "nunca consigo saber exatamente o que já importei. Qual conta eu importei, e qual mês"). Dois
  * checkpoints SEPARADOS e só calculados (ninguém marca):
  *  - importação: a COBERTURA da conta no mês (src/lib/cobertura.ts) — contagem de lançamentos não prova;
- *  - categorização: lançamentos do mês sem categoria gerencial.
+ *  - categorização: lançamentos do mês sem categoria gerencial (e os categorizados = total − pendentes);
+ *  - comprovante: lançamentos com anexo OU com a fatura Meta casada (pedido do dono em 2026-11-12) — só
+ *    informa, não entra no "mês fechado".
  * Estados da importação no mês: completo · parcial (trechos) · sem_comprovacao (tem lançamento mas
  * nenhuma importação registrada cobre) · faltando (nada) · antes (a conta ainda não tinha dado nenhum).
  * Meses: de INICIO_DOS_FECHAMENTOS até o atual. Superadmin vê todas as empresas; admin só as do grupo dele;
@@ -18,7 +20,7 @@ import { EXTRACAO_CHAVES } from "@/lib/sync/common";
  */
 
 type EstadoImp = "completo" | "parcial" | "sem_comprovacao" | "faltando" | "antes";
-type Mes = { imp: EstadoImp; pedacos?: Array<{ de: string; ate: string }>; total: number; semCategoria: number };
+type Mes = { imp: EstadoImp; pedacos?: Array<{ de: string; ate: string }>; total: number; semCategoria: number; comComprovante: number };
 
 /** Id da extração gravada no syncConfig (uma chave por banco — src/lib/sync/common.ts). */
 function extracaoDe(syncConfig: string | null): string | null {
@@ -52,11 +54,15 @@ export const GET = guarded(async () => {
   const [coberturas, porMes, primeiras, ultimas, contasOfx] = await Promise.all([
     coberturaPorConta(ids),
     ids.length
-      ? prisma.$queryRaw<Array<{ accountId: string; mes: string; total: number; sem_categoria: number }>>`
+      ? prisma.$queryRaw<Array<{ accountId: string; mes: string; total: number; sem_categoria: number; com_comprovante: number }>>`
           SELECT t."accountId", to_char(date_trunc('month', t."date"), 'YYYY-MM') AS mes, count(*)::int AS total,
                  count(*) FILTER (WHERE NOT EXISTS (
                    SELECT 1 FROM "TransactionSplit" s WHERE s."transactionId" = t."id" AND s."managerialCategoryId" IS NOT NULL
-                 ))::int AS sem_categoria
+                 ))::int AS sem_categoria,
+                 -- comprovante = anexo no lançamento OU a fatura Meta (PDF) casada pelo código
+                 count(*) FILTER (WHERE t."hasReceipt" OR EXISTS (
+                   SELECT 1 FROM "Document" d WHERE d."transactionId" = t."id"
+                 ))::int AS com_comprovante
             FROM "Transaction" t
            WHERE t."accountId" = ANY(${ids}) AND t."ignored" = false AND t."date" >= ${desde}
            GROUP BY 1, 2`
@@ -88,6 +94,7 @@ export const GET = guarded(async () => {
       const c = contagem.get(`${a.id}|${m}`);
       const total = c?.total ?? 0;
       const semCategoria = c?.sem_categoria ?? 0;
+      const comComprovante = c?.com_comprovante ?? 0;
       const cob = coberturaDoMes(trechos, m);
       let imp: EstadoImp;
       if (cob.estado === "completo") imp = "completo";
@@ -96,7 +103,7 @@ export const GET = guarded(async () => {
       else if (!primeiroDado || primeiroDado >= new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 1))) imp = "antes";
       else imp = "faltando";
       meses[m] = {
-        imp, total, semCategoria,
+        imp, total, semCategoria, comComprovante,
         ...(cob.estado === "parcial" ? { pedacos: cob.pedacos.map((p) => ({ de: p.de.toISOString(), ate: p.ate.toISOString() })) } : {}),
       };
     }

@@ -100,7 +100,7 @@ export default function ControlPage() {
   const abreviado = MESES[+mes.slice(5, 7) - 1].toLowerCase();
 
   const btn = "h-8 px-3 rounded-lg border border-[#e8eaed] bg-white text-[13px] font-medium text-[#374151] hover:bg-[#f9fafb] disabled:opacity-50";
-  const grade = "grid grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_minmax(0,1fr)_90px] items-center gap-3";
+  const grade = "grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.1fr)_minmax(0,1.3fr)_minmax(0,0.9fr)_80px] items-center gap-3";
   const selo = (fechado: boolean) => fechado
     ? <span className="rounded-md bg-emerald-50 text-emerald-700 font-medium px-2.5 py-0.5 text-[12px]">Fechado</span>
     : <span className="rounded-md bg-amber-50 text-amber-700 font-medium px-2.5 py-0.5 text-[12px]">Aberto</span>;
@@ -174,7 +174,7 @@ export default function ControlPage() {
           {/* empresas do mês */}
           <div className="rounded-2xl bg-white border border-[#e8eaed] overflow-hidden text-[13px]">
             <div className={`${grade} px-5 py-2.5 border-b border-[#f3f4f6] text-[12px] text-[#9ca3af]`}>
-              <span>{nomeMes}{mes === atual ? " · em andamento" : ""}</span><span>Importação</span><span>Categorização</span><span className="text-right">Mês</span>
+              <span>{nomeMes}{mes === atual ? " · em andamento" : ""}</span><span>Importação</span><span>Categorização</span><span>Comprovantes</span><span className="text-right">Mês</span>
             </div>
             {linhas.length === 0 && <div className="px-5 py-4 text-[#9ca3af]">Nenhuma empresa com dados neste mês.</div>}
             {linhas.map(({ empresa: e, r }) => {
@@ -190,9 +190,13 @@ export default function ControlPage() {
                     <span className={r.importadas === r.contas ? "text-emerald-600" : r.importadas === 0 ? "text-red-500" : "text-amber-700"}>
                       {r.importadas === r.contas ? "✓ " : ""}{r.importadas} de {r.contas} conta{r.contas !== 1 ? "s" : ""}
                     </span>
-                    <span className={r.pend === 0 ? (r.total ? "text-emerald-600" : "text-[#9ca3af]") : r.importadas === r.contas ? "text-amber-700" : "text-red-500"}>
-                      {r.pend === 0 ? (r.total ? "✓ tudo categorizado" : "sem lançamentos") : `${n(r.pend)} pendente${r.pend !== 1 ? "s" : ""}`}
+                    <span>
+                      {!r.total ? <span className="text-[#9ca3af]">sem lançamentos</span> : <>
+                        <span className="text-emerald-700">{n(r.total - r.pend)} categorizado{r.total - r.pend !== 1 ? "s" : ""}</span>
+                        {r.pend > 0 && <span className={r.importadas === r.contas ? "text-amber-700" : "text-red-500"}> · {n(r.pend)} pendente{r.pend !== 1 ? "s" : ""}</span>}
+                      </>}
                     </span>
+                    <span className="text-[#4b5563]">{r.total ? `${n(r.comComprovante)} de ${n(r.total)}` : ""}</span>
                     <span className="text-right">{selo(r.fechado)}</span>
                   </button>
                   {aberta && (
@@ -205,8 +209,9 @@ export default function ControlPage() {
                             onClick={() => setPainelId(c.id)}
                             title={`${c.cobertaAte ? `importada até ${br(c.cobertaAte)}` : "nenhuma importação registrada"}${c.ultimaImportacao ? ` · última em ${br(c.ultimaImportacao.quando)}${c.ultimaImportacao.quem ? ` por ${c.ultimaImportacao.quem}` : ""}` : ""} · clique pra ver e importar`}>
                             <span className="pl-8 truncate">{(() => { const r = rotuloDaConta(c, e.name); return <><span className="font-medium text-[#374151]">{r.titulo}</span>{r.detalhe && <span className="text-[#9ca3af]"> · {r.detalhe}</span>}</>; })()}</span>
-                            <span className={`${l.cor} ${c.nuncaImportada ? "col-span-3" : ""}`}>{l.texto}</span>
-                            {!c.nuncaImportada && <span className="text-[#6b7280]">{m && m.semCategoria > 0 ? `${n(m.semCategoria)} pendente${m.semCategoria !== 1 ? "s" : ""}` : ""}</span>}
+                            <span className={`${l.cor} ${c.nuncaImportada ? "col-span-4" : ""}`}>{l.texto}</span>
+                            {!c.nuncaImportada && <span className="text-[#6b7280]">{m && m.total ? `${n(m.total - m.semCategoria)} categ.${m.semCategoria ? ` · ${n(m.semCategoria)} pend.` : ""}` : ""}</span>}
+                            {!c.nuncaImportada && <span className="text-[#6b7280]">{m && m.total ? `${n(m.comComprovante)} de ${n(m.total)}` : ""}</span>}
                             {!c.nuncaImportada && <span />}
                           </div>
                         );
