@@ -11,7 +11,8 @@ import { textoDoArquivo } from "@/lib/textoDoArquivo";
  * falta categorizar) e, embaixo, só as opções que valem pro banco da conta:
  *  - API (Mercury, Wise, Revolut, BTG): escolhe a extração na 1ª vez (depois fica fixa) e sincroniza "desde";
  *  - Mercury: separar extrações (1 conta por extração);
- *  - OFX (BTG, XP, Itaú); CSV da Revolut (código Facebk e cartão);
+ *  - OFX (BTG, XP, Itaú). O CSV da Revolut (código Facebk e cartão) é do Fechamento Meta, passo 2 — aqui só
+ *    o link pra lá (decisão do dono em 2026-11-12);
  *  - arquivo sem período (planilha Husky, Dolafy, CSV genérico): importa e PERGUNTA o período que o arquivo
  *    cobre, já preenchido com a 1ª e a última data lidas — só a confirmação grava a cobertura.
  */
@@ -119,7 +120,12 @@ export function PainelDaConta({ conta, empresa, mes, onFechar, onImportou }: {
           {temApi && <OpcaoApi conta={conta} empresa={empresa} avisar={avisar} depois={recarregar} />}
           {conta.bank === "Mercury" && <OpcaoSepararExtracoes conta={conta} avisar={avisar} depois={recarregar} />}
           {temOfx && <OpcaoOfx conta={conta} avisar={avisar} depois={recarregar} />}
-          {conta.bank === "Revolut" && <OpcaoCsvRevolut avisar={avisar} depois={recarregar} />}
+          {conta.bank === "Revolut" && (
+            <div className={linha}>
+              <span className="text-[13px] text-[#374151] flex-1">CSV da Revolut <span className="text-[#9ca3af]">· código Facebk e cartão das cobranças Meta</span></span>
+              <a href="/fechamento" className={btn}>Subir no Fechamento Meta</a>
+            </div>
+          )}
           {arquivo && <OpcaoArquivo conta={conta} kind={arquivo} avisar={avisar} depois={recarregar} />}
           {conta.bank === "BTG" && <p className="text-[11.5px] text-[#9ca3af] pt-1">Cada conta usa uma fonte só: API do BTG ou OFX — a que você usar primeiro.</p>}
         </div>
@@ -289,24 +295,6 @@ function OpcaoOfx({ conta, avisar, depois }: Opcao & { conta: ContaDoControle })
     <div className={linha}>
       <span className="text-[13px] text-[#374151] flex-1">Extrato OFX <span className="text-[#9ca3af]">· o período do arquivo conta como importado</span></span>
       <Arquivo rotulo="Importar OFX" accept=".ofx,application/x-ofx" aoEscolher={importar} ocupado={ocupado} />
-    </div>
-  );
-}
-
-function OpcaoCsvRevolut({ avisar, depois }: Opcao) {
-  const [ocupado, setOcupado] = useState(false);
-  async function importar(f: File) {
-    setOcupado(true);
-    const r = await json(fetch("/api/admin/import-revolut-csv", { method: "POST", headers: { "Content-Type": "text/csv", "x-filename": encodeURIComponent(f.name) }, body: await f.text() }));
-    setOcupado(false);
-    if (r.error) return avisar(false, `CSV da Revolut: ${r.error}`);
-    avisar(true, `CSV da Revolut: ${r.metaRefGravados ?? 0} código(s) Facebk gravado(s) · ${r.jaTinhamOMesmoCodigo ?? 0} já tinham · ${r.cartoesPreenchidos ?? 0} cartão(ões) preenchido(s)${r.semTransacaoNoBanco ? ` · ⚠️ ${r.semTransacaoNoBanco} sem transação no banco (sincronize a API antes)` : ""}`);
-    depois();
-  }
-  return (
-    <div className={linha}>
-      <span className="text-[13px] text-[#374151] flex-1">CSV da Revolut <span className="text-[#9ca3af]">· completa o código Facebk e o cartão (não traz lançamento novo)</span></span>
-      <Arquivo rotulo="Importar CSV" accept=".csv,text/csv" aoEscolher={importar} ocupado={ocupado} />
     </div>
   );
 }
