@@ -243,7 +243,9 @@ export default function ControlPage() {
       </div>
 
       {contaDoPainel && (
-        <PainelDaConta conta={contaDoPainel} empresa={nomeEmpresa(contaDoPainel.companyId)} mes={mes} onFechar={() => setPainelId(null)} onImportou={carregar} />
+        <PainelDaConta conta={contaDoPainel}
+          irmas={dados.accounts.filter((a) => a.id !== contaDoPainel.id && a.companyId === contaDoPainel.companyId && a.bank === contaDoPainel.bank)}
+          empresa={nomeEmpresa(contaDoPainel.companyId)} mes={mes} onFechar={() => setPainelId(null)} onImportou={carregar} />
       )}
     </div>
   );

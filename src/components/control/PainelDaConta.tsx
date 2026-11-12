@@ -9,8 +9,9 @@ import { textoDoArquivo } from "@/lib/textoDoArquivo";
  * importação devem ficar nessa tela. Pra todas as contas com todas as opções de importação de cada uma. De
  * modo que o usuário possa clicar na conta e importar só ela"). Mostra o mês escolhido (o que cobre, o que
  * falta categorizar) e, embaixo, só as opções que valem pro banco da conta:
- *  - API (Mercury, Wise, Revolut, BTG): escolhe a extração na 1ª vez (depois fica fixa) e sincroniza "desde";
- *  - Mercury: separar extrações (1 conta por extração);
+ *  - API (Mercury, Wise, Revolut, BTG): escolhe a sub-conta na 1ª vez (depois fica fixa) e sincroniza "desde";
+ *  - Mercury: todas as sub-contas da chave (checking, savings, cartão) e qual conta daqui puxa cada uma — as que
+ *    faltam ganham conta própria (com os lançamentos delas);
  *  - OFX (BTG, XP, Itaú). O CSV da Revolut (código Facebk e cartão) é do Fechamento Meta, passo 2 — aqui só
  *    o link pra lá (decisão do dono em 2026-11-12);
  *  - arquivo sem período (planilha Husky, Dolafy, CSV genérico): importa e PERGUNTA o período que o arquivo
@@ -37,8 +38,11 @@ const FONTE: Record<string, string> = { api: "Sync da API", ofx: "OFX", arquivo:
 
 /** Como a conta aparece: banco e moeda, o nome só quando diz algo além da empresa, e o nº da conta do OFX. */
 export function rotuloDaConta(c: ContaDoControle, nomeEmpresa: string): { titulo: string; detalhe: string | null } {
-  const nome = c.name.trim();
-  const repete = !nome || nome.toLowerCase() === nomeEmpresa.trim().toLowerCase() || nome.toLowerCase() === c.bank.toLowerCase();
+  // "Click Ads LLC · Mercury Checking ••5748" → "Mercury Checking ••5748" (o nome da empresa já está na linha de cima)
+  const empresa = nomeEmpresa.trim().toLowerCase();
+  let nome = c.name.trim();
+  if (empresa && nome.toLowerCase().startsWith(empresa)) nome = nome.slice(empresa.length).replace(/^[\s·:|–—-]+/, "").trim();
+  const repete = !nome || nome.toLowerCase() === c.bank.toLowerCase();
   const partes = [repete ? null : nome, c.contaBanco ? `conta ${c.contaBanco}` : null].filter(Boolean);
   return { titulo: `${c.bank} ${c.currency}`, detalhe: partes.length ? partes.join(" · ") : null };
 }
@@ -65,8 +69,8 @@ async function json(r: Promise<Response>) {
   } catch { return { error: "sem resposta do servidor (se demorou muito, recarregue daqui a pouco pra ver o que entrou)" }; }
 }
 
-export function PainelDaConta({ conta, empresa, mes, onFechar, onImportou }: {
-  conta: ContaDoControle; empresa: string; mes: string; onFechar: () => void; onImportou: () => void;
+export function PainelDaConta({ conta, irmas, empresa, mes, onFechar, onImportou }: {
+  conta: ContaDoControle; irmas: ContaDoControle[]; empresa: string; mes: string; onFechar: () => void; onImportou: () => void;
 }) {
   const { titulo, detalhe } = rotuloDaConta(conta, empresa);
   const m = conta.meses[mes];
@@ -85,6 +89,15 @@ export function PainelDaConta({ conta, empresa, mes, onFechar, onImportou }: {
 
   const temApi = BANCOS_API.includes(conta.bank);
   const temOfx = BANCOS_OFX.includes(conta.bank);
+  // sub-contas que o banco enxerga — lidas UMA vez (o sync e o quadro de sub-contas usam a mesma lista)
+  const [extracoes, setExtracoes] = useState<Extracao[] | null>(null);
+  const [erroLista, setErroLista] = useState<string | null>(null);
+  useEffect(() => {
+    if (!BANCOS_API.includes(conta.bank)) return;
+    let vivo = true;
+    listarExtracoes(conta, empresa).then((r) => { if (!vivo) return; if (Array.isArray(r)) setExtracoes(r); else setErroLista(r.error); });
+    return () => { vivo = false; };
+  }, [conta, empresa]);
   const arquivo = conta.bank === "Husky" ? "husky" : conta.bank === "Dolafy" ? "dolafy" : !temApi && !temOfx ? "csv" : null;
 
   return (
@@ -117,8 +130,8 @@ export function PainelDaConta({ conta, empresa, mes, onFechar, onImportou }: {
 
         <div>
           <h3 className="text-[11px] uppercase tracking-wider font-semibold text-[#9ca3af] mb-1">Importar esta conta</h3>
-          {temApi && <OpcaoApi conta={conta} empresa={empresa} avisar={avisar} depois={recarregar} />}
-          {conta.bank === "Mercury" && <OpcaoSepararExtracoes conta={conta} avisar={avisar} depois={recarregar} />}
+          {temApi && <OpcaoApi key={conta.id} conta={conta} extracoes={extracoes} erroLista={erroLista} avisar={avisar} depois={recarregar} />}
+          {conta.bank === "Mercury" && <SubContasMercury conta={conta} irmas={irmas} extracoes={extracoes} avisar={avisar} depois={recarregar} />}
           {temOfx && <OpcaoOfx conta={conta} avisar={avisar} depois={recarregar} />}
           {conta.bank === "Revolut" && (
             <div className={linha}>
@@ -139,49 +152,44 @@ export function PainelDaConta({ conta, empresa, mes, onFechar, onImportou }: {
 
 type Opcao = { avisar: (ok: boolean, texto: string) => void; depois: () => void };
 
-/** Sincronizar pela API: na 1ª vez escolhe a extração (depois ela fica fixa na conta) e o "desde". */
-function OpcaoApi({ conta, empresa, avisar, depois }: Opcao & { conta: ContaDoControle; empresa: string }) {
-  const [extracoes, setExtracoes] = useState<Extracao[] | null>(null);
-  const [erroLista, setErroLista] = useState<string | null>(null);
-  const [escolhida, setEscolhida] = useState<string>(conta.configurada ? conta.extracao ?? "" : "");
+/** Sub-contas (extrações) que o banco enxerga: Mercury (checking/savings/crédito), Wise (perfis), Revolut (contas, ou todas), BTG (contas). */
+async function listarExtracoes(conta: ContaDoControle, empresa: string): Promise<Extracao[] | { error: string }> {
+  const empresaMin = empresa.toLowerCase();
+  if (conta.bank === "Mercury") {
+    const l = await json(fetch(`/api/sync/mercury/accounts?accountId=${conta.id}`));
+    if (!Array.isArray(l)) return { error: l.error ?? "a Mercury não listou as sub-contas" };
+    const daEmpresa = l.filter((x: { legalBusinessName?: string; entity?: string }) => {
+      const a = (x.legalBusinessName ?? "").toLowerCase(), b = (x.entity ?? "").toLowerCase();
+      return a.includes(empresaMin) || empresaMin.includes(a) || b.includes(empresaMin) || empresaMin.includes(b);
+    });
+    return (daEmpresa.length ? daEmpresa : l).map((x: { id: string; name: string; kind?: string; entity?: string }) => ({ id: x.id, rotulo: `${x.kind === "credit" ? "Cartão de crédito · " : ""}${x.name}`, extra: { entity: x.entity, kind: x.kind } }));
+  }
+  if (conta.bank === "Wise") {
+    const l = await json(fetch(`/api/sync/wise/accounts?accountId=${conta.id}`));
+    return Array.isArray(l) ? l.map((p: { id: string; label: string }) => ({ id: String(p.id), rotulo: p.label })) : { error: l.error ?? "a Wise não listou os perfis" };
+  }
+  if (conta.bank === "Revolut") {
+    const l = await json(fetch(`/api/revolut/accounts?accountId=${conta.id}`));
+    if (!Array.isArray(l)) return { error: l.error ?? "a Revolut não listou as contas (conectada em Contas?)" };
+    return [{ id: null, rotulo: "Todas as contas da Revolut" }, ...l.map((a: { id: string; name: string; currency: string }) => ({ id: a.id, rotulo: `${a.name} (${a.currency})` }))];
+  }
+  const l = await json(fetch(`/api/btg/contas?accountId=${conta.id}`));
+  return Array.isArray(l) ? l.map((c: { accountId: string; numero?: string | null; number?: string | null }) => ({ id: c.accountId, rotulo: `Conta ${c.numero ?? c.number ?? c.accountId}` })) : { error: l.error ?? "o BTG não listou as contas (conectado em Contas?)" };
+}
+
+/**
+ * Sincronizar pela API: na 1ª vez escolhe a sub-conta; depois que a conta recebeu dados ela fica FIXA (puxar
+ * outra misturaria as duas) — aí não tem select: diz qual é e aponta pras sub-contas abaixo (dono, 2026-11-12:
+ * "esse select não está funcionando" — estava travado sem dizer por quê).
+ */
+function OpcaoApi({ conta, extracoes, erroLista, avisar, depois }: Opcao & { conta: ContaDoControle; extracoes: Extracao[] | null; erroLista: string | null }) {
+  const fixa = conta.configurada && !conta.nuncaImportada;
+  const [escolhidaManual, setEscolhida] = useState<string | null>(null);
+  const padrao = conta.configurada ? conta.extracao ?? "" : extracoes?.length === 1 ? extracoes[0].id ?? "" : "";
+  const escolhida = escolhidaManual ?? padrao;
   const [desde, setDesde] = useState(INICIO_DOS_FECHAMENTOS);
   const [rodando, setRodando] = useState(false);
-  const fixa = conta.configurada && !conta.nuncaImportada; // extração fixa depois que a conta recebeu dados
-
-  useEffect(() => {
-    let vivo = true;
-    const listar = async (): Promise<Extracao[] | { error: string }> => {
-      const empresaMin = empresa.toLowerCase();
-      if (conta.bank === "Mercury") {
-        const l = await json(fetch(`/api/sync/mercury/accounts?accountId=${conta.id}`));
-        if (!Array.isArray(l)) return { error: l.error ?? "a Mercury não listou as extrações" };
-        const daEmpresa = l.filter((x: { legalBusinessName?: string; entity?: string }) => {
-          const a = (x.legalBusinessName ?? "").toLowerCase(), b = (x.entity ?? "").toLowerCase();
-          return a.includes(empresaMin) || empresaMin.includes(a) || b.includes(empresaMin) || empresaMin.includes(b);
-        });
-        return (daEmpresa.length ? daEmpresa : l).map((x: { id: string; name: string; kind?: string; entity?: string }) => ({ id: x.id, rotulo: `${x.kind === "credit" ? "Crédito · " : ""}${x.name}`, extra: { entity: x.entity, kind: x.kind } }));
-      }
-      if (conta.bank === "Wise") {
-        const l = await json(fetch(`/api/sync/wise/accounts?accountId=${conta.id}`));
-        return Array.isArray(l) ? l.map((p: { id: string; label: string }) => ({ id: String(p.id), rotulo: p.label })) : { error: l.error ?? "a Wise não listou os perfis" };
-      }
-      if (conta.bank === "Revolut") {
-        const l = await json(fetch(`/api/revolut/accounts?accountId=${conta.id}`));
-        if (!Array.isArray(l)) return { error: l.error ?? "a Revolut não listou as contas (conectada em Contas?)" };
-        return [{ id: null, rotulo: "Todas as contas da Revolut" }, ...l.map((a: { id: string; name: string; currency: string }) => ({ id: a.id, rotulo: `${a.name} (${a.currency})` }))];
-      }
-      const l = await json(fetch(`/api/btg/contas?accountId=${conta.id}`));
-      return Array.isArray(l) ? l.map((c: { accountId: string; numero?: string | null; number?: string | null }) => ({ id: c.accountId, rotulo: `Conta ${c.numero ?? c.number ?? c.accountId}` })) : { error: l.error ?? "o BTG não listou as contas (conectado em Contas?)" };
-    };
-    listar().then((r) => {
-      if (!vivo) return;
-      if (Array.isArray(r)) {
-        setExtracoes(r);
-        setEscolhida((atual) => atual || (conta.configurada ? atual : r.length === 1 ? r[0].id ?? "" : conta.bank === "Revolut" ? "" : atual));
-      } else setErroLista(r.error);
-    });
-    return () => { vivo = false; };
-  }, [conta.id, conta.bank, conta.configurada, empresa]);
+  const nomeDaFixa = extracoes?.find((e) => (e.id ?? "") === (conta.extracao ?? ""))?.rotulo ?? (conta.extracao ? `sub-conta …${conta.extracao.slice(-6)}` : "todas as contas");
 
   async function sincronizar() {
     const ext = extracoes?.find((e) => (e.id ?? "") === escolhida);
@@ -189,7 +197,7 @@ function OpcaoApi({ conta, empresa, avisar, depois }: Opcao & { conta: ContaDoCo
     let corpo: Record<string, unknown>;
     let rota: string;
     if (conta.bank === "Mercury") {
-      if (!escolhida) return avisar(false, "escolha a extração da Mercury");
+      if (!escolhida) return avisar(false, "escolha a sub-conta da Mercury");
       rota = "/api/sync/mercury";
       corpo = { accountId: conta.id, mercuryAccountId: escolhida, from, entity: ext?.extra?.entity, kind: ext?.extra?.kind === "credit" ? "creditCard" : "account" };
     } else if (conta.bank === "Wise") {
@@ -214,18 +222,22 @@ function OpcaoApi({ conta, empresa, avisar, depois }: Opcao & { conta: ContaDoCo
   return (
     <div className={linha}>
       <span className="text-[13px] text-[#374151] w-full">Sincronizar pela API</span>
-      {erroLista ? <span className="text-[12px] text-red-600 w-full">{erroLista}</span> : (
-        <select className={`${caixa} flex-1 min-w-[180px]`} value={escolhida} disabled={fixa || !extracoes} onChange={(e) => setEscolhida(e.target.value)}
-          title={fixa ? "extração fixa desta conta — pra outra extração, use outra conta" : ""}>
-          {!extracoes ? <option>carregando as extrações…</option> : (
-            <>
-              {!conta.configurada && conta.bank !== "Revolut" && <option value="">escolha a extração…</option>}
-              {extracoes.map((e) => <option key={e.id ?? "todas"} value={e.id ?? ""}>{e.rotulo}</option>)}
-              {conta.configurada && conta.extracao && !extracoes.some((e) => e.id === conta.extracao) && <option value={conta.extracao}>extração configurada ({conta.extracao.slice(-6)})</option>}
-            </>
-          )}
-        </select>
-      )}
+      {erroLista ? <span className="text-[12px] text-red-600 w-full">{erroLista}</span>
+        : fixa ? (
+          <span className="flex-1 min-w-[180px] text-[13px] text-[#374151]">
+            puxa <strong className="font-medium">{extracoes ? nomeDaFixa : "…"}</strong>
+            <span className="block text-[11.5px] text-[#9ca3af]">fixa nesta conta — cada sub-conta do banco é uma conta aqui</span>
+          </span>
+        ) : (
+          <select className={`${caixa} flex-1 min-w-[180px]`} value={escolhida} disabled={!extracoes} onChange={(e) => setEscolhida(e.target.value)}>
+            {!extracoes ? <option>carregando as sub-contas…</option> : (
+              <>
+                {!conta.configurada && conta.bank !== "Revolut" && <option value="">escolha a sub-conta…</option>}
+                {extracoes.map((e) => <option key={e.id ?? "todas"} value={e.id ?? ""}>{e.rotulo}</option>)}
+              </>
+            )}
+          </select>
+        )}
       <span className="text-[12px] text-[#6b7280]">desde</span>
       <input type="month" className={caixa} value={desde} min="2020-01" onChange={(e) => setDesde(e.target.value)} />
       <button className={btn} onClick={sincronizar} disabled={rodando || !!erroLista}>{rodando ? "Sincronizando…" : "Sincronizar"}</button>
@@ -233,11 +245,20 @@ function OpcaoApi({ conta, empresa, avisar, depois }: Opcao & { conta: ContaDoCo
   );
 }
 
-/** Mercury: 1 conta por extração — plano antes de aplicar. */
-function OpcaoSepararExtracoes({ conta, avisar, depois }: Opcao & { conta: ContaDoControle }) {
+/**
+ * Mercury: TODAS as sub-contas que a chave enxerga (checking, savings, cartão), cada uma com o seu destino aqui:
+ * "esta conta", "conta própria" (outra conta daqui) ou "sem conta própria". As que faltam ganham conta pelo
+ * "Separar" (src/app/api/accounts/[id]/extracoes) — plano antes de aplicar, porque move lançamentos.
+ */
+function SubContasMercury({ conta, irmas, extracoes, avisar, depois }: Opcao & { conta: ContaDoControle; irmas: ContaDoControle[]; extracoes: Extracao[] | null }) {
   type Plano = { extracoes: Array<{ id: string; nome: string; tipo: string; lancamentos: number; fica: boolean; contaExistente: string | null }>; semExtracao: number; criadas?: Array<{ nome: string }>; duplicadas?: number; error?: string };
   const [plano, setPlano] = useState<Plano | null>(null);
   const [rodando, setRodando] = useState(false);
+  if (!extracoes || extracoes.length < 2 && !plano) return null;
+  const destino = (id: string | null) =>
+    id && id === conta.extracao ? "esta conta" : irmas.find((c) => c.extracao === id) ? "tem conta própria" : null;
+  const faltam = extracoes.filter((e) => !destino(e.id)).length;
+
   async function verPlano() {
     setRodando(true);
     setPlano(await json(fetch(`/api/accounts/${conta.id}/extracoes`)));
@@ -248,21 +269,38 @@ function OpcaoSepararExtracoes({ conta, avisar, depois }: Opcao & { conta: Conta
     const r = await json(fetch(`/api/accounts/${conta.id}/extracoes`, { method: "POST" }));
     setRodando(false);
     setPlano(r);
-    if (!r.error) { avisar(true, `Separado: ${r.criadas?.length ?? 0} conta(s) nova(s). Sincronize cada uma desde o mês que você quer cobrir.`); depois(); }
+    if (!r.error) { avisar(true, `Pronto: ${r.criadas?.length ?? 0} conta(s) nova(s), uma por sub-conta. Abra cada uma e sincronize desde o mês que você quer cobrir.`); depois(); }
   }
+
   return (
-    <div className={linha}>
-      <span className="text-[13px] text-[#374151] flex-1">Separar extrações <span className="text-[#9ca3af]">· 1 conta por extração da Mercury</span></span>
-      {!plano?.extracoes && <button className={btn} onClick={verPlano} disabled={rodando}>{rodando ? "Lendo a Mercury…" : "Ver plano"}</button>}
-      {plano?.error && <span className="text-[12px] text-red-600 w-full">{plano.error}</span>}
+    <div className="py-2.5 border-t border-[#f3f4f6] text-[13px]">
+      <div className="text-[#374151] mb-1">Sub-contas desta chave na Mercury</div>
+      <div className="space-y-0.5">
+        {extracoes.map((e) => {
+          const d = destino(e.id);
+          return (
+            <div key={e.id ?? "x"} className="flex justify-between gap-3 text-[12.5px]">
+              <span className="text-[#4b5563]">{e.rotulo}</span>
+              <span className={d ? "text-emerald-700" : "text-amber-700"}>{d ?? "sem conta própria"}</span>
+            </div>
+          );
+        })}
+      </div>
+      {faltam > 0 && !plano && (
+        <div className="mt-2 flex items-center gap-2">
+          <span className="flex-1 text-[12px] text-[#6b7280]">Cada sub-conta vira uma conta aqui, com os lançamentos dela (os que já entraram misturados nesta conta são movidos).</span>
+          <button className={btn} onClick={verPlano} disabled={rodando}>{rodando ? "Lendo a Mercury…" : `Criar conta para ${faltam === 1 ? "a que falta" : `as ${faltam} que faltam`}`}</button>
+        </div>
+      )}
+      {plano?.error && <div className="mt-2 text-[12px] text-red-600">{plano.error}</div>}
       {plano?.extracoes && (
-        <div className="w-full text-[12.5px] space-y-1">
+        <div className="mt-2 rounded-lg bg-[#f8fafc] px-3 py-2 text-[12.5px] space-y-1">
+          <div className="text-[#6b7280]">Plano (nada mudou ainda):</div>
           {plano.extracoes.map((e) => (
-            <div key={e.id} className="flex justify-between gap-2"><span className="text-[#374151]">{e.nome} <span className="text-[#9ca3af]">· {e.tipo}</span></span><span className="text-[#6b7280] tabular-nums">{e.lancamentos} lanç. → {e.fica ? "fica nesta conta" : e.contaExistente ?? "conta nova"}</span></div>
+            <div key={e.id} className="flex justify-between gap-2"><span className="text-[#374151]">{e.nome}</span><span className="text-[#6b7280] tabular-nums">{e.lancamentos} lanç. → {e.fica ? "ficam nesta conta" : e.contaExistente ?? "conta nova"}</span></div>
           ))}
-          {plano.semExtracao > 0 && <div className="text-amber-700">{plano.semExtracao} lançamento(s) não aparecem em nenhuma extração — ficam nesta conta.</div>}
-          {!plano.criadas && plano.extracoes.length > 1 && <button className={btn} onClick={separar} disabled={rodando}>{rodando ? "Separando…" : `Separar em ${plano.extracoes.length} contas`}</button>}
-          {!plano.criadas && plano.extracoes.length === 1 && <div className="text-[#6b7280]">A chave tem uma extração só — nada a separar.</div>}
+          {plano.semExtracao > 0 && <div className="text-amber-700">{plano.semExtracao} lançamento(s) não aparecem em nenhuma sub-conta — ficam nesta conta.</div>}
+          {!plano.criadas && <button className={btn} onClick={separar} disabled={rodando}>{rodando ? "Separando…" : "Confirmar: criar as contas e mover os lançamentos"}</button>}
         </div>
       )}
     </div>
