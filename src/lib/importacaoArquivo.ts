@@ -1,12 +1,12 @@
 import { prisma } from "./db";
 
 /**
- * Arquivo SEM período dentro (planilha Husky, Dolafy, CSV genérico) — decisão do dono em 2026-11-12:
+ * Arquivo SEM período dentro (planilha Husky, Dolafy, CSV do Payoneer, CSV genérico) — decisão do dono em 2026-11-12:
  * "perguntar o período". A rota importa os lançamentos, grava o histórico (ImportLog) e devolve o período
  * SUGERIDO (1ª e última data lidas no arquivo); a tela pergunta "este arquivo cobre de … a …?" e só com a
  * confirmação grava a cobertura (POST /api/coverage/periodo). Sem confirmação, o mês não conta como importado.
  */
-export const KINDS_DE_ARQUIVO = ["husky", "dolafy", "csv"] as const;
+export const KINDS_DE_ARQUIVO = ["husky", "dolafy", "csv", "payoneer"] as const;
 export type KindDeArquivo = (typeof KINDS_DE_ARQUIVO)[number];
 
 const dia = (d: Date) => d.toISOString().slice(0, 10);

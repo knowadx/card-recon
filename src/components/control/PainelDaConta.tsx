@@ -13,7 +13,7 @@ import { textoDoArquivo } from "@/lib/textoDoArquivo";
  *    Mercury: padrão = TODAS as sub-contas numa conta só (checking, savings, cartão), com a lista de quais são;
  *  - OFX (BTG, XP, Itaú). O CSV da Revolut (código Facebk e cartão) é do Fechamento Meta, passo 2 — aqui só
  *    o link pra lá (decisão do dono em 2026-11-12);
- *  - arquivo sem período (planilha Husky, Dolafy, CSV genérico): importa e PERGUNTA o período que o arquivo
+ *  - arquivo sem período (planilha Husky, Dolafy, CSV do Payoneer, CSV genérico): importa e PERGUNTA o período que o arquivo
  *    cobre, já preenchido com a 1ª e a última data lidas — só a confirmação grava a cobertura.
  */
 
@@ -97,7 +97,7 @@ export function PainelDaConta({ conta, irmas, empresa, mes, onFechar, onImportou
     listarExtracoes(conta, empresa).then((r) => { if (!vivo) return; if (Array.isArray(r)) setExtracoes(r); else setErroLista(r.error); });
     return () => { vivo = false; };
   }, [conta, empresa]);
-  const arquivo = conta.bank === "Husky" ? "husky" : conta.bank === "Dolafy" ? "dolafy" : !temApi && !temOfx ? "csv" : null;
+  const arquivo = conta.bank === "Husky" ? "husky" : conta.bank === "Dolafy" ? "dolafy" : conta.bank === "Payoneer" ? "payoneer" : !temApi && !temOfx ? "csv" : null;
 
   return (
     <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50 p-4" onClick={onFechar}>
@@ -312,12 +312,13 @@ function OpcaoOfx({ conta, avisar, depois }: Opcao & { conta: ContaDoControle })
 }
 
 /** Arquivo sem período dentro: importa, depois pergunta "cobre de … a …?" (só a confirmação grava a cobertura). */
-function OpcaoArquivo({ conta, kind, avisar, depois }: Opcao & { conta: ContaDoControle; kind: "husky" | "dolafy" | "csv" }) {
+function OpcaoArquivo({ conta, kind, avisar, depois }: Opcao & { conta: ContaDoControle; kind: "husky" | "dolafy" | "payoneer" | "csv" }) {
   const [ocupado, setOcupado] = useState(false);
   const [pendente, setPendente] = useState<{ importLogId: string; de: string; ate: string } | null>(null);
   const cfg = {
     husky: { titulo: "Planilha da Husky (XLS)", rota: "/api/transactions/import/husky", accept: ".xls,.xlsx" },
     dolafy: { titulo: "Extrato da Dolafy (CSV)", rota: "/api/transactions/import/dolafy", accept: ".csv,text/csv" },
+    payoneer: { titulo: "Extrato do Payoneer (CSV)", rota: "/api/transactions/import/payoneer", accept: ".csv,text/csv" },
     csv: { titulo: "Planilha CSV (data, descrição, valor)", rota: "/api/transactions/import", accept: ".csv,text/csv" },
   }[kind];
   async function importar(f: File) {
@@ -328,7 +329,7 @@ function OpcaoArquivo({ conta, kind, avisar, depois }: Opcao & { conta: ContaDoC
     const r = await json(fetch(cfg.rota, { method: "POST", body: fd }));
     setOcupado(false);
     if (r.error) return avisar(false, `${cfg.titulo}: ${r.error}`);
-    avisar(true, `${f.name}: ${r.imported ?? 0} lançamento(s) novo(s)${r.skipped != null ? ` · ${r.skipped} já existiam` : ""}. Confirme o período que o arquivo cobre.`);
+    avisar(true, `${f.name}: ${r.imported ?? 0} lançamento(s) novo(s)${r.skipped != null ? ` · ${r.skipped} já existiam` : ""}${r.naoConcluidos ? ` · ${r.naoConcluidos} não concluído(s) ficaram de fora` : ""}. Confirme o período que o arquivo cobre.`);
     if (r.importLogId && r.periodo) setPendente({ importLogId: r.importLogId, de: r.periodo.de, ate: r.periodo.ate });
     depois();
   }

@@ -13,7 +13,7 @@ type Company = { id: string; name: string; color: string; cnpj?: string | null }
 type Account = { id: string; name: string; bank: string; currency: string; company: Company; syncConfig?: string | null };
 type ApiStatus = { ok: boolean | null; label: string };
 
-const BANKS = ["Revolut", "Husky", "Wise", "Mercury", "Dolafy", "BTG", "XP", "Itaú"];
+const BANKS = ["Revolut", "Husky", "Wise", "Mercury", "Dolafy", "Payoneer", "BTG", "XP", "Itaú"];
 const CURRENCIES = ["USD", "BRL", "EUR", "GBP", "ARS", "CLP", "MXN", "COP"];
 const EMPTY = { name: "", bank: "Mercury", currency: "USD", companyId: "", apiToken: "" };
 
@@ -26,6 +26,7 @@ const BANK_COLORS: Record<string, string> = {
   BTG: "bg-sky-50 text-sky-700",
   XP: "bg-zinc-100 text-zinc-800",
   "Itaú": "bg-amber-50 text-amber-800",
+  Payoneer: "bg-orange-50 text-orange-800",
 };
 
 export default function AccountsPage() {
