@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/transactions/import/payoneer (form: file, accountId) — extrato completo do Payoneer (com Transaction
  * ID) numa conta Payoneer (src/lib/payoneer.ts). Uma linha por lançamento concluído: reference
- * payoneer:<Transaction ID> (reimportar não duplica); a moeda é a da linha; o código FACEBK (em qualquer parte da
+ * payoneer:<Transaction ID> (reimportar não duplica); extrato de moeda diferente da conta = recusado; o código FACEBK (em qualquer parte da
  * descrição) vira cobrança Meta. Devolve as quebras na sequência do saldo (falta lançamento no arquivo). O arquivo
  * não diz o período → devolve o sugerido e a tela pergunta (src/lib/importacaoArquivo.ts). Administradores.
  */
@@ -28,6 +28,12 @@ export const POST = guarded(async (request: Request) => {
 
   const { extrato, erro } = lerPayoneer(await file.text());
   if (!extrato) throw new RequestError(400, erro ?? "arquivo inválido");
+  // uma conta por moeda (decisão do dono em 2026-11-12: o Payoneer exporta USD e EUR em extratos separados e o
+  // "importado até…" é por conta) → extrato de outra moeda é recusado inteiro, antes de gravar qualquer coisa
+  const outras = [...new Set(extrato.lancamentos.map((l) => l.moeda).filter((m) => m !== account.currency))];
+  if (outras.length) {
+    throw new RequestError(400, `o extrato tem lançamentos em ${outras.join(", ")} e a conta ${account.name} é em ${account.currency} — conta errada? (cada moeda do Payoneer é uma conta aqui)`);
+  }
 
   const dados = extrato.lancamentos.map((l) => ({
     accountId,

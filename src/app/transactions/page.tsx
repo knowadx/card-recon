@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { Upload, Plus, X, FileText, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
 import { uploadDocument } from "@/lib/uploadClient";
+import { nomeDaConta } from "@/lib/nomeDaConta";
 
 type Company = { id: string; name: string; color: string };
 type Account = { id: string; name: string; bank: string; currency: string; company: Company };
@@ -573,12 +574,12 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
                 <Select value={colAccount} onValueChange={(v) => setColAccount(v ?? "all")}>
                   <SelectTrigger className="h-7 text-[12px] border-[#e8eaed] bg-white rounded-lg w-full">
                     <span className="truncate text-left flex-1 text-[12px]">
-                      {colAccount === "all" ? <span className="text-[#9ca3af]">All</span> : ((colCompany === "all" ? accounts : accounts.filter(a => a.company.id === colCompany)).find(a => a.id === colAccount)?.name ?? "All")}
+                      {colAccount === "all" ? <span className="text-[#9ca3af]">All</span> : (() => { const a = accounts.find((x) => x.id === colAccount); return a ? nomeDaConta(a, accounts) : "All"; })()}
                     </span>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All</SelectItem>
-                    {(colCompany === "all" ? accounts : accounts.filter(a => a.company.id === colCompany)).map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                    {(colCompany === "all" ? accounts : accounts.filter(a => a.company.id === colCompany)).map(a => <SelectItem key={a.id} value={a.id}>{nomeDaConta(a, accounts)}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </th>
@@ -727,7 +728,7 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
                   </div>
                 </td>
                 <td className="px-4 py-4 text-[13px] text-[#6b7280] whitespace-nowrap cursor-pointer" onClick={() => openTx(tx)}>
-                  {tx.account.bank}
+                  {nomeDaConta(tx.account, accounts.length ? accounts : [tx.account])}
                 </td>
                 <td className="px-2 py-4 text-center cursor-pointer" onClick={() => openTx(tx)}>
                   {!tx.isMetaCharge
@@ -811,7 +812,7 @@ const allVisibleSelected = visibleTransactions.length > 0 && visibleTransactions
                 <div className="flex items-center gap-3 mt-2">
                   <span className="text-[13px] text-[#9ca3af]">{format(new Date(selected.date), "dd MMM yyyy")}</span>
                   <span className="text-[#e8eaed]">·</span>
-                  <span className="text-[13px] text-[#9ca3af]">{selected.account.bank} · {selected.account.name}</span>
+                  <span className="text-[13px] text-[#9ca3af]">{selected.account.bank} · {nomeDaConta(selected.account, accounts.length ? accounts : [selected.account])}</span>
                 </div>
                 <p className={`text-3xl font-bold tabular-nums mt-3 ${selected.amount >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
                   {selected.amount >= 0 ? "+" : "−"}{fmt(Math.abs(selected.amount), selected.currency)}

@@ -19,7 +19,8 @@ const L = {
   base: "11/01/2026,08:00:00,UTC,9000000001,Payment from Cliente Exemplo,1000.00,,USD,,,Completed,1000.00,,,Cliente Exemplo,USD balance,",
   eur: "11/05/2026,12:00:00,UTC,9000000010,Card charge (FACEBK *CCCC3333D2),,78.00,EUR,,,Completed,922.00,,,EUR balance,,",
 };
-const CSV = [CAB, L.pend, L.meta, L.pag, L.rec, L.eur, L.base].join("\n");
+const CSV = [CAB, L.pend, L.meta, L.pag, L.rec, L.eur, L.base].join("\n"); // leitura: USD e EUR juntos
+const CSV_USD = [CAB, L.pend, L.meta, L.pag, L.rec, L.base].join("\n"); // o extrato de UMA moeda, como o Payoneer exporta
 
 let s: Awaited<ReturnType<typeof seedTwoGroups>>;
 let admin: { id: string; email: string };
@@ -32,7 +33,7 @@ beforeEach(async () => {
   conta = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "Payoneer", currency: "USD", name: "Payoneer Pixel" } });
 });
 
-const enviar = (accountId: string, texto = CSV) => {
+const enviar = (accountId: string, texto = CSV_USD) => {
   const fd = new FormData();
   fd.append("file", new File([texto], "payoneer.csv"));
   fd.append("accountId", accountId);
@@ -71,15 +72,27 @@ describe("leitura do extrato do Payoneer", () => {
 });
 
 describe("POST /api/transactions/import/payoneer", () => {
-  it("importa, marca a cobrança Meta (FACEBK na loja ou na descrição), reimportar não duplica, sugere o período e a confirmação cobre", async () => {
+  it("importa, marca a cobrança Meta (FACEBK na loja), reimportar não duplica, sugere o período e a confirmação cobre", async () => {
     loginAs(admin);
     const r = await (await enviar(conta.id)).json();
-    expect(r).toMatchObject({ imported: 5, skipped: 0, naoConcluidos: 1, quebrasDeSaldo: 0, periodo: { de: "2026-11-01", ate: "2026-11-08" } });
-    expect((await (await enviar(conta.id)).json())).toMatchObject({ imported: 0, skipped: 5 });
-    const meta = await prisma.transaction.findMany({ where: { accountId: conta.id, isMetaCharge: true }, select: { metaRef: true, reference: true }, orderBy: { metaRef: "asc" } });
-    expect(meta).toEqual([{ metaRef: "AAAA1111B2", reference: "payoneer:9000000004" }, { metaRef: "CCCC3333D2", reference: "payoneer:9000000010" }]);
+    expect(r).toMatchObject({ imported: 4, skipped: 0, naoConcluidos: 1, quebrasDeSaldo: 0, periodo: { de: "2026-11-01", ate: "2026-11-08" } });
+    expect((await (await enviar(conta.id)).json())).toMatchObject({ imported: 0, skipped: 4 });
+    const meta = await prisma.transaction.findMany({ where: { accountId: conta.id, isMetaCharge: true }, select: { metaRef: true, reference: true } });
+    expect(meta).toEqual([{ metaRef: "AAAA1111B2", reference: "payoneer:9000000004" }]);
     expect((await periodo.POST(req("/api/coverage/periodo", { method: "POST", json: { accountId: conta.id, importLogId: r.importLogId, de: "2026-11-01", ate: "2026-11-08" } }))).status).toBe(200);
     expect(await prisma.importCoverage.findMany({ where: { accountId: conta.id }, select: { source: true } })).toEqual([{ source: "arquivo" }]);
+  });
+
+  it("uma conta por moeda: extrato com outra moeda é recusado inteiro (nada gravado); o EUR entra na conta EUR", async () => {
+    loginAs(admin);
+    const r = await enviar(conta.id, CSV); // tem uma linha EUR; a conta é USD
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toMatch(/lançamentos em EUR e a conta Payoneer Pixel é em USD — conta errada/);
+    expect(await prisma.transaction.count({ where: { reference: { startsWith: "payoneer:" } } })).toBe(0);
+    const eur = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "Payoneer", currency: "EUR", name: "Payoneer Pixel EUR" } });
+    const ok = await (await enviar(eur.id, [CAB, L.eur].join("\n"))).json();
+    expect(ok).toMatchObject({ imported: 1 });
+    expect(await prisma.transaction.findFirst({ where: { accountId: eur.id }, select: { metaRef: true, currency: true } })).toEqual({ metaRef: "CCCC3333D2", currency: "EUR" });
   });
 
   it("conta que não é Payoneer = 400; membro = 403; outro grupo = 404 — nada gravado", async () => {
