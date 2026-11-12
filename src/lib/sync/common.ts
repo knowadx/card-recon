@@ -35,6 +35,9 @@ export function extracaoTrocada(atual: Record<string, unknown>, nova: Record<str
  * conta do BTG, a conta do Revolut (ou todas), o perfil da Wise. Depois que a conta recebeu lançamentos,
  * puxar OUTRA extração nela misturaria as duas e a cobertura (src/lib/cobertura.ts) mentiria → recusa.
  * Também recusa a extração que já é de outra conta (duplicaria). Devolve o motivo, ou null se pode.
+ * "Todas" (Revolut null, Mercury "todas" — 2026-11-12) é o conjunto inteiro: AMPLIAR pra todas numa conta
+ * com dados pode (ela passa a conter todas); estreitar ou trocar não. Se sobrepõe a qualquer outra conta
+ * do mesmo banco na mesma empresa.
  */
 export async function problemaDeExtracao(opts: {
   account: { id: string; name: string; bank: string; companyId: string; syncConfig: string | null };
@@ -43,17 +46,20 @@ export async function problemaDeExtracao(opts: {
   rotulo: (v: string | null) => string;
 }): Promise<string | null> {
   const { account, chave, pedida, rotulo } = opts;
+  // "todas as sub-contas": Revolut grava null, Mercury grava "todas" (MERCURY_TODAS)
+  const TODAS: string | null | undefined = chave === "revolutAccountId" ? null : chave === "mercuryAccountId" ? "todas" : undefined;
   let config: Record<string, unknown> = {};
   try { config = account.syncConfig ? JSON.parse(account.syncConfig) : {}; } catch { /* config ilegível = sem extração salva */ }
   if (chave in config) {
     const atual = (config[chave] as string | null) ?? null;
-    if (atual !== pedida && (await prisma.transaction.findFirst({ where: { accountId: account.id }, select: { id: true } }))) {
+    // ampliar pra "todas" pode (a conta passa a conter todas); trocar por outra, ou estreitar, misturaria
+    if (atual !== pedida && pedida !== TODAS && (await prisma.transaction.findFirst({ where: { accountId: account.id }, select: { id: true } }))) {
       return `a conta ${account.name} é da extração ${rotulo(atual)} — puxar ${rotulo(pedida)} nela misturaria as duas. Crie uma conta para essa extração.`;
     }
   }
   // a mesma extração (ou, no Revolut, uma que se sobrepõe: "todas" × qualquer uma) já é de outra conta
   const outras = await prisma.account.findMany({
-    where: { id: { not: account.id }, bank: account.bank, syncConfig: { not: null }, ...(chave === "revolutAccountId" ? { companyId: account.companyId } : {}) },
+    where: { id: { not: account.id }, bank: account.bank, syncConfig: { not: null }, ...(TODAS !== undefined ? { companyId: account.companyId } : {}) },
     select: { name: true, syncConfig: true },
   });
   for (const o of outras) {
@@ -61,7 +67,7 @@ export async function problemaDeExtracao(opts: {
     try { c = JSON.parse(o.syncConfig!); } catch { continue; }
     if (!(chave in c)) continue;
     const dela = (c[chave] as string | null) ?? null;
-    const sobrepoe = chave === "revolutAccountId" ? dela === pedida || dela === null || pedida === null : dela === pedida;
+    const sobrepoe = TODAS !== undefined ? dela === pedida || dela === TODAS || pedida === TODAS : dela === pedida;
     if (sobrepoe) return `a extração ${rotulo(pedida)} já é puxada na conta ${o.name} — puxar aqui também duplicaria os lançamentos`;
   }
   return null;

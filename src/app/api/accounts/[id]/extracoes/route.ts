@@ -3,7 +3,7 @@ import { AccessError, RequestError, assertAccount, guarded, requireUser, type Ap
 import { isManager, isSuperadmin } from "@/lib/auth";
 import { NO_OWN_TOKEN_MESSAGE, resolveBankToken } from "@/lib/credentials";
 import { listarExtracoesMercury, type ExtracaoMercury } from "@/lib/mercury";
-import { fetchAllTransactions } from "@/lib/sync/mercury";
+import { MERCURY_TODAS, fetchAllTransactions } from "@/lib/sync/mercury";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -32,6 +32,7 @@ async function planejar(user: AppUser, id: string) {
   const account = await prisma.account.findUniqueOrThrow({ where: { id }, include: { company: true } });
   if (account.bank !== "Mercury") throw new RequestError(400, "só contas Mercury têm várias extrações");
   const config = configDe(account.syncConfig);
+  if (config.mercuryAccountId === MERCURY_TODAS) throw new RequestError(409, "esta conta já puxa todas as sub-contas da Mercury — não há o que separar");
   const entity = (config.mercuryEntity as string | undefined) ?? null;
   const key = await resolveBankToken("mercury", account, { allowGlobal: isSuperadmin(user.role), mercuryEntity: entity });
   if (!key) throw new RequestError(400, NO_OWN_TOKEN_MESSAGE);

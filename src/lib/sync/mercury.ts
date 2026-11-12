@@ -6,6 +6,14 @@ import { getSyncPeriod } from "@/lib/settings";
 import { assertAccount, type AppUser } from "@/lib/access";
 import { problemaDeExtracao, type SyncOutcome } from "./common";
 import { inicioDoDia, registrarCobertura } from "@/lib/cobertura";
+import { listarExtracoesMercury } from "@/lib/mercury";
+
+/**
+ * Mercury "todas": a conta daqui puxa TODAS as sub-contas da chave (checking, savings, cartão) — decisão do
+ * dono em 2026-11-12 ("não deveria ter que fazer três cadastros, a Mercury já poderia sincronizar tudo").
+ * A cobertura só é gravada se TODAS as sub-contas foram lidas até o fim (uma falha = nada conta).
+ */
+export const MERCURY_TODAS = "todas";
 
 const MERCURY_BASE = "https://api.mercury.com/api/v1";
 
@@ -86,7 +94,9 @@ export async function fetchAllTransactions(key: string, mercuryAccountId: string
  *  - pagina por start_after; pula failed/cancelled e refs já gravadas;
  *  - grava cartão (últimos 4), cobrança Meta (isMetaCharge/metaRef) e a operação da conta;
  *  - saveSyncConfig: a rota lembra a conta escolhida no banco; o sync/all só LÊ o que está salvo;
- *  - uma conta = UMA extração (sub-conta) da Mercury: outra extração numa conta com dados = 409.
+ *  - uma conta = UMA extração da Mercury: uma sub-conta, ou "todas" (MERCURY_TODAS) — outra extração numa
+ *    conta com dados = 409 (ampliar pra "todas" pode: a conta passa a conter todas);
+ *  - "todas" exige o token da PRÓPRIA conta (uma chave global enxergaria sub-contas de outras empresas).
  * Erro da API do Mercury: lança (a rota responde 500; o sync/all reporta na conta).
  */
 export async function syncMercuryAccount(opts: {
@@ -118,10 +128,17 @@ export async function syncMercuryAccount(opts: {
   const end = to || new Date().toISOString().slice(0, 10); // sempre até HOJE (o "até" do período não trava)
   const start = from || period.from;
 
-  const [transactions, cardMap] = await Promise.all([
-    fetchAllTransactions(key, mercuryAccountId, start, end),
-    fetchCardMap(key, mercuryAccountId),
-  ]);
+  // quais sub-contas ler: a escolhida, ou TODAS as da chave da própria conta
+  let subContas = [mercuryAccountId];
+  if (mercuryAccountId === MERCURY_TODAS) {
+    if (!account.apiToken) return { status: 400, body: { error: "puxar todas as sub-contas exige o token da própria conta — cadastre em Contas" } };
+    subContas = (await listarExtracoesMercury(account.name, account.apiToken)).map((e) => e.id);
+    if (!subContas.length) return { status: 502, body: { error: "a Mercury não listou as sub-contas desta chave — token vencido?" } };
+  }
+  // uma sub-conta que falhar derruba o sync inteiro (lança): nada grava cobertura pela metade
+  const lidas = await Promise.all(subContas.map((id) => Promise.all([fetchAllTransactions(key, id, start, end), fetchCardMap(key, id)])));
+  const transactions = lidas.flatMap(([txs]) => txs);
+  const cardMap = new Map(lidas.flatMap(([, mapa]) => [...mapa]));
 
   const existing = await prisma.transaction.findMany({
     where: { accountId, reference: { not: null } },
