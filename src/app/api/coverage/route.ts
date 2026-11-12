@@ -85,8 +85,6 @@ export const GET = guarded(async () => {
       fonte: ult?.source ?? (a.syncConfig ? "api" : null),
       nuncaImportada: !primeiroDado,
       cobertaAte: cobertaAte(trechos)?.toISOString() ?? null,
-      // trechos importados (mesclados) dentro da janela — a linha do tempo da tela desenha estes
-      trechos: trechos.filter((t) => t.ate > desde).map((t) => ({ de: (t.de < desde ? desde : t.de).toISOString(), ate: t.ate.toISOString() })),
       ultimaImportacao: ult ? { quando: ult.createdAt.toISOString(), quem: ult.user?.name || ult.user?.email || null, fonte: ult.source, arquivo: ult.importLog?.filename ?? null } : null,
       meses,
     };

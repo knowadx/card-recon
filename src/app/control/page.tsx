@@ -1,34 +1,34 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { resumoDoMes as resumoDaEmpresa, type EstadoImp } from "@/lib/mesFechado";
 
 /**
- * Controle de importação — dois checkpoints SEPARADOS e só calculados (decisão do dono em 2026-10-30),
- * um por aba (2026-11-09: "a guia ficou muito poluída"):
- *  - Importação: linha do tempo por conta — verde onde a importação cobriu, listrado onde há lançamento
- *    sem importação registrada, vazio onde falta. Clique num mês pra ver quais importações o cobrem.
- *  - Categorização: % dos lançamentos do mês com categoria gerencial.
- * Empresas sem dado somem; contas sem nenhum dado ficam numa linha recolhida no fim.
+ * Controle de importação — MÊS A MÊS num quadro só (escolha do dono em 2026-11-12, sobre a proposta A:
+ * "assim ficou melhor"; antes: grade com ícones "poluída" e linha do tempo "não dá pra saber o que foi
+ * importado, se o mês tá fechado, quantas categorizações estão pendentes"). Faixa de meses no topo, os
+ * números do mês escolhido e uma linha por empresa, em palavras e números:
+ *  - importação: quantas contas da empresa foram importadas do 1º ao último dia do mês;
+ *  - categorização: quantos lançamentos do mês estão sem categoria;
+ *  - FECHADO = as duas coisas completas (todas as contas importadas E nada sem categoria).
+ * A empresa abre conta a conta; clique numa conta mostra quais importações cobrem o mês.
  */
 
-type EstadoImp = "completo" | "parcial" | "sem_comprovacao" | "faltando" | "antes";
 type Mes = { imp: EstadoImp; pedacos?: Array<{ de: string; ate: string }>; total: number; semCategoria: number };
 type Conta = {
   id: string; name: string; bank: string; companyId: string; fonte: string | null; nuncaImportada: boolean; cobertaAte: string | null;
   ultimaImportacao: { quando: string; quem: string | null; fonte: string; arquivo: string | null } | null;
-  trechos: Array<{ de: string; ate: string }>;
   meses: Record<string, Mes>;
 };
 type Dados = { months: string[]; companies: Array<{ id: string; name: string; color: string }>; accounts: Conta[] };
 type Importacao = { de: string; ate: string; fonte: string; quando: string; quem: string | null; arquivo: string | null };
 
 const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+const MESES_LONGOS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const br = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
 /** Último dia coberto de um trecho (o fim é exclusivo). */
 const ultimoDia = (ateIso: string) => br(new Date(new Date(ateIso).getTime() - 1).toISOString());
-const inicioMes = (m: string) => Date.UTC(+m.slice(0, 4), +m.slice(5, 7) - 1, 1);
-const fimMes = (m: string) => Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 1);
-const LISTRADO = "repeating-linear-gradient(135deg, #fcd34d 0 3px, #fef3c7 3px 6px)";
+const n = (x: number) => x.toLocaleString("pt-BR");
 
 function dicaImp(m: Mes) {
   switch (m.imp) {
@@ -43,19 +43,17 @@ function dicaImp(m: Mes) {
 export default function ControlPage() {
   const [dados, setDados] = useState<Dados | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const [aba, setAba] = useState<"importacao" | "categorizacao">("importacao");
-  const [recolhidas, setRecolhidas] = useState<Record<string, boolean>>({});
+  const [abertas, setAbertas] = useState<Record<string, boolean>>({});
   const [vaziasAbertas, setVaziasAbertas] = useState(false);
   const [detalhe, setDetalhe] = useState<{ conta: Conta; mes: string; importacoes: Importacao[] | null } | null>(null);
   const [desde, setDesde] = useState("");
   const [sincronizando, setSincronizando] = useState(false);
   const [resultadoSync, setResultadoSync] = useState<string | null>(null);
-  const [agora, setAgora] = useState(0); // "hoje" da linha do tempo — lido ao carregar (render não lê relógio)
+  const [mesEscolhido, setMesEscolhido] = useState<string | null>(null);
 
   const aplicar = useCallback((ok: boolean, d: Dados & { error?: string }) => {
     if (!ok) { setErro(d.error ?? "erro ao carregar"); return; }
     setDados(d);
-    setAgora(Date.now());
     setDesde((prev) => prev || d.months[d.months.length - 7]);
   }, []);
   const buscar = () => fetch("/api/coverage").then((r) => r.json().then((d) => ({ ok: r.ok, d })));
@@ -96,49 +94,44 @@ export default function ControlPage() {
     );
   }
 
-  // janela da linha do tempo: do 1º dia do mês mais antigo ao fim do mês atual
-  const ini = inicioMes(dados.months[0]);
-  const fim = fimMes(dados.months[dados.months.length - 1]);
-  const pos = (t: number) => Math.min(100, Math.max(0, ((t - ini) / (fim - ini)) * 100));
-  const hoje = pos(agora);
-
-  const comDado = dados.accounts.filter((c) => !c.nuncaImportada);
-  const vazias = dados.accounts.filter((c) => c.nuncaImportada);
-  const nomeEmpresa = (id: string) => dados.companies.find((e) => e.id === id)?.name ?? "";
+  const meses = dados.months;
+  const atual = meses[meses.length - 1];
+  // empresas com algum dado; as contas sem nenhum dado de empresas sem dado vão pra linha recolhida no fim
   const empresas = dados.companies
-    .map((e) => ({ ...e, contas: comDado.filter((c) => c.companyId === e.id && (aba === "importacao" || dados.months.some((m) => c.meses[m].total > 0))) }))
-    .filter((e) => e.contas.length > 0);
+    .map((e) => ({ ...e, contas: dados.accounts.filter((c) => c.companyId === e.id) }))
+    .filter((e) => e.contas.some((c) => !c.nuncaImportada));
+  const vazias = dados.accounts.filter((c) => c.nuncaImportada && !empresas.some((e) => e.id === c.companyId));
+  const nomeEmpresa = (id: string) => dados.companies.find((e) => e.id === id)?.name ?? "";
+  const resumoDoMes = (m: string) => empresas
+    .map((e) => ({ empresa: e, r: resumoDaEmpresa(e.contas, meses, m) }))
+    .filter(({ r }) => !r.vazio || r.total > 0);
+  // meses na faixa: do 1º com alguma empresa ativa até o atual
+  const primeiro = meses.findIndex((m) => resumoDoMes(m).length > 0);
+  const faixa = primeiro < 0 ? [atual] : meses.slice(primeiro);
+  // padrão: o último mês que já acabou
+  const mes = mesEscolhido && faixa.includes(mesEscolhido) ? mesEscolhido : faixa.length > 1 ? faixa[faixa.length - 2] : atual;
+  const nomeMes = `${MESES_LONGOS[+mes.slice(5, 7) - 1]} ${mes.slice(0, 4)}`;
+  const linhas = resumoDoMes(mes).sort((a, b) => Number(a.r.fechado) - Number(b.r.fechado) || b.r.pend - a.r.pend || a.empresa.name.localeCompare(b.empresa.name));
+  const fechadas = linhas.filter((l) => l.r.fechado).length;
+  const contasNoMes = linhas.reduce((s, l) => s + l.r.contas, 0);
+  const importadasNoMes = linhas.reduce((s, l) => s + l.r.importadas, 0);
+  const pendNoMes = linhas.reduce((s, l) => s + l.r.pend, 0);
+  const abreviado = MESES[+mes.slice(5, 7) - 1].toLowerCase();
 
-  const colunas = "grid grid-cols-[minmax(150px,260px)_1fr] items-center";
   const btn = "h-8 px-3 rounded-lg border border-[#e8eaed] bg-white text-[13px] font-medium text-[#374151] hover:bg-[#f9fafb] disabled:opacity-50";
+  const grade = "grid grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_minmax(0,1fr)_90px] items-center gap-3";
+  const selo = (fechado: boolean) => fechado
+    ? <span className="rounded-md bg-emerald-50 text-emerald-700 font-medium px-2.5 py-0.5 text-[12px]">Fechado</span>
+    : <span className="rounded-md bg-amber-50 text-amber-700 font-medium px-2.5 py-0.5 text-[12px]">Aberto</span>;
 
-  const trilha = (c: Conta) => {
-    const comeco = dados!.months.find((m) => c.meses[m].imp !== "antes");
-    const desdeDado = comeco ? pos(inicioMes(comeco)) : 100;
-    return (
-      <div
-        className="relative h-6 cursor-pointer"
-        onClick={(e) => {
-          const r = e.currentTarget.getBoundingClientRect();
-          const t = ini + ((e.clientX - r.left) / r.width) * (fim - ini);
-          const mes = dados!.months.find((m) => t >= inicioMes(m) && t < fimMes(m));
-          if (mes && c.meses[mes].imp !== "antes") abrirDetalhe(c, mes);
-        }}
-      >
-        {/* trilho (o que falta) do 1º dado da conta até hoje — dia que ainda não aconteceu não "falta" */}
-        {hoje > desdeDado && <div className="absolute top-2 h-2 rounded-full bg-[#e5e7eb]" style={{ left: `${desdeDado}%`, width: `${hoje - desdeDado}%` }} />}
-        {/* meses com lançamento mas sem importação registrada */}
-        {dados!.months.filter((m) => c.meses[m].imp === "sem_comprovacao").map((m) => (
-          <div key={m} className="absolute top-2 h-2" style={{ left: `${pos(inicioMes(m))}%`, width: `${Math.min(pos(fimMes(m)), hoje) - pos(inicioMes(m))}%`, background: LISTRADO }}
-            title={`${MESES[+m.slice(5, 7) - 1]}/${m.slice(0, 4)}: ${dicaImp(c.meses[m])}`} />
-        ))}
-        {/* o que foi importado */}
-        {c.trechos.map((t, i) => (
-          <div key={i} className="absolute top-2 h-2 rounded-full bg-emerald-500" style={{ left: `${pos(Date.parse(t.de))}%`, width: `${pos(Date.parse(t.ate)) - pos(Date.parse(t.de))}%` }}
-            title={`importado de ${br(t.de)} a ${ultimoDia(t.ate)}`} />
-        ))}
-      </div>
-    );
+  /** O que dizer da importação de UMA conta no mês selecionado. */
+  const linhaDaConta = (c: Conta): { texto: string; cor: string } => {
+    if (c.nuncaImportada) return { texto: "nunca importada — importe em Contas (ou apague a conta, se não é usada)", cor: "text-red-500" };
+    const m = c.meses[mes];
+    if (m.imp === "completo") return { texto: "importado", cor: "text-emerald-600" };
+    if (m.imp === "parcial") return { texto: `importado só ${(m.pedacos ?? []).map((p) => `de ${br(p.de).slice(0, 5)} a ${ultimoDia(p.ate).slice(0, 5)}`).join(", ")}`, cor: "text-amber-600" };
+    if (m.imp === "antes") return { texto: "ainda sem dados neste mês", cor: "text-[#9ca3af]" };
+    return { texto: c.fonte === "ofx" || !c.fonte ? `não importado — importe o OFX de ${abreviado}` : `não importado — sincronizar desde ${abreviado}`, cor: "text-red-500" };
   };
 
   return (
@@ -146,99 +139,103 @@ export default function ControlPage() {
       <div className="px-8 py-5 bg-white border-b border-[#e8eaed] flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-[#1a202c]">Controle de importação</h1>
-          <p className="text-[13px] text-[#6b7280] mt-0.5">{aba === "importacao" ? "O que já foi importado de cada conta. Clique num mês pra ver de onde veio." : "Quanto de cada mês já tem categoria."}</p>
+          <p className="text-[13px] text-[#6b7280] mt-0.5">Escolha o mês: o que já foi importado, o que falta categorizar e se o mês está fechado.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex rounded-lg border border-[#e8eaed] bg-[#f8fafc] p-0.5 text-[13px]">
-            {([["importacao", "Importação"], ["categorizacao", "Categorização"]] as const).map(([k, rotulo]) => (
-              <button key={k} onClick={() => setAba(k)} className={`px-3 h-7 rounded-md font-medium ${aba === k ? "bg-white shadow-sm text-[#1a202c]" : "text-[#6b7280]"}`}>{rotulo}</button>
-            ))}
-          </div>
-          {aba === "importacao" && (
-            <div className="flex items-center gap-2">
-              <span className="text-[12px] text-[#6b7280]">Sincronizar APIs desde</span>
-              <input type="month" className="h-8 rounded-lg border border-[#e8eaed] px-2 text-[13px]" value={desde} onChange={(e) => setDesde(e.target.value)} />
-              <button className={btn} onClick={sincronizar} disabled={sincronizando || !desde}>{sincronizando ? "Sincronizando…" : "Sincronizar"}</button>
-            </div>
-          )}
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] text-[#6b7280]">Sincronizar APIs desde</span>
+          <input type="month" className="h-8 rounded-lg border border-[#e8eaed] px-2 text-[13px]" value={desde} onChange={(e) => setDesde(e.target.value)} />
+          <button className={btn} onClick={sincronizar} disabled={sincronizando || !desde}>{sincronizando ? "Sincronizando…" : "Sincronizar"}</button>
         </div>
       </div>
-      {resultadoSync && aba === "importacao" && <div className="px-8 py-2 text-[12.5px] bg-white border-b border-[#e8eaed] text-[#374151]">{resultadoSync}</div>}
+      {resultadoSync && <div className="px-8 py-2 text-[12.5px] bg-white border-b border-[#e8eaed] text-[#374151]">{resultadoSync}</div>}
 
       <div className="flex-1 overflow-auto p-8">
-        <div className="bg-white rounded-2xl border border-[#e8eaed] px-5 py-3">
-          {/* cabeçalho dos meses */}
-          <div className={`${colunas} pb-2 border-b border-[#f3f4f6]`}>
-            <div />
-            {aba === "importacao" ? (
-              <div className="relative h-5">
-                {dados.months.map((m) => (
-                  <div key={m} className="absolute text-center text-[11px] font-semibold text-[#9ca3af]" style={{ left: `${pos(inicioMes(m))}%`, width: `${pos(fimMes(m)) - pos(inicioMes(m))}%` }}>
-                    {MESES[+m.slice(5, 7) - 1]}{m.endsWith("-01") || m === dados.months[0] ? <span className="font-normal text-[#d1d5db]"> {m.slice(2, 4)}</span> : null}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="grid" style={{ gridTemplateColumns: `repeat(${dados.months.length}, minmax(0, 1fr))` }}>
-                {dados.months.map((m) => (
-                  <div key={m} className="text-center text-[11px] font-semibold text-[#9ca3af]">
-                    {MESES[+m.slice(5, 7) - 1]}{m.endsWith("-01") || m === dados.months[0] ? <span className="font-normal text-[#d1d5db]"> {m.slice(2, 4)}</span> : null}
-                  </div>
-                ))}
-              </div>
-            )}
+        <div className="max-w-5xl space-y-4">
+          {/* faixa dos meses */}
+          <div className="flex flex-wrap gap-2">
+            {faixa.map((m) => {
+              const rs = resumoDoMes(m);
+              const f = rs.filter(({ r }) => r.fechado).length;
+              const ativo = m === mes;
+              return (
+                <button key={m} onClick={() => setMesEscolhido(m)}
+                  className={`text-left rounded-lg bg-white px-3 py-2 text-[12.5px] ${ativo ? "border-2 border-[#00b9a5]" : "border border-[#e8eaed] hover:border-[#cbd5e1]"}`}>
+                  <div className={`font-medium ${ativo ? "text-[#1a202c]" : "text-[#4b5563]"}`}>{MESES[+m.slice(5, 7) - 1]}<span className="text-[#c4c9d0] font-normal"> {m.slice(2, 4)}</span></div>
+                  {m === atual ? <div className="text-[#9ca3af]">em andamento</div>
+                    : rs.length === 0 ? <div className="text-[#d1d5db]">sem dados</div>
+                    : <div className={f === rs.length ? "text-emerald-600" : "text-amber-700"}>{f}/{rs.length} fechadas</div>}
+                </button>
+              );
+            })}
           </div>
 
-          <div className="relative">
-            {/* divisas dos meses e o "hoje", atrás das linhas */}
-            {aba === "importacao" && (
-              <div className={`${colunas} absolute inset-0 pointer-events-none`}>
-                <div />
-                <div className="relative h-full">
-                  {dados.months.slice(1).map((m) => <div key={m} className="absolute top-0 bottom-0 w-px bg-[#f3f4f6]" style={{ left: `${pos(inicioMes(m))}%` }} />)}
-                  <div className="absolute top-0 bottom-0 w-px bg-[#00b9a5]/40" style={{ left: `${hoje}%` }} title="hoje" />
-                </div>
-              </div>
-            )}
-
-            {empresas.map((e) => (
-              <div key={e.id} className="py-1.5">
-                <button className="flex items-center gap-2 py-1 text-left" onClick={() => setRecolhidas((p) => ({ ...p, [e.id]: !p[e.id] }))}>
-                  <span className="text-[#9ca3af] text-[10px] w-3">{recolhidas[e.id] ? "▸" : "▾"}</span>
-                  <span className="w-2 h-2 rounded-full" style={{ background: e.color }} />
-                  <span className="text-[12.5px] font-semibold text-[#374151]">{e.name}</span>
-                </button>
-                {!recolhidas[e.id] && e.contas.map((c) => (
-                  <div key={c.id} className={`${colunas} relative`}>
-                    <div className="flex items-center gap-1.5 pl-5 pr-3 min-w-0"
-                      title={`${c.bank} · ${c.cobertaAte ? `importada até ${br(c.cobertaAte)}` : "nenhuma importação registrada"}${c.ultimaImportacao ? ` · última em ${br(c.ultimaImportacao.quando)}${c.ultimaImportacao.quem ? ` por ${c.ultimaImportacao.quem}` : ""}` : ""}`}>
-                      <span className="text-[12.5px] text-[#374151] truncate">{c.name}</span>
-                      {c.fonte && <span className="shrink-0 text-[9.5px] font-semibold px-1 rounded bg-[#f3f4f6] text-[#6b7280]">{c.fonte === "ofx" ? "OFX" : "API"}</span>}
-                    </div>
-                    {aba === "importacao" ? trilha(c) : (
-                      <div className="grid h-6 items-center" style={{ gridTemplateColumns: `repeat(${dados.months.length}, minmax(0, 1fr))` }}>
-                        {dados.months.map((m) => {
-                          const { total, semCategoria } = c.meses[m];
-                          if (!total) return <div key={m} />;
-                          const pct = Math.floor(((total - semCategoria) / total) * 100);
-                          return (
-                            <div key={m} className="text-center" title={`${total} lançamento(s), ${semCategoria} sem categoria`}>
-                              <span className={`text-[11px] tabular-nums font-medium ${semCategoria === 0 ? "text-emerald-600" : pct >= 75 ? "text-amber-600" : "text-red-500"}`}>{pct}%</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                ))}
+          {/* números do mês */}
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              ["Empresas fechadas", `${fechadas} de ${linhas.length}`],
+              ["Contas importadas", `${importadasNoMes} de ${contasNoMes}`],
+              ["Sem categoria", n(pendNoMes)],
+            ].map(([rotulo, valor]) => (
+              <div key={rotulo} className="rounded-xl bg-white border border-[#e8eaed] px-4 py-3">
+                <div className="text-[12.5px] text-[#6b7280]">{rotulo}</div>
+                <div className="text-[24px] font-semibold text-[#1a202c] tabular-nums">{valor}</div>
               </div>
             ))}
           </div>
 
+          {/* empresas do mês */}
+          <div className="rounded-2xl bg-white border border-[#e8eaed] overflow-hidden text-[13px]">
+            <div className={`${grade} px-5 py-2.5 border-b border-[#f3f4f6] text-[12px] text-[#9ca3af]`}>
+              <span>{nomeMes}{mes === atual ? " · em andamento" : ""}</span><span>Importação</span><span>Categorização</span><span className="text-right">Mês</span>
+            </div>
+            {linhas.length === 0 && <div className="px-5 py-4 text-[#9ca3af]">Nenhuma empresa com dados neste mês.</div>}
+            {linhas.map(({ empresa: e, r }) => {
+              const aberta = !!abertas[e.id];
+              return (
+                <div key={e.id} className="border-b border-[#f3f4f6] last:border-b-0">
+                  <button className={`${grade} w-full px-5 py-2.5 text-left hover:bg-[#fafbfc]`} onClick={() => setAbertas((p) => ({ ...p, [e.id]: !p[e.id] }))}>
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="text-[#9ca3af] text-[10px] w-3 shrink-0">{aberta ? "▾" : "▸"}</span>
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: e.color }} />
+                      <span className="font-medium text-[#374151] truncate">{e.name}</span>
+                    </span>
+                    <span className={r.importadas === r.contas ? "text-emerald-600" : r.importadas === 0 ? "text-red-500" : "text-amber-700"}>
+                      {r.importadas === r.contas ? "✓ " : ""}{r.importadas} de {r.contas} conta{r.contas !== 1 ? "s" : ""}
+                    </span>
+                    <span className={r.pend === 0 ? (r.total ? "text-emerald-600" : "text-[#9ca3af]") : r.importadas === r.contas ? "text-amber-700" : "text-red-500"}>
+                      {r.pend === 0 ? (r.total ? "✓ tudo categorizado" : "sem lançamentos") : `${n(r.pend)} pendente${r.pend !== 1 ? "s" : ""}`}
+                    </span>
+                    <span className="text-right">{selo(r.fechado)}</span>
+                  </button>
+                  {aberta && (
+                    <div className="pb-2">
+                      {e.contas.map((c) => {
+                        const l = linhaDaConta(c);
+                        const m = c.nuncaImportada ? null : c.meses[mes];
+                        return (
+                          <div key={c.id} className={`${grade} px-5 py-1.5 text-[12.5px] ${m && m.imp !== "antes" ? "cursor-pointer hover:bg-[#fafbfc]" : ""}`}
+                            onClick={() => m && m.imp !== "antes" && abrirDetalhe(c, mes)}
+                            title={`${c.cobertaAte ? `importada até ${br(c.cobertaAte)}` : "nenhuma importação registrada"}${c.ultimaImportacao ? ` · última em ${br(c.ultimaImportacao.quando)}${c.ultimaImportacao.quem ? ` por ${c.ultimaImportacao.quem}` : ""}` : ""}`}>
+                            <span className="pl-8 text-[#4b5563] truncate">{c.name} <span className="text-[#9ca3af]">· {c.fonte === "ofx" ? "OFX" : c.fonte === "api" ? "API" : c.bank}</span></span>
+                            <span className={`${l.cor} ${c.nuncaImportada ? "col-span-3" : ""}`}>{l.texto}</span>
+                            {!c.nuncaImportada && <span className="text-[#6b7280]">{m && m.semCategoria > 0 ? `${n(m.semCategoria)} pendente${m.semCategoria !== 1 ? "s" : ""}` : ""}</span>}
+                            {!c.nuncaImportada && <span />}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="text-[12px] text-[#6b7280]">Mês <strong className="text-emerald-700">fechado</strong> = todas as contas importadas do dia 1 ao último dia e nenhum lançamento sem categoria. Clique na empresa pra ver conta a conta; clique numa conta pra ver quais importações cobrem o mês.</p>
+
           {vazias.length > 0 && (
-            <div className="border-t border-[#f3f4f6] mt-2 pt-2">
+            <div>
               <button className="text-[12.5px] text-[#6b7280] hover:text-[#374151]" onClick={() => setVaziasAbertas((v) => !v)}>
-                {vaziasAbertas ? "▾" : "▸"} {vazias.length} conta{vazias.length !== 1 ? "s" : ""} sem nenhum dado
+                {vaziasAbertas ? "▾" : "▸"} {vazias.length} conta{vazias.length !== 1 ? "s" : ""} de empresas sem nenhum dado
               </button>
               {vaziasAbertas && (
                 <ul className="mt-1 pl-5 text-[12px] text-[#6b7280] space-y-0.5">
@@ -247,23 +244,6 @@ export default function ControlPage() {
                 </ul>
               )}
             </div>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-3 px-1 text-[12px] text-[#6b7280]">
-          {aba === "importacao" ? (
-            <>
-              <span className="flex items-center gap-1.5"><span className="inline-block w-5 h-2 rounded-full bg-emerald-500" /> importado</span>
-              <span className="flex items-center gap-1.5"><span className="inline-block w-5 h-2" style={{ background: LISTRADO }} /> tem lançamento, mas nenhuma importação registrada</span>
-              <span className="flex items-center gap-1.5"><span className="inline-block w-5 h-2 rounded-full bg-[#e5e7eb]" /> falta importar</span>
-            </>
-          ) : (
-            <>
-              <span><b className="text-emerald-600">100%</b> tudo com categoria</span>
-              <span><b className="text-amber-600">75–99%</b></span>
-              <span><b className="text-red-500">&lt;75%</b></span>
-              <span className="text-[#9ca3af]">mês sem lançamento fica em branco</span>
-            </>
           )}
         </div>
       </div>
