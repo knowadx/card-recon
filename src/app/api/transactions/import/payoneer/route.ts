@@ -11,7 +11,8 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/transactions/import/payoneer (form: file, accountId) — extrato completo do Payoneer (com Transaction
  * ID) numa conta Payoneer (src/lib/payoneer.ts). Uma linha por lançamento concluído: reference
- * payoneer:<Transaction ID> (reimportar não duplica); extrato de moeda diferente da conta = recusado; o código FACEBK (em qualquer parte da
+ * payoneer:<Transaction ID> (reimportar não duplica); extrato de moeda diferente da conta = recusado; Transaction ID
+ * que já está em OUTRA conta = recusado (mesmo arquivo na empresa errada); o código FACEBK (em qualquer parte da
  * descrição) vira cobrança Meta. Devolve as quebras na sequência do saldo (falta lançamento no arquivo). O arquivo
  * não diz o período → devolve o sugerido e a tela pergunta (src/lib/importacaoArquivo.ts). Administradores.
  */
@@ -33,6 +34,18 @@ export const POST = guarded(async (request: Request) => {
   const outras = [...new Set(extrato.lancamentos.map((l) => l.moeda).filter((m) => m !== account.currency))];
   if (outras.length) {
     throw new RequestError(400, `o extrato tem lançamentos em ${outras.join(", ")} e a conta ${account.name} é em ${account.currency} — conta errada? (cada moeda do Payoneer é uma conta aqui)`);
+  }
+
+  // o extrato não diz de quem é a conta (Pixel Ads e LinkView têm Payoneer): se algum Transaction ID dele já
+  // está em OUTRA conta, é o mesmo arquivo subido na empresa errada → recusa inteiro (dono, 2026-11-12)
+  const refs = extrato.lancamentos.map((l) => `payoneer:${l.chave}`);
+  const jaEmOutra = await prisma.transaction.findFirst({
+    where: { reference: { in: refs }, accountId: { not: accountId } },
+    select: { account: { select: { name: true, currency: true, company: { select: { name: true } } } } },
+  });
+  if (jaEmOutra) {
+    const o = jaEmOutra.account;
+    throw new RequestError(409, `esse extrato já foi importado na conta ${o.name} ${o.currency} da ${o.company.name} — conta errada? (o mesmo lançamento não entra em duas contas)`);
   }
 
   const dados = extrato.lancamentos.map((l) => ({

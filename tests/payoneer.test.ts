@@ -95,6 +95,16 @@ describe("POST /api/transactions/import/payoneer", () => {
     expect(await prisma.transaction.findFirst({ where: { accountId: eur.id }, select: { metaRef: true, currency: true } })).toEqual({ metaRef: "CCCC3333D2", currency: "EUR" });
   });
 
+  it("o mesmo extrato não entra em duas contas: Transaction ID que já está em outra conta = 409, nada gravado", async () => {
+    loginAs(admin);
+    expect((await enviar(conta.id)).status).toBe(200);
+    const linkview = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "Payoneer", currency: "USD", name: "Payonner" } });
+    const r = await enviar(linkview.id);
+    expect(r.status).toBe(409);
+    expect((await r.json()).error).toMatch(/já foi importado na conta Payoneer Pixel USD da Pixel Ads LLC/);
+    expect(await prisma.transaction.count({ where: { accountId: linkview.id } })).toBe(0);
+  });
+
   it("conta que não é Payoneer = 400; membro = 403; outro grupo = 404 — nada gravado", async () => {
     loginAs(admin);
     expect((await enviar(s.accounts.pixel.id)).status).toBe(400); // Mercury
