@@ -75,6 +75,11 @@ done
 [ -n "$pronto" ] || abortar_cedo "postgres não ficou pronto em 80 s — dc logs postgres --tail 50"
 
 log "3/6 — imagens"
+# versão que o rodapé do app mostra (dono, 2026-11-13: "saber com os usuários se estamos na mesma"):
+# commit + data do commit em Brasília — o mesmo código dá sempre a mesma versão (e não invalida o cache)
+PF_BUILD_ID="$(git rev-parse --short=7 HEAD) · $(TZ=America/Sao_Paulo git log -1 --format=%cd --date=format-local:'%d/%m/%y %H:%M')"
+export PF_BUILD_ID
+echo "  versão: $PF_BUILD_ID"
 IMAGENS_NOVAS=1
 dc --profile ferramentas build app migrate || abortar_cedo "build falhou"
 

@@ -19,6 +19,9 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# versão no rodapé (commit + data do commit) — vem do pf_deploy.sh; o Next a grava no bundle no build (sem ela = "dev")
+ARG BUILD_ID=dev
+ENV NEXT_PUBLIC_BUILD_ID=$BUILD_ID
 # o build não conecta no banco; a URL só precisa existir para o Prisma gerar o cliente
 RUN DATABASE_URL="postgresql://build@localhost:5432/build" npm run build
 

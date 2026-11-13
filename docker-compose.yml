@@ -36,7 +36,7 @@ services:
     profiles: ["ferramentas"]
 
   app:
-    build: { context: ., target: app, args: { NODE_IMAGE: "${NODE_IMAGE:-node:24-alpine}" } }
+    build: { context: ., target: app, args: { NODE_IMAGE: "${NODE_IMAGE:-node:24-alpine}", BUILD_ID: "${PF_BUILD_ID:-dev}" } }
     restart: unless-stopped
     env_file: .env
     environment:
