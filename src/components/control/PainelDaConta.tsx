@@ -360,7 +360,7 @@ function OpcaoArquivo({ conta, kind, avisar, depois }: Opcao & { conta: ContaDoC
   const [ocupado, setOcupado] = useState(false);
   const [pendente, setPendente] = useState<{ importLogId: string; de: string; ate: string } | null>(null);
   const cfg = {
-    husky: { titulo: "Planilha da Husky (XLS)", rota: "/api/transactions/import/husky", accept: ".xls,.xlsx" },
+    husky: { titulo: "Extrato da Husky (planilha XLS ou CSV)", rota: "/api/transactions/import/husky", accept: ".xls,.xlsx,.csv,text/csv" },
     dolafy: { titulo: "Extrato da Dolafy (CSV)", rota: "/api/transactions/import/dolafy", accept: ".csv,text/csv" },
     payoneer: { titulo: "Extrato do Payoneer (CSV)", rota: "/api/transactions/import/payoneer", accept: ".csv,text/csv" },
     csv: { titulo: "Planilha CSV (data, descrição, valor)", rota: "/api/transactions/import", accept: ".csv,text/csv" },

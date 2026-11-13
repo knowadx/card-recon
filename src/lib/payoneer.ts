@@ -18,28 +18,12 @@
  * - o arquivo não diz o período que cobre → a tela pergunta (src/lib/importacaoArquivo.ts).
  */
 import { numerarRepetidas } from "./chaveRepetida";
+import { camposCsv as campos } from "./csvLinha";
 
 export type LancamentoPayoneer = { chave: string; data: Date; descricao: string; valor: number; moeda: string };
 export type ExtratoPayoneer = { lancamentos: LancamentoPayoneer[]; naoConcluidos: number; invalidos: number; quebrasDeSaldo: number };
 
 const COLUNAS = ["transaction date", "transaction time", "transaction id", "description", "credit amount", "debit amount", "currency", "status", "running balance"];
-
-/** Uma linha de CSV com aspas (vírgula dentro de aspas não separa; "" = aspa). */
-function campos(linha: string): string[] {
-  const out: string[] = [];
-  let atual = "";
-  let aspas = false;
-  for (let i = 0; i < linha.length; i++) {
-    const c = linha[i];
-    if (c === '"') {
-      if (aspas && linha[i + 1] === '"') { atual += '"'; i++; } else aspas = !aspas;
-    } else if (c === "," && !aspas) {
-      out.push(atual); atual = "";
-    } else atual += c;
-  }
-  out.push(atual);
-  return out.map((x) => x.trim());
-}
 
 /** "11/08/2026" + "03:00:16" + "UTC" → instante; fuso que não é UTC → meio-dia UTC do dia; inválida → null. */
 export function dataPayoneer(dia: string, hora: string, fuso: string): Date | null {
