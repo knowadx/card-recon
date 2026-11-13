@@ -133,8 +133,8 @@ describe("sem movimentação: alguém confere e marca (dono, 2026-11-13)", () =>
     conta = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "Payoneer", currency: "EUR", name: "Payoneer EUR" } });
     // agosto inteiro importado; setembro faltando (sem lançamento); outubro importado de 02 a 21 (lançamentos dentro)
     await prisma.importCoverage.createMany({ data: [
-      { accountId: conta.id, from: d("2026-08-01"), to: d("2026-09-01"), source: "arquivo" },
-      { accountId: conta.id, from: d("2026-10-02"), to: d("2026-10-22"), source: "arquivo" },
+      { accountId: conta.id, from: d("2026-08-01"), to: d("2026-09-01"), source: "arquivo", createdAt: d("2026-11-01T10:00:00Z") },
+      { accountId: conta.id, from: d("2026-10-02"), to: d("2026-10-22"), source: "arquivo", createdAt: d("2026-11-01T10:05:00Z") },
     ] });
     await prisma.transaction.createMany({ data: [
       { accountId: conta.id, date: d("2026-08-10T10:00:00Z"), description: "A", amount: -40, currency: "EUR", reference: "t-ago" },
@@ -150,9 +150,10 @@ describe("sem movimentação: alguém confere e marca (dono, 2026-11-13)", () =>
     expect(await mesDa(conta.id, "2026-09")).toMatchObject({ imp: "completo", total: 0 });
     const det = await (await detalhe.GET(req("/api/coverage/detalhe?accountId=" + conta.id + "&mes=2026-09"))).json();
     expect(det.importacoes).toMatchObject([{ fonte: "manual", quem: "Admin Pixel" }]);
-    // a marcação não é "a última importação" da conta
+    // a marcação (mais nova) não é "a última importação" da conta
+    expect((await prisma.importCoverage.findFirstOrThrow({ where: { accountId: conta.id }, orderBy: { createdAt: "desc" } })).source).toBe("manual");
     const c = (await (await coverage.GET()).json()).accounts.find((a: { id: string }) => a.id === conta.id);
-    expect(c.ultimaImportacao.fonte).toBe("arquivo");
+    expect(c.ultimaImportacao).toMatchObject({ fonte: "arquivo", quando: "2026-11-01T10:05:00.000Z" });
 
     expect((await marcar({ accountId: conta.id, mes: "2026-09" }, "DELETE")).status).toBe(200);
     expect((await mesDa(conta.id, "2026-09")).imp).toBe("faltando");
