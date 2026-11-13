@@ -17,6 +17,8 @@
  *   lançamento no arquivo (avisado na tela);
  * - o arquivo não diz o período que cobre → a tela pergunta (src/lib/importacaoArquivo.ts).
  */
+import { numerarRepetidas } from "./chaveRepetida";
+
 export type LancamentoPayoneer = { chave: string; data: Date; descricao: string; valor: number; moeda: string };
 export type ExtratoPayoneer = { lancamentos: LancamentoPayoneer[]; naoConcluidos: number; invalidos: number; quebrasDeSaldo: number };
 
@@ -89,19 +91,19 @@ export function lerPayoneer(texto: string): { extrato?: ExtratoPayoneer; erro?: 
     const valor = Math.abs(credito) - Math.abs(debito);
     const saldoBruto = col(c, "running balance");
     const saldo = saldoBruto ? valorPayoneer(saldoBruto) : null;
-    let chave = col(c, "transaction id");
-    if (!chave) {
-      const base = `sem-id:${data.toISOString()}:${centavos(valor)}:${moeda}:${saldo === null ? "" : centavos(saldo)}`;
-      chave = base;
-      for (let n = 2; vistas.has(chave); n++) chave = `${base}:${n}`; // linhas idênticas no mesmo arquivo
+    const id = col(c, "transaction id");
+    // sem ID: chave pelos fatos da linha; idênticas no mesmo arquivo são numeradas no fim (src/lib/chaveRepetida.ts)
+    const chave = id || `sem-id:${data.toISOString()}:${centavos(valor)}:${moeda}:${saldo === null ? "" : centavos(saldo)}`;
+    if (id) {
+      if (vistas.has(id)) { invalidos++; continue; } // Transaction ID repetido no arquivo
+      vistas.add(id);
     }
-    if (vistas.has(chave)) { invalidos++; continue; } // Transaction ID repetido no arquivo
-    vistas.add(chave);
     const descricao = [col(c, "description"), col(c, "store name"), col(c, "additional description")]
       .filter((x, k, arr) => x && arr.indexOf(x) === k).join(" — ") || "Payoneer";
     lidas.push({ chave, data, descricao, valor, moeda, saldo, ordem });
   }
   if (linhas.length === 1) return { erro: "o extrato não tem nenhum lançamento — se a conta não teve movimento no período, use \"Marcar sem movimentação\" no mês" };
+  numerarRepetidas(lidas.map((l) => l.chave)).forEach((k, n) => { lidas[n].chave = k; });
   if (!lidas.length) return { erro: naoConcluidos ? `nenhum lançamento concluído (${naoConcluidos} não concluído(s))` : "nenhum lançamento válido no arquivo" };
 
   // sequência do saldo por moeda, do mais antigo pro mais novo (mesmo instante: a ordem do arquivo, invertida)

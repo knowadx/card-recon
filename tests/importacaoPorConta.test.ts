@@ -72,6 +72,29 @@ describe("arquivo sem período: importa, sugere o período e só a confirmação
     expect(rh).toMatchObject({ imported: 2, periodo: { de: "2026-07-01", ate: "2026-07-31" } });
   });
 
+  it("duas linhas IGUAIS no mesmo dia são dois lançamentos (Husky dava \"erro interno\"; Dolafy perdia a 2ª); reimportar não duplica", async () => {
+    const husky = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "Husky", currency: "USD", name: "Husky" } });
+    const dolafy = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "Dolafy", currency: "USD", name: "Dolafy" } });
+    // já importado antes desta regra (chave pura): continua casando
+    await prisma.transaction.create({ data: { accountId: husky.id, date: d("2026-01-05T12:00:00Z"), description: "Fee · Husky", amount: -5, currency: "USD", reference: "husky:2026-01-05:-5:Fee · Husky" } });
+    loginAs(admin);
+    const planilha = XLSX.utils.aoa_to_sheet([["Date", "Event", "Payer", "Beneficiary", "Amount"], ["Start date", "Initial balance", "", "", ""],
+      ["2026-01-05", "Fee", "", "Husky", "-5"], ["2026-01-05", "Fee", "", "Husky", "-5"], ["2026-01-05", "Fee", "", "Husky", "-5"], ["2026-01-06", "Pagamento", "", "Fornecedor", "-15"]]);
+    const livro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(livro, planilha, "Extrato");
+    const xls = XLSX.write(livro, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+    const r = await enviar(importHusky, husky.id, new Blob([xls]), "husky-2026.xlsx");
+    expect(r.status).toBe(200);
+    expect(await r.json()).toMatchObject({ imported: 3, skipped: 1 });
+    expect((await prisma.transaction.findMany({ where: { accountId: husky.id }, select: { reference: true }, orderBy: { reference: "asc" } })).map((t) => t.reference))
+      .toEqual(["husky:2026-01-05:-5:Fee · Husky", "husky:2026-01-05:-5:Fee · Husky#2", "husky:2026-01-05:-5:Fee · Husky#3", "husky:2026-01-06:-15:Pagamento · Fornecedor"]);
+    expect(await (await enviar(importHusky, husky.id, new Blob([xls]), "husky-2026.xlsx")).json()).toMatchObject({ imported: 0, skipped: 4 });
+
+    const csv = "Date,Description,Amount,Status\n\"Jun 2, 2026, 09:38\",Taxa,-2,Completed\n\"Jun 2, 2026, 09:38\",Taxa,-2,Completed\n";
+    expect(await (await enviar(importDolafy, dolafy.id, new Blob([csv]), "dolafy.csv")).json()).toMatchObject({ imported: 2, skipped: 0 });
+    expect(await (await enviar(importDolafy, dolafy.id, new Blob([csv]), "dolafy.csv")).json()).toMatchObject({ imported: 0, skipped: 2 });
+  });
+
   it("arquivo que chega no mês atual: a sugestão para em hoje", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-13T12:00:00Z") });
     const conta = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "Outro", currency: "USD", name: "Banco qualquer" } });

@@ -74,7 +74,7 @@ describe("leitura do extrato do Payoneer", () => {
     // dois créditos iguais no mesmo instante: o saldo depois de cada um os separa; idênticos de tudo → :2
     const outro = "11/03/2026,09:15:00,UTC,,Credit from Payoneer,300.00,,USD,,,Completed,1600.00,,,,USD balance,";
     expect(lerPayoneer([CAB, outro, deposito].join("\n")).extrato!.lancamentos.map((l) => l.chave)).toEqual(["sem-id:2026-11-03T09:15:00.000Z:30000:USD:160000", "sem-id:2026-11-03T09:15:00.000Z:30000:USD:130000"]);
-    expect(lerPayoneer([CAB, deposito, deposito].join("\n")).extrato!.lancamentos.map((l) => l.chave)).toEqual(["sem-id:2026-11-03T09:15:00.000Z:30000:USD:130000", "sem-id:2026-11-03T09:15:00.000Z:30000:USD:130000:2"]);
+    expect(lerPayoneer([CAB, deposito, deposito].join("\n")).extrato!.lancamentos.map((l) => l.chave)).toEqual(["sem-id:2026-11-03T09:15:00.000Z:30000:USD:130000", "sem-id:2026-11-03T09:15:00.000Z:30000:USD:130000#2"]);
   });
 
   it("extrato sem nenhum lançamento (só o cabeçalho): erro que aponta o \"Marcar sem movimentação\"", () => {

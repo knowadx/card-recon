@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { AccessError, assertAccount, guarded, requireUser } from "@/lib/access";
 import * as XLSX from "xlsx";
 import { registrarArquivo } from "@/lib/importacaoArquivo";
+import { numerarRepetidas } from "@/lib/chaveRepetida";
 
 export const POST = guarded(async (request: Request) => {
   const user = await requireUser();
@@ -26,7 +27,7 @@ export const POST = guarded(async (request: Request) => {
     // Row 0 = headers, Row 1 = "Start date / Initial balance" — skip both
     const dataRows = rows.slice(2) as string[][];
 
-    const candidates = [];
+    const candidates: Array<{ accountId: string; date: Date; description: string; amount: number; currency: string; reference: string }> = [];
 
     for (let i = 0; i < dataRows.length; i++) {
       const row = dataRows[i];
@@ -59,6 +60,9 @@ export const POST = guarded(async (request: Request) => {
       });
     }
 
+    // duas linhas iguais no mesmo dia (mesmo valor e descrição) são dois lançamentos: "#2", "#3"… (src/lib/chaveRepetida.ts)
+    numerarRepetidas(candidates.map((c) => c.reference)).forEach((r, k) => { candidates[k].reference = r; });
+
     if (candidates.length === 0) {
       return Response.json({ imported: 0, skipped: 0, message: "Nenhuma linha válida encontrada" });
     }
@@ -69,12 +73,10 @@ export const POST = guarded(async (request: Request) => {
     });
     const existingRefs = new Set(existing.map((t) => t.reference));
     const toCreate = candidates.filter((c) => !existingRefs.has(c.reference));
+    // skipDuplicates: dois envios ao mesmo tempo não viram "erro interno"
+    const imported = toCreate.length ? (await prisma.transaction.createMany({ data: toCreate, skipDuplicates: true })).count : 0;
 
-    if (toCreate.length > 0) {
-        await prisma.transaction.createMany({ data: toCreate });
-    }
-
-    const resumo = { imported: toCreate.length, skipped: candidates.length - toCreate.length, total: candidates.length };
+    const resumo = { imported, skipped: candidates.length - imported, total: candidates.length };
     const arquivo = await registrarArquivo({ kind: "husky", filename: file.name, userId: user.id, account, datas: candidates.map((c) => c.date), resumo });
     return Response.json({ ...resumo, ...arquivo });
   } catch (e) {

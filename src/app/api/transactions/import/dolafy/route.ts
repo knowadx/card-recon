@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { assertAccount, guarded, requireUser } from "@/lib/access";
 import { registrarArquivo } from "@/lib/importacaoArquivo";
+import { numerarRepetidas } from "@/lib/chaveRepetida";
 
 // Proper CSV parser that handles quoted fields (same as generic import)
 function parseCSV(text: string): Record<string, string>[] {
@@ -77,9 +78,8 @@ export const POST = guarded(async (request: Request) => {
   });
   const existingRefs = new Set(existing.map((t) => t.reference));
 
-  let imported = 0;
-  let skipped = 0;
   const datas: Date[] = [];
+  const candidatos: Array<{ accountId: string; date: Date; description: string; amount: number; currency: string; reference: string }> = [];
 
   for (const row of rows) {
     // Only import Completed
@@ -99,17 +99,15 @@ export const POST = guarded(async (request: Request) => {
     if (isNaN(date.getTime())) continue;
     datas.push(date);
 
-    const reference = `dolafy:${rawDate}:${description}:${row["amount"] ?? rawAmount}`;
-    if (existingRefs.has(reference)) { skipped++; continue; }
-    existingRefs.add(reference);
-
-    try {
-      await prisma.transaction.create({
-        data: { accountId, date, description, amount, currency, reference },
-      });
-      imported++;
-    } catch { skipped++; }
+    candidatos.push({ accountId, date, description, amount, currency, reference: `dolafy:${rawDate}:${description}:${row["amount"] ?? rawAmount}` });
   }
+
+  // duas linhas iguais (mesma hora, descrição e valor) são dois lançamentos: "#2", "#3"… (src/lib/chaveRepetida.ts) —
+  // antes a 2ª era contada como "já existia" e sumia
+  numerarRepetidas(candidatos.map((c) => c.reference)).forEach((r, k) => { candidatos[k].reference = r; });
+  const novos = candidatos.filter((c) => !existingRefs.has(c.reference));
+  const imported = novos.length ? (await prisma.transaction.createMany({ data: novos, skipDuplicates: true })).count : 0;
+  const skipped = candidatos.length - imported;
 
   const arquivo = await registrarArquivo({ kind: "dolafy", filename: file.name, userId: user.id, account, datas, resumo: { imported, skipped } });
   return Response.json({ imported, skipped, ...arquivo });
