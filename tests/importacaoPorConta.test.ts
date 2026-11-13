@@ -182,6 +182,34 @@ describe("sem movimentação: alguém confere e marca (dono, 2026-11-13)", () =>
     expect(await prisma.importCoverage.count({ where: { accountId: conta.id, source: "manual" } })).toBe(0);
   });
 
+  it("antes do 1º dado da conta: marca o trecho todo de uma vez (jan/25 a jan/26 de uma conta que só tem dado em fev/26)", async () => {
+    const usd = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "Payoneer", currency: "USD", name: "Payoneer USD" } });
+    await prisma.transaction.create({ data: { accountId: usd.id, date: d("2026-02-03T20:39:00Z"), description: "Credito", amount: 100, currency: "USD", reference: "u-fev" } });
+    await prisma.importCoverage.create({ data: { accountId: usd.id, from: d("2026-02-01"), to: d("2026-03-01"), source: "arquivo" } });
+    loginAs(admin);
+    expect((await mesDa(usd.id, "2025-01")).imp).toBe("antes");
+    const r = await marcar({ accountId: usd.id, mes: "2025-01", ate: "2026-01" });
+    expect(r.status).toBe(200);
+    expect((await r.json()).meses).toHaveLength(13);
+    const meses = (await (await coverage.GET()).json()).accounts.find((a: { id: string }) => a.id === usd.id).meses;
+    expect(["2025-01", "2025-07", "2026-01", "2026-02"].map((m) => meses[m].imp)).toEqual(["completo", "completo", "completo", "completo"]);
+    expect(meses["2026-03"].imp).toBe("faltando"); // depois do 1º dado continua mês a mês
+    // desfazer é por mês
+    expect((await marcar({ accountId: usd.id, mes: "2025-07" }, "DELETE")).status).toBe(200);
+    expect(await prisma.importCoverage.count({ where: { accountId: usd.id, source: "manual" } })).toBe(12);
+  });
+
+  it("intervalo: mês já completo fica como está; lançamento solto em qualquer mês recusa tudo; até antes do mês ou no mês atual = 400", async () => {
+    loginAs(admin);
+    const r = await marcar({ accountId: conta.id, mes: "2026-08", ate: "2026-09" }); // agosto já importado
+    expect(await r.json()).toMatchObject({ ok: true, meses: ["2026-09"] });
+    await prisma.transaction.create({ data: { accountId: conta.id, date: d("2026-07-10T10:00:00Z"), description: "X", amount: -1, currency: "EUR", reference: "t-jul" } });
+    expect((await marcar({ accountId: conta.id, mes: "2026-06", ate: "2026-07" })).status).toBe(409);
+    expect((await marcar({ accountId: conta.id, mes: "2026-06", ate: "2026-05" })).status).toBe(400);
+    expect((await marcar({ accountId: conta.id, mes: "2026-06", ate: "2026-11" })).status).toBe(400);
+    expect(await prisma.importCoverage.count({ where: { accountId: conta.id, source: "manual" } })).toBe(1); // só a de setembro
+  });
+
   it("membro = 403; conta de outro grupo = 404", async () => {
     loginAs(s.users.pixel);
     expect((await marcar({ accountId: conta.id, mes: "2026-09" })).status).toBe(403);

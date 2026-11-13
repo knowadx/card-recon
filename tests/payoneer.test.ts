@@ -77,6 +77,10 @@ describe("leitura do extrato do Payoneer", () => {
     expect(lerPayoneer([CAB, deposito, deposito].join("\n")).extrato!.lancamentos.map((l) => l.chave)).toEqual(["sem-id:2026-11-03T09:15:00.000Z:30000:USD:130000", "sem-id:2026-11-03T09:15:00.000Z:30000:USD:130000:2"]);
   });
 
+  it("extrato sem nenhum lançamento (só o cabeçalho): erro que aponta o \"Marcar sem movimentação\"", () => {
+    expect(lerPayoneer(CAB + "\n").erro).toMatch(/não tem nenhum lançamento — se a conta não teve movimento no período, use "Marcar sem movimentação"/);
+  });
+
   it("os outros formatos do Payoneer (sem Transaction ID / sem saldo) = erro claro, com as colunas que vieram", () => {
     expect(lerPayoneer("Currency,Payout method,Transaction date,Transaction time,Time zone,Credit amount,Debit amount,Status,Running balance,Description\nEUR,EUR balance,12-31-2025,12:51:50,UTC,0,-1,Completed,1,X").erro)
       .toMatch(/não parece o extrato completo do Payoneer/);

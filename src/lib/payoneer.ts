@@ -101,6 +101,7 @@ export function lerPayoneer(texto: string): { extrato?: ExtratoPayoneer; erro?: 
       .filter((x, k, arr) => x && arr.indexOf(x) === k).join(" — ") || "Payoneer";
     lidas.push({ chave, data, descricao, valor, moeda, saldo, ordem });
   }
+  if (linhas.length === 1) return { erro: "o extrato não tem nenhum lançamento — se a conta não teve movimento no período, use \"Marcar sem movimentação\" no mês" };
   if (!lidas.length) return { erro: naoConcluidos ? `nenhum lançamento concluído (${naoConcluidos} não concluído(s))` : "nenhum lançamento válido no arquivo" };
 
   // sequência do saldo por moeda, do mais antigo pro mais novo (mesmo instante: a ordem do arquivo, invertida)

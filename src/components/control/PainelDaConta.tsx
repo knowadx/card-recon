@@ -35,6 +35,11 @@ export const BANCOS_OFX = ["BTG", "XP", "Itaú"];
 const MESES_LONGOS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const br = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
 const ultimoDia = (ateIso: string) => br(new Date(new Date(ateIso).getTime() - 1).toISOString());
+const MESES_CURTOS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+/** "2025-01" → "jan/25". */
+const curto = (m: string) => `${MESES_CURTOS[+m.slice(5, 7) - 1]}/${m.slice(2, 4)}`;
+/** Mês anterior: "2026-02" → "2026-01". */
+const mesAntes = (m: string) => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7) - 2, 1)).toISOString().slice(0, 7);
 const FONTE: Record<string, string> = { api: "Sync da API", ofx: "OFX", arquivo: "Arquivo", manual: "Sem movimentação" };
 
 /** Como a conta aparece: banco e moeda, o nome só quando diz algo além da empresa, e o nº da conta do OFX. */
@@ -88,16 +93,23 @@ export function PainelDaConta({ conta, irmas, empresa, mes, onFechar, onImportou
     return () => { vivo = false; };
   }, [conta.id, mes]);
 
-  // "sem movimentação": mês que já acabou (o último da lista é o atual), sem importação ou importado só em parte
-  const mesAtual = Object.keys(conta.meses).sort().at(-1) ?? mes;
-  const podeMarcar = !!m && mes < mesAtual && (m.imp === "faltando" || m.imp === "parcial" || conta.nuncaImportada);
+  // "sem movimentação": mês que já acabou (o último da lista é o atual), sem importação, importado só em parte, ou
+  // de antes do 1º dado da conta. Antes do 1º dado marca o TRECHO todo até ele (dono, 2026-11-13: jan/25 de uma
+  // conta que só tem dado em fev/26 — marcar só jan/25 faria fev/25…jan/26 contarem como faltando)
+  const ordem = Object.keys(conta.meses).sort();
+  const mesAtual = ordem.at(-1) ?? mes;
+  const podeMarcar = !!m && mes < mesAtual && (m.imp === "faltando" || m.imp === "parcial" || m.imp === "antes");
+  const primeiroComDado = m?.imp === "antes" ? ordem.find((x) => x > mes && conta.meses[x].imp !== "antes") : undefined;
+  const ateMarcar = m?.imp !== "antes" ? mes : primeiroComDado ? mesAntes(primeiroComDado) : ordem.filter((x) => x < mesAtual).at(-1) ?? mes;
   const [marcando, setMarcando] = useState(false);
   async function semMovimento(metodo: "POST" | "DELETE") {
     setMarcando(true);
-    const r = await json(fetch("/api/coverage/sem-movimento", { method: metodo, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountId: conta.id, mes }) }));
+    const corpo = metodo === "POST" ? { accountId: conta.id, mes, ate: ateMarcar } : { accountId: conta.id, mes };
+    const r = await json(fetch("/api/coverage/sem-movimento", { method: metodo, headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpo) }));
     setMarcando(false);
     if (r.error) return avisar(false, `Sem movimentação: ${r.error}`);
-    avisar(true, metodo === "POST" ? "Marcado: sem movimentação nos dias que nenhuma importação cobre." : "Marcação desfeita.");
+    const n = Array.isArray(r.meses) ? r.meses.length : 1;
+    avisar(true, metodo === "DELETE" ? "Marcação desfeita." : n > 1 ? `Marcado: sem movimentação em ${n} meses (${curto(mes)} a ${curto(ateMarcar)}).` : "Marcado: sem movimentação nos dias que nenhuma importação cobre.");
     recarregar();
   }
 
@@ -147,9 +159,13 @@ export function PainelDaConta({ conta, irmas, empresa, mes, onFechar, onImportou
             {podeMarcar && (
               <div className="flex flex-wrap items-center gap-2 pt-1.5">
                 <span className="flex-1 min-w-[200px] text-[12px] text-[#6b7280]">
-                  {m.imp === "parcial" ? "Os outros dias do mês não tiveram movimento? Confira no banco e marque." : "A conta não teve movimento neste mês? Confira no banco e marque."} Fica registrado quem marcou e quando.
+                  {m.imp === "parcial" ? "Os outros dias do mês não tiveram movimento? Confira no banco e marque."
+                    : m.imp === "antes" ? (ateMarcar === mes ? "A conta não teve movimento neste mês? Confira no banco e marque."
+                      : primeiroComDado ? `A conta não tem lançamento nenhum antes de ${curto(primeiroComDado)}. Não teve movimento de ${curto(mes)} a ${curto(ateMarcar)}? Confira no banco e marque o trecho todo.`
+                      : `A conta nunca teve lançamento. Não teve movimento de ${curto(mes)} a ${curto(ateMarcar)}? Confira no banco e marque o trecho todo.`)
+                    : "A conta não teve movimento neste mês? Confira no banco e marque."} Fica registrado quem marcou e quando.
                 </span>
-                <button className={btn} onClick={() => semMovimento("POST")} disabled={marcando}>{marcando ? "Marcando…" : m.imp === "parcial" ? "Marcar o resto sem movimentação" : "Marcar sem movimentação"}</button>
+                <button className={btn} onClick={() => semMovimento("POST")} disabled={marcando}>{marcando ? "Marcando…" : m.imp === "parcial" ? "Marcar o resto sem movimentação" : ateMarcar !== mes ? `Marcar sem movimentação de ${curto(mes)} a ${curto(ateMarcar)}` : "Marcar sem movimentação"}</button>
               </div>
             )}
           </div>
