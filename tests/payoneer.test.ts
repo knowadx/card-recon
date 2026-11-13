@@ -64,6 +64,19 @@ describe("leitura do extrato do Payoneer", () => {
     expect(lerPayoneer([CAB, L.meta, L.pag, L.base].join("\n")).extrato!.quebrasDeSaldo).toBe(1); // sem o crédito de 500
   });
 
+  it("crédito depositado pelo Payoneer SEM Transaction ID: entra, com chave pelos fatos da linha (instante, valor, moeda, saldo)", () => {
+    const deposito = "11/03/2026,09:15:00,UTC,,Credit from Payoneer,300.00,,USD,,,Completed,1300.00,,,,USD balance,";
+    const r = lerPayoneer([CAB, deposito, L.base].join("\n")).extrato!; // saldo 1000 → +300 → 1300
+    expect([r.invalidos, r.quebrasDeSaldo]).toEqual([0, 0]);
+    expect(r.lancamentos.find((l) => l.descricao === "Credit from Payoneer")).toMatchObject({ chave: "sem-id:2026-11-03T09:15:00.000Z:30000:USD:130000", valor: 300 });
+    // sozinho no arquivo (o caso do dono: "o arquivo não importa")
+    expect(lerPayoneer([CAB, deposito].join("\n")).extrato!.lancamentos).toHaveLength(1);
+    // dois créditos iguais no mesmo instante: o saldo depois de cada um os separa; idênticos de tudo → :2
+    const outro = "11/03/2026,09:15:00,UTC,,Credit from Payoneer,300.00,,USD,,,Completed,1600.00,,,,USD balance,";
+    expect(lerPayoneer([CAB, outro, deposito].join("\n")).extrato!.lancamentos.map((l) => l.chave)).toEqual(["sem-id:2026-11-03T09:15:00.000Z:30000:USD:160000", "sem-id:2026-11-03T09:15:00.000Z:30000:USD:130000"]);
+    expect(lerPayoneer([CAB, deposito, deposito].join("\n")).extrato!.lancamentos.map((l) => l.chave)).toEqual(["sem-id:2026-11-03T09:15:00.000Z:30000:USD:130000", "sem-id:2026-11-03T09:15:00.000Z:30000:USD:130000:2"]);
+  });
+
   it("os outros formatos do Payoneer (sem Transaction ID / sem saldo) = erro claro, com as colunas que vieram", () => {
     expect(lerPayoneer("Currency,Payout method,Transaction date,Transaction time,Time zone,Credit amount,Debit amount,Status,Running balance,Description\nEUR,EUR balance,12-31-2025,12:51:50,UTC,0,-1,Completed,1,X").erro)
       .toMatch(/não parece o extrato completo do Payoneer/);
@@ -122,6 +135,15 @@ describe("POST /api/transactions/import/payoneer", () => {
       .toEqual([{ accountId: conta.id, amount: -2000 }, { accountId: recebedor.id, amount: 1998 }]);
     // o MESMO lado subido na conta errada continua recusado
     expect((await enviar(recebedor.id, [CAB, debito].join("\n"))).status).toBe(409);
+  });
+
+  it("extrato só com o crédito sem Transaction ID importa; reimportar não duplica", async () => {
+    loginAs(admin);
+    const deposito = "11/03/2026,09:15:00,UTC,,Credit from Payoneer,300.00,,USD,,,Completed,1300.00,,,,USD balance,";
+    expect(await (await enviar(conta.id, [CAB, deposito].join("\n"))).json()).toMatchObject({ imported: 1, skipped: 0, invalidos: 0 });
+    expect(await (await enviar(conta.id, [CAB, deposito].join("\n"))).json()).toMatchObject({ imported: 0, skipped: 1 });
+    expect(await prisma.transaction.findMany({ where: { accountId: conta.id }, select: { amount: true, reference: true } }))
+      .toEqual([{ amount: 300, reference: "payoneer:sem-id:2026-11-03T09:15:00.000Z:30000:USD:130000" }]);
   });
 
   it("conta que não é Payoneer = 400; membro = 403; outro grupo = 404 — nada gravado", async () => {

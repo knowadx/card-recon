@@ -40,6 +40,7 @@ export default function ControlPage() {
   // mudando de mês"): uma empresa, todos os meses dela, um por linha
   const [visao, setVisao] = useState<"mes" | "empresa">("mes");
   const [empresaId, setEmpresaId] = useState<string | null>(null);
+  const [contaId, setContaId] = useState<string | null>(null); // filtro por conta dentro da empresa (dono, 2026-11-13)
   const [mesesAbertos, setMesesAbertos] = useState<Record<string, boolean>>({});
   const [painelMes, setPainelMes] = useState<string | null>(null);
 
@@ -161,9 +162,13 @@ export default function ControlPage() {
 
   // visão por empresa: a escolhida (ou a 1ª com dados) e os meses dela, do mais recente ao 1º com dado
   const empresa = empresas.find((e) => e.id === empresaId) ?? empresas[0] ?? null;
+  // filtro por conta: os mesmos números, contados só com ela (escolha que não é da empresa = todas)
+  const contasDaVisao = empresa ? empresa.contas.filter((c) => !contaId || c.id === contaId) : [];
+  const contasFiltradas = contasDaVisao.length ? contasDaVisao : empresa?.contas ?? [];
   const mesesDaEmpresa = empresa
-    ? [...meses].reverse().map((m) => ({ m, r: resumoDaEmpresa(empresa.contas, meses, m) })).filter(({ r }) => !r.vazio || r.total > 0)
+    ? [...meses].reverse().map((m) => ({ m, r: resumoDaEmpresa(contasFiltradas, meses, m) })).filter(({ r }) => !r.vazio || r.total > 0)
     : [];
+  const contaFiltrada = contaId && contasDaVisao.length ? contasDaVisao[0] : null;
   const fechadosDaEmpresa = mesesDaEmpresa.filter(({ m, r }) => m !== atual && r.fechado).length;
   const mesesEncerrados = mesesDaEmpresa.filter(({ m }) => m !== atual).length;
   const totalEmp = mesesDaEmpresa.reduce((acc, { r }) => ({ total: acc.total + r.total, pend: acc.pend + r.pend, comp: acc.comp + r.comComprovante }), { total: 0, pend: 0, comp: 0 });
@@ -193,10 +198,17 @@ export default function ControlPage() {
         <div className="max-w-5xl space-y-4">
           {visao === "empresa" && empresa && (
             <>
-              <select className="h-9 rounded-lg border border-[#e8eaed] bg-white px-3 text-[13px] font-medium text-[#374151]" value={empresa.id}
-                onChange={(ev) => { setEmpresaId(ev.target.value); setMesesAbertos({}); }}>
-                {empresas.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-              </select>
+              <div className="flex flex-wrap gap-2">
+                <select className="h-9 rounded-lg border border-[#e8eaed] bg-white px-3 text-[13px] font-medium text-[#374151]" value={empresa.id} aria-label="Empresa"
+                  onChange={(ev) => { setEmpresaId(ev.target.value); setContaId(null); setMesesAbertos({}); }}>
+                  {empresas.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                </select>
+                <select className="h-9 rounded-lg border border-[#e8eaed] bg-white px-3 text-[13px] font-medium text-[#374151]" value={contaFiltrada?.id ?? ""} aria-label="Conta"
+                  onChange={(ev) => { setContaId(ev.target.value || null); setMesesAbertos({}); }}>
+                  <option value="">Todas as contas ({empresa.contas.length})</option>
+                  {empresa.contas.map((c) => { const r = rotuloDaConta(c, empresa.name); return <option key={c.id} value={c.id}>{r.titulo}{r.detalhe ? ` · ${r.detalhe}` : ""}</option>; })}
+                </select>
+              </div>
               <div className="grid grid-cols-3 gap-3">
                 {[
                   ["Meses fechados", `${fechadosDaEmpresa} de ${mesesEncerrados}`],
@@ -211,9 +223,9 @@ export default function ControlPage() {
               </div>
               <div className="rounded-2xl bg-white border border-[#e8eaed] overflow-hidden text-[13px]">
                 <div className={`${grade} px-5 py-2.5 border-b border-[#f3f4f6] text-[12px] text-[#9ca3af]`}>
-                  <span>{empresa.name}</span><span>Importação</span><span>Categorização</span><span>Comprovantes</span><span className="text-right">Mês</span>
+                  <span className="truncate">{empresa.name}{contaFiltrada ? ` · ${rotuloDaConta(contaFiltrada, empresa.name).titulo}` : ""}</span><span>Importação</span><span>Categorização</span><span>Comprovantes</span><span className="text-right">Mês</span>
                 </div>
-                {mesesDaEmpresa.length === 0 && <div className="px-5 py-4 text-[#9ca3af]">Esta empresa ainda não tem dados.</div>}
+                {mesesDaEmpresa.length === 0 && <div className="px-5 py-4 text-[#9ca3af]">{contaFiltrada ? <>Esta conta ainda não tem dados. <button className="underline text-[#374151]" onClick={() => abrirConta(contaFiltrada, mes)}>Abrir a conta pra importar</button></> : "Esta empresa ainda não tem dados."}</div>}
                 {mesesDaEmpresa.map(({ m, r }) => {
                   const aberto = !!mesesAbertos[m];
                   return (
@@ -225,7 +237,7 @@ export default function ControlPage() {
                         </span>
                         {celulas(r, m === atual)}
                       </button>
-                      {aberto && contasDoMes(empresa, m, "pl-6")}
+                      {aberto && contasDoMes({ name: empresa.name, contas: contasFiltradas }, m, "pl-6")}
                     </div>
                   );
                 })}

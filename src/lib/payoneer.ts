@@ -8,7 +8,9 @@
  * - data MM/DD/AAAA + hora + fuso (UTC → instante exato; outro fuso → meio-dia UTC do dia, sem chutar a hora);
  * - valor = crédito − débito (o débito vem POSITIVO neste formato; o sinal é ignorado); moeda da linha;
  * - Transaction ID = chave do lançamento (reimportar não duplica) — só UM formato aceito: outro formato
- *   geraria outra chave pro mesmo lançamento (duplicaria);
+ *   geraria outra chave pro mesmo lançamento (duplicaria). Crédito depositado pelo Payoneer vem SEM Transaction
+ *   ID (dono, 2026-11-13: "o arquivo não importa e esse campo fica vazio") → chave pelos fatos da linha que não
+ *   mudam: instante + valor + moeda + saldo depois dela ("sem-id:…");
  * - descrição = Description + Store Name + Additional Description (o FACEBK *código pode vir em qualquer uma);
  * - só entra Status "Completed";
  * - "Running Balance" confere a SEQUÊNCIA por moeda: saldo da linha = saldo da anterior + valor; quebra = falta
@@ -83,13 +85,21 @@ export function lerPayoneer(texto: string): { extrato?: ExtratoPayoneer; erro?: 
     const credito = valorPayoneer(col(c, "credit amount"));
     const debito = valorPayoneer(col(c, "debit amount"));
     const moeda = col(c, "currency").toUpperCase();
-    const chave = col(c, "transaction id");
-    if (!data || credito === null || debito === null || !moeda || !chave || vistas.has(chave)) { invalidos++; continue; }
+    if (!data || credito === null || debito === null || !moeda) { invalidos++; continue; }
+    const valor = Math.abs(credito) - Math.abs(debito);
+    const saldoBruto = col(c, "running balance");
+    const saldo = saldoBruto ? valorPayoneer(saldoBruto) : null;
+    let chave = col(c, "transaction id");
+    if (!chave) {
+      const base = `sem-id:${data.toISOString()}:${centavos(valor)}:${moeda}:${saldo === null ? "" : centavos(saldo)}`;
+      chave = base;
+      for (let n = 2; vistas.has(chave); n++) chave = `${base}:${n}`; // linhas idênticas no mesmo arquivo
+    }
+    if (vistas.has(chave)) { invalidos++; continue; } // Transaction ID repetido no arquivo
     vistas.add(chave);
     const descricao = [col(c, "description"), col(c, "store name"), col(c, "additional description")]
       .filter((x, k, arr) => x && arr.indexOf(x) === k).join(" — ") || "Payoneer";
-    const saldoBruto = col(c, "running balance");
-    lidas.push({ chave, data, descricao, valor: Math.abs(credito) - Math.abs(debito), moeda, saldo: saldoBruto ? valorPayoneer(saldoBruto) : null, ordem });
+    lidas.push({ chave, data, descricao, valor, moeda, saldo, ordem });
   }
   if (!lidas.length) return { erro: naoConcluidos ? `nenhum lançamento concluído (${naoConcluidos} não concluído(s))` : "nenhum lançamento válido no arquivo" };
 
