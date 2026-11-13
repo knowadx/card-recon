@@ -88,6 +88,11 @@ function msgCsv(j: J): Msg {
   };
 }
 
+/** Nome de cada tipo de importação no histórico (o que não está aqui aparece com o próprio nome). */
+const TIPOS: Record<string, string> = {
+  csv_revolut: "CSV Revolut", ofx: "Extrato OFX", faturas_pdf: "Faturas PDF", husky: "Husky", dolafy: "Dolafy", payoneer: "Payoneer", csv: "Planilha CSV", exclusao: "Importação apagada",
+};
+
 /** Uma linha do histórico → resultado curto. */
 function resultadoImportacao(i: Importacao): string {
   const r = i.resumo;
@@ -97,6 +102,8 @@ function resultadoImportacao(i: Importacao): string {
     return `${n(num(r.gravados))} códigos novos · ${n(num(r.jaTinham))} já tinham${conserto} · ${n(num(r.semTransacaoNoBanco))} sem par${porConta ? ` (${porConta})` : ""}`;
   }
   if (i.tipo === "ofx") return `${n(num(r.gravados))} lançamentos novos · ${n(num(r.jaExistiam))} já existiam${r.conta ? ` (${String(r.conta)})` : ""}`;
+  if (i.tipo === "exclusao") return `${n(num(r.lancamentos))} lançamentos apagados (${n(num(r.categorizados))} categorizados)${r.conta ? ` · ${String(r.conta)}` : ""}`;
+  if (["husky", "dolafy", "payoneer", "csv"].includes(i.tipo)) return `${n(num(r.imported))} lançamentos novos · ${n(num(r.skipped))} já existiam${r.conta ? ` (${String(r.conta)})` : ""}`;
   return `${n(num(r.inseridos))} faturas lidas`;
 }
 
@@ -326,7 +333,7 @@ export default function FechamentoPage() {
               {(data?.importacoes ?? []).map((i) => (
                 <div key={i.id} className="flex items-center gap-4 px-5 py-2.5 text-[13px]">
                   <span className="w-24 shrink-0 tabular-nums text-[#9ca3af]">{hora(i.quando)}</span>
-                  <span className="w-60 shrink-0 text-[#374151] truncate" title={i.arquivo ?? undefined}>{i.tipo === "csv_revolut" ? "CSV Revolut" : i.tipo === "ofx" ? "Extrato OFX" : "Faturas PDF"}{i.arquivo ? ` · ${i.arquivo}` : ""}</span>
+                  <span className="w-60 shrink-0 text-[#374151] truncate" title={i.arquivo ?? undefined}>{TIPOS[i.tipo] ?? i.tipo}{i.arquivo ? ` · ${i.arquivo}` : ""}</span>
                   <span className="w-28 shrink-0 text-[#6b7280] truncate">{i.quem}</span>
                   <span className="flex-1 text-[#6b7280] min-w-0">{resultadoImportacao(i)}{i.de ? ` · ${brCurto(i.de)}–${brCurto(i.ate)}` : ""}</span>
                 </div>

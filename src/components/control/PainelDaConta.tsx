@@ -168,6 +168,9 @@ export function PainelDaConta({ conta, irmas, empresa, mes, onFechar, onImportou
                 <button className={btn} onClick={() => semMovimento("POST")} disabled={marcando}>{marcando ? "Marcando…" : m.imp === "parcial" ? "Marcar o resto sem movimentação" : ateMarcar !== mes ? `Marcar sem movimentação de ${curto(mes)} a ${curto(ateMarcar)}` : "Marcar sem movimentação"}</button>
               </div>
             )}
+            {(m.total > 0 || m.imp === "completo" || m.imp === "parcial") && (
+              <div className="pt-1.5"><ApagarMes key={`${conta.id}-${mes}`} conta={conta} mes={mes} avisar={avisar} depois={recarregar} /></div>
+            )}
           </div>
         )}
 
@@ -194,6 +197,55 @@ export function PainelDaConta({ conta, irmas, empresa, mes, onFechar, onImportou
 }
 
 type Opcao = { avisar: (ok: boolean, texto: string) => void; depois: () => void };
+
+type Previa = { lancamentos: number; categorizados: number; comFaturaMeta: number; comAnexo: number; marcaDeImportado: boolean };
+
+/**
+ * Apagar a importação da conta no mês (dono, 2026-11-13: "substituir alguma importação no mês, por erro no
+ * extrato") — primeiro mostra o que vai junto (prévia do servidor), só apaga no 2º clique; depois, importar de novo.
+ */
+function ApagarMes({ conta, mes, avisar, depois }: Opcao & { conta: ContaDoControle; mes: string }) {
+  const [previa, setPrevia] = useState<Previa | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+  async function abrir() {
+    setOcupado(true);
+    const r = await json(fetch(`/api/coverage/apagar-mes?accountId=${encodeURIComponent(conta.id)}&mes=${mes}`));
+    setOcupado(false);
+    if (r.error) return avisar(false, `Apagar: ${r.error}`);
+    setPrevia(r);
+  }
+  async function apagar() {
+    if (!previa) return;
+    setOcupado(true);
+    const r = await json(fetch("/api/coverage/apagar-mes", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountId: conta.id, mes, esperado: previa.lancamentos }) }));
+    setOcupado(false);
+    if (r.error) { setPrevia(null); return avisar(false, `Apagar: ${r.error}`); }
+    setPrevia(null);
+    avisar(true, `Importação de ${curto(mes)} apagada: ${previa.lancamentos} lançamento(s) a menos. Agora é só importar o extrato certo.`);
+    depois();
+  }
+  if (!previa) {
+    return <button className="text-[12px] text-red-600 hover:underline disabled:opacity-50" onClick={abrir} disabled={ocupado}>{ocupado ? "Conferindo…" : `Apagar a importação de ${curto(mes)}…`}</button>;
+  }
+  return (
+    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12.5px] text-red-900 space-y-1">
+      <div className="font-medium">Vai apagar:</div>
+      <ul className="list-disc pl-5 space-y-0.5">
+        <li>{previa.lancamentos} lançamento(s) desta conta em {curto(mes)}</li>
+        {previa.categorizados > 0 && <li><strong>{previa.categorizados} já categorizado(s)</strong> — a categorização some e precisa ser refeita</li>}
+        {previa.comFaturaMeta > 0 && <li>{previa.comFaturaMeta} com fatura Meta — o PDF fica e volta a casar quando reimportar</li>}
+        {previa.comAnexo > 0 && <li><strong>{previa.comAnexo} com anexo</strong> — o anexo sai junto</li>}
+        {previa.marcaDeImportado && <li>a marca de &quot;importado&quot; de {curto(mes)} (os outros meses ficam como estão)</li>}
+      </ul>
+      <div className="flex flex-wrap gap-2 pt-1">
+        <button className={btn} onClick={() => setPrevia(null)} disabled={ocupado}>Cancelar</button>
+        <button className="h-8 px-3 rounded-lg bg-red-600 text-white text-[13px] font-medium hover:bg-red-700 disabled:opacity-50" onClick={apagar} disabled={ocupado}>
+          {ocupado ? "Apagando…" : previa.lancamentos ? `Apagar ${previa.lancamentos} lançamento(s)` : "Apagar a marca de importado"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /** Sub-contas (extrações) que o banco enxerga: Mercury (checking/savings/crédito), Wise (perfis), Revolut (contas, ou todas), BTG (contas). */
 async function listarExtracoes(conta: ContaDoControle, empresa: string): Promise<Extracao[] | { error: string }> {
