@@ -13,7 +13,7 @@ import { EXTRACAO_CHAVES } from "@/lib/sync/common";
  *  - categorização: lançamentos do mês sem categoria gerencial (e os categorizados = total − pendentes);
  *  - comprovante: lançamentos com anexo OU com a fatura Meta casada (pedido do dono em 2026-11-12) — só
  *    informa, não entra no "mês fechado".
- * Estados da importação no mês: completo · parcial (trechos) · sem_comprovacao (tem lançamento mas
+ * Estados da importação no mês: completo (inclui o marcado "sem movimentação" — src/app/api/coverage/sem-movimento) · parcial (trechos) · sem_comprovacao (tem lançamento mas
  * nenhuma importação registrada cobre) · faltando (nada) · antes (a conta ainda não tinha dado nenhum).
  * Meses: de INICIO_DOS_FECHAMENTOS até o atual. Superadmin vê todas as empresas; admin só as do grupo dele;
  * member não vê (decisão de 2026-10-16).
@@ -68,10 +68,10 @@ export const GET = guarded(async () => {
            GROUP BY 1, 2`
       : [],
     prisma.transaction.groupBy({ by: ["accountId"], where: { accountId: { in: ids } }, _min: { date: true } }),
-    // última importação de cada conta: quando, quem, de onde
+    // última importação de cada conta: quando, quem, de onde (a marcação "sem movimentação" não é importação)
     ids.length
       ? prisma.importCoverage.findMany({
-          where: { accountId: { in: ids } },
+          where: { accountId: { in: ids }, source: { not: "manual" } },
           orderBy: { createdAt: "desc" },
           distinct: ["accountId"],
           select: { accountId: true, createdAt: true, source: true, user: { select: { name: true, email: true } }, importLog: { select: { filename: true } } },

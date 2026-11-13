@@ -14,7 +14,9 @@ import { textoDoArquivo } from "@/lib/textoDoArquivo";
  *  - OFX (BTG, XP, Itaú). O CSV da Revolut (código Facebk e cartão) é do Fechamento Meta, passo 2 — aqui só
  *    o link pra lá (decisão do dono em 2026-11-12);
  *  - arquivo sem período (planilha Husky, Dolafy, CSV do Payoneer, CSV genérico): importa e PERGUNTA o período que o arquivo
- *    cobre, já preenchido com a 1ª e a última data lidas — só a confirmação grava a cobertura.
+ *    cobre, já preenchido com os meses inteiros das datas lidas — só a confirmação grava a cobertura;
+ *  - "Sem movimentação" (dono, 2026-11-13): mês que acabou, sem importação ou importado só em parte, sem
+ *    lançamento nos dias que faltam → alguém confere e marca (fica quem e quando; dá pra desfazer).
  */
 
 export type MesDaConta = { imp: EstadoImp; pedacos?: Array<{ de: string; ate: string }>; total: number; semCategoria: number; comComprovante: number };
@@ -33,7 +35,7 @@ export const BANCOS_OFX = ["BTG", "XP", "Itaú"];
 const MESES_LONGOS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const br = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
 const ultimoDia = (ateIso: string) => br(new Date(new Date(ateIso).getTime() - 1).toISOString());
-const FONTE: Record<string, string> = { api: "Sync da API", ofx: "OFX", arquivo: "Arquivo" };
+const FONTE: Record<string, string> = { api: "Sync da API", ofx: "OFX", arquivo: "Arquivo", manual: "Sem movimentação" };
 
 /** Como a conta aparece: banco e moeda, o nome só quando diz algo além da empresa, e o nº da conta do OFX. */
 export function rotuloDaConta(c: ContaDoControle, nomeEmpresa: string): { titulo: string; detalhe: string | null } {
@@ -48,7 +50,7 @@ export function rotuloDaConta(c: ContaDoControle, nomeEmpresa: string): { titulo
 
 export function dicaImp(m: MesDaConta) {
   switch (m.imp) {
-    case "completo": return "importado por inteiro";
+    case "completo": return m.total ? "importado por inteiro" : "importado por inteiro · sem movimentação";
     case "parcial": return `importado só em parte: ${(m.pedacos ?? []).map((p) => `${br(p.de)}–${ultimoDia(p.ate)}`).join(", ")}`;
     case "sem_comprovacao": return "tem lançamentos, mas nenhuma importação registrada cobre o mês";
     case "faltando": return "nada importado neste mês";
@@ -86,6 +88,19 @@ export function PainelDaConta({ conta, irmas, empresa, mes, onFechar, onImportou
     return () => { vivo = false; };
   }, [conta.id, mes]);
 
+  // "sem movimentação": mês que já acabou (o último da lista é o atual), sem importação ou importado só em parte
+  const mesAtual = Object.keys(conta.meses).sort().at(-1) ?? mes;
+  const podeMarcar = !!m && mes < mesAtual && (m.imp === "faltando" || m.imp === "parcial" || conta.nuncaImportada);
+  const [marcando, setMarcando] = useState(false);
+  async function semMovimento(metodo: "POST" | "DELETE") {
+    setMarcando(true);
+    const r = await json(fetch("/api/coverage/sem-movimento", { method: metodo, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountId: conta.id, mes }) }));
+    setMarcando(false);
+    if (r.error) return avisar(false, `Sem movimentação: ${r.error}`);
+    avisar(true, metodo === "POST" ? "Marcado: sem movimentação nos dias que nenhuma importação cobre." : "Marcação desfeita.");
+    recarregar();
+  }
+
   const temApi = BANCOS_API.includes(conta.bank);
   const temOfx = BANCOS_OFX.includes(conta.bank);
   // sub-contas que o banco enxerga — lidas UMA vez (o sync e o quadro de sub-contas usam a mesma lista)
@@ -119,11 +134,24 @@ export function PainelDaConta({ conta, irmas, empresa, mes, onFechar, onImportou
             </div>
             {!importacoes ? <div className="text-[12px] text-[#9ca3af]">carregando…</div>
               : importacoes.length === 0 ? <div className="text-[12px] text-[#9ca3af]">Nenhuma importação cobre este mês.</div>
-              : importacoes.map((i, k) => (
+              : importacoes.map((i, k) => i.fonte === "manual" ? (
+                  <div key={k} className="text-[12px] text-[#6b7280]">
+                    Marcado sem movimentação{m.imp === "completo" && importacoes.length > 1 ? " nos dias que as importações não cobrem" : ""} · em {br(i.quando)}{i.quem ? ` por ${i.quem}` : ""}
+                    {" · "}<button className="underline hover:text-[#374151] disabled:opacity-50" onClick={() => semMovimento("DELETE")} disabled={marcando}>desfazer</button>
+                  </div>
+                ) : (
                   <div key={k} className="text-[12px] text-[#6b7280]">
                     {FONTE[i.fonte] ?? i.fonte} · cobre {br(i.de)} a {ultimoDia(i.ate)} · em {br(i.quando)}{i.quem ? ` por ${i.quem}` : ""}{i.arquivo ? ` · ${i.arquivo}` : ""}
                   </div>
                 ))}
+            {podeMarcar && (
+              <div className="flex flex-wrap items-center gap-2 pt-1.5">
+                <span className="flex-1 min-w-[200px] text-[12px] text-[#6b7280]">
+                  {m.imp === "parcial" ? "Os outros dias do mês não tiveram movimento? Confira no banco e marque." : "A conta não teve movimento neste mês? Confira no banco e marque."} Fica registrado quem marcou e quando.
+                </span>
+                <button className={btn} onClick={() => semMovimento("POST")} disabled={marcando}>{marcando ? "Marcando…" : m.imp === "parcial" ? "Marcar o resto sem movimentação" : "Marcar sem movimentação"}</button>
+              </div>
+            )}
           </div>
         )}
 

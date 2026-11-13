@@ -3,7 +3,7 @@ import { prisma } from "./db";
 /**
  * Arquivo SEM período dentro (planilha Husky, Dolafy, CSV do Payoneer, CSV genérico) — decisão do dono em 2026-11-12:
  * "perguntar o período". A rota importa os lançamentos, grava o histórico (ImportLog) e devolve o período
- * SUGERIDO (1ª e última data lidas no arquivo); a tela pergunta "este arquivo cobre de … a …?" e só com a
+ * SUGERIDO (os meses inteiros entre a 1ª e a última data lidas, até hoje); a tela pergunta "este arquivo cobre de … a …?" e só com a
  * confirmação grava a cobertura (POST /api/coverage/periodo). Sem confirmação, o mês não conta como importado.
  */
 export const KINDS_DE_ARQUIVO = ["husky", "dolafy", "csv", "payoneer"] as const;
@@ -20,14 +20,19 @@ export async function registrarArquivo(opts: {
   resumo: Record<string, unknown>;
 }): Promise<{ importLogId: string; periodo: { de: string; ate: string } | null }> {
   const ord = opts.datas.filter((d) => !Number.isNaN(d.getTime())).sort((a, b) => a.getTime() - b.getTime());
-  const periodo = ord.length ? { de: dia(ord[0]), ate: dia(ord[ord.length - 1]) } : null;
+  const lido = ord.length ? { de: dia(ord[0]), ate: dia(ord[ord.length - 1]) } : null;
+  // sugestão = os MESES inteiros (dono, 2026-11-13: dia sem movimento não aparece no arquivo, e a 1ª/última data
+  // deixava o mês "importado só em parte" mesmo com o extrato do mês todo); nunca passa de hoje
+  const hoje = dia(new Date());
+  const fimDoMes = (d: Date) => dia(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)));
+  const periodo = lido ? { de: `${lido.de.slice(0, 8)}01`, ate: [fimDoMes(ord[ord.length - 1]), hoje].sort()[0] } : null;
   const log = await prisma.importLog.create({
     data: {
       kind: opts.kind,
       filename: opts.filename?.slice(0, 200) || null,
       userId: opts.userId,
-      periodFrom: periodo ? new Date(`${periodo.de}T00:00:00.000Z`) : null,
-      periodTo: periodo ? new Date(`${periodo.ate}T00:00:00.000Z`) : null,
+      periodFrom: lido ? new Date(`${lido.de}T00:00:00.000Z`) : null, // o que o arquivo TEM (1ª e última data)
+      periodTo: lido ? new Date(`${lido.ate}T00:00:00.000Z`) : null,
       companyIds: [opts.account.companyId],
       summary: JSON.stringify({ ...opts.resumo, conta: opts.account.name, accountId: opts.account.id }),
     },

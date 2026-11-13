@@ -442,7 +442,7 @@ model ImportCoverage {
   account     Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
   from        DateTime // início (inclusivo)
   to          DateTime // fim (exclusivo): coberto até este instante
-  source      String // "api" | "ofx" | "arquivo" (planilha/CSV com o período confirmado na tela)
+  source      String // "api" | "ofx" | "arquivo" (planilha/CSV com o período confirmado na tela) | "manual" (marcado sem movimentação)
   importLogId String? // OFX: o arquivo (ImportLog) que provou o trecho
   importLog   ImportLog? @relation(fields: [importLogId], references: [id], onDelete: SetNull)
   userId      String?

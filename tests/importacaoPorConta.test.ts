@@ -3,6 +3,8 @@ import * as XLSX from "xlsx";
 import { prisma } from "@/lib/db";
 import * as coverage from "@/app/api/coverage/route";
 import * as periodo from "@/app/api/coverage/periodo/route";
+import * as detalhe from "@/app/api/coverage/detalhe/route";
+import * as semMovimento from "@/app/api/coverage/sem-movimento/route";
 import * as importCsv from "@/app/api/transactions/import/route";
 import * as importHusky from "@/app/api/transactions/import/husky/route";
 import * as importDolafy from "@/app/api/transactions/import/dolafy/route";
@@ -35,16 +37,18 @@ const confirmar = (json: Record<string, unknown>) => periodo.POST(req("/api/cove
 const cobertura = (accountId: string) => prisma.importCoverage.findMany({ where: { accountId }, select: { from: true, to: true, source: true } });
 
 describe("arquivo sem período: importa, sugere o período e só a confirmação cobre", () => {
-  it("CSV genérico: devolve a 1ª e a última data e o histórico; sem confirmar, nenhuma cobertura", async () => {
+  it("CSV genérico: sugere os meses inteiros das datas lidas e grava o histórico; sem confirmar, nenhuma cobertura", async () => {
     const conta = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "Outro", currency: "USD", name: "Banco qualquer" } });
     loginAs(admin);
     const csv = "date,description,amount\n2026-03-05,Fornecedor,-10\n2026-03-28,Cliente,50\n2026-03-12,Taxa,-1\n";
     const r = await enviar(importCsv, conta.id, new Blob([csv]), "marco.csv");
     const j = await r.json();
     expect(r.status).toBe(200);
-    expect(j).toMatchObject({ imported: 3, periodo: { de: "2026-03-05", ate: "2026-03-28" } });
+    // dia sem movimento não aparece no arquivo: a sugestão é o mês todo, não 05 a 28 (dono, 2026-11-13)
+    expect(j).toMatchObject({ imported: 3, periodo: { de: "2026-03-01", ate: "2026-03-31" } });
     const log = await prisma.importLog.findUniqueOrThrow({ where: { id: j.importLogId } });
     expect([log.kind, log.filename, JSON.parse(log.summary).accountId]).toEqual(["csv", "marco.csv", conta.id]);
+    expect([log.periodFrom, log.periodTo]).toEqual([d("2026-03-05T00:00:00Z"), d("2026-03-28T00:00:00Z")]); // o que o arquivo tem
     expect(await cobertura(conta.id)).toEqual([]);
 
     // a pessoa confirma o mês inteiro (o arquivo é o extrato de março)
@@ -58,14 +62,23 @@ describe("arquivo sem período: importa, sugere o período e só a confirmação
     loginAs(admin);
     const csvDolafy = "Date,Description,Amount,Status\n\"Jun 2, 2026, 09:38\",Pagamento,-20,Completed\n\"Jun 20, 2026\",Taxa,-2,Completed\n";
     const rd = await (await enviar(importDolafy, dolafy.id, new Blob([csvDolafy]), "dolafy.csv")).json();
-    expect(rd).toMatchObject({ imported: 2, periodo: { de: "2026-06-02", ate: "2026-06-20" } });
+    expect(rd).toMatchObject({ imported: 2, periodo: { de: "2026-06-01", ate: "2026-06-30" } });
 
     const planilha = XLSX.utils.aoa_to_sheet([["Date", "Event", "Payer", "Beneficiary", "Amount"], ["Start date", "Initial balance", "", "", ""], ["2026-07-03", "Pagamento", "", "Fornecedor", "-15"], ["2026-07-30", "Recebimento", "Cliente", "", "40"]]);
     const livro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(livro, planilha, "Extrato");
     const xls = XLSX.write(livro, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
     const rh = await (await enviar(importHusky, husky.id, new Blob([xls]), "husky.xlsx")).json();
-    expect(rh).toMatchObject({ imported: 2, periodo: { de: "2026-07-03", ate: "2026-07-30" } });
+    expect(rh).toMatchObject({ imported: 2, periodo: { de: "2026-07-01", ate: "2026-07-31" } });
+  });
+
+  it("arquivo que chega no mês atual: a sugestão para em hoje", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-13T12:00:00Z") });
+    const conta = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "Outro", currency: "USD", name: "Banco qualquer" } });
+    loginAs(admin);
+    const csv = "date,description,amount\n2026-10-20,Fornecedor,-10\n2026-11-07,Cliente,50\n";
+    const j = await (await enviar(importCsv, conta.id, new Blob([csv]), "out-nov.csv")).json();
+    expect(j.periodo).toEqual({ de: "2026-10-01", ate: "2026-11-13" });
   });
 
   it("confirmar recusa: arquivo de outra conta, período invertido ou no futuro; conta de outro grupo = 404", async () => {
@@ -108,5 +121,71 @@ describe("/api/coverage para o painel da conta", () => {
     const merc = body.accounts.find((a: { id: string }) => a.id === s.accounts.pixel.id);
     expect(merc).toMatchObject({ bank: "Mercury", currency: "USD", configurada: true, extracao: "merc-chk", contaBanco: null });
     expect(body.accounts.find((a: { id: string }) => a.id === xp.id)).toMatchObject({ bank: "XP", currency: "BRL", configurada: false, extracao: null, contaBanco: "7226343" });
+  });
+});
+
+describe("sem movimentação: alguém confere e marca (dono, 2026-11-13)", () => {
+  const marcar = (json: Record<string, unknown>, method: "POST" | "DELETE" = "POST") => semMovimento[method](req("/api/coverage/sem-movimento", { method, json }));
+  const mesDa = async (accountId: string, mes: string) => (await (await coverage.GET()).json()).accounts.find((a: { id: string }) => a.id === accountId).meses[mes];
+  let conta: { id: string };
+  beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-13T12:00:00Z") });
+    conta = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "Payoneer", currency: "EUR", name: "Payoneer EUR" } });
+    // agosto inteiro importado; setembro faltando (sem lançamento); outubro importado de 02 a 21 (lançamentos dentro)
+    await prisma.importCoverage.createMany({ data: [
+      { accountId: conta.id, from: d("2026-08-01"), to: d("2026-09-01"), source: "arquivo" },
+      { accountId: conta.id, from: d("2026-10-02"), to: d("2026-10-22"), source: "arquivo" },
+    ] });
+    await prisma.transaction.createMany({ data: [
+      { accountId: conta.id, date: d("2026-08-10T10:00:00Z"), description: "A", amount: -40, currency: "EUR", reference: "t-ago" },
+      { accountId: conta.id, date: d("2026-10-02T09:00:00Z"), description: "B", amount: -40, currency: "EUR", reference: "t-out1" },
+      { accountId: conta.id, date: d("2026-10-21T23:00:00Z"), description: "C", amount: -13, currency: "EUR", reference: "t-out2" },
+    ] });
+  });
+
+  it("mês sem importação e sem lançamento: marca, vira importado, fica quem marcou; desfazer volta", async () => {
+    loginAs(admin);
+    expect((await mesDa(conta.id, "2026-09")).imp).toBe("faltando");
+    expect((await marcar({ accountId: conta.id, mes: "2026-09" })).status).toBe(200);
+    expect(await mesDa(conta.id, "2026-09")).toMatchObject({ imp: "completo", total: 0 });
+    const det = await (await detalhe.GET(req("/api/coverage/detalhe?accountId=" + conta.id + "&mes=2026-09"))).json();
+    expect(det.importacoes).toMatchObject([{ fonte: "manual", quem: "Admin Pixel" }]);
+    // a marcação não é "a última importação" da conta
+    const c = (await (await coverage.GET()).json()).accounts.find((a: { id: string }) => a.id === conta.id);
+    expect(c.ultimaImportacao.fonte).toBe("arquivo");
+
+    expect((await marcar({ accountId: conta.id, mes: "2026-09" }, "DELETE")).status).toBe(200);
+    expect((await mesDa(conta.id, "2026-09")).imp).toBe("faltando");
+    expect((await marcar({ accountId: conta.id, mes: "2026-09" }, "DELETE")).status).toBe(404); // nada pra desfazer
+  });
+
+  it("mês importado só em parte, sem lançamento nos dias que faltam: marcar completa o mês; desfazer não mexe na importação", async () => {
+    loginAs(admin);
+    expect((await mesDa(conta.id, "2026-10")).imp).toBe("parcial");
+    expect((await marcar({ accountId: conta.id, mes: "2026-10" })).status).toBe(200);
+    expect(await mesDa(conta.id, "2026-10")).toMatchObject({ imp: "completo", total: 2 });
+    expect((await marcar({ accountId: conta.id, mes: "2026-10" }, "DELETE")).status).toBe(200);
+    expect((await mesDa(conta.id, "2026-10")).imp).toBe("parcial");
+    expect(await prisma.importCoverage.count({ where: { accountId: conta.id, source: "arquivo" } })).toBe(2);
+  });
+
+  it("recusa: lançamento em dia sem cobertura (tem que importar), mês que não acabou, mês já completo — nada gravado", async () => {
+    loginAs(admin);
+    await prisma.transaction.create({ data: { accountId: conta.id, date: d("2026-10-25T10:00:00Z"), description: "D", amount: -5, currency: "EUR", reference: "t-out3" } });
+    const r = await marcar({ accountId: conta.id, mes: "2026-10" });
+    expect(r.status).toBe(409);
+    expect((await r.json()).error).toMatch(/1 lançamento\(s\) em dias que nenhuma importação cobre \(25\/10\/2026\)/);
+    expect((await marcar({ accountId: conta.id, mes: "2026-11" })).status).toBe(400); // novembro ainda corre
+    expect((await marcar({ accountId: conta.id, mes: "2026-08" })).status).toBe(400); // já importado
+    expect((await marcar({ accountId: conta.id, mes: "2026-13" })).status).toBe(400);
+    expect(await prisma.importCoverage.count({ where: { accountId: conta.id, source: "manual" } })).toBe(0);
+  });
+
+  it("membro = 403; conta de outro grupo = 404", async () => {
+    loginAs(s.users.pixel);
+    expect((await marcar({ accountId: conta.id, mes: "2026-09" })).status).toBe(403);
+    loginAs(admin);
+    expect((await marcar({ accountId: s.accounts.outro.id, mes: "2026-09" })).status).toBe(404);
+    expect(await prisma.importCoverage.count({ where: { source: "manual" } })).toBe(0);
   });
 });

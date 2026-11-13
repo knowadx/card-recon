@@ -115,7 +115,7 @@ export default function ControlPage() {
     if (c.nuncaImportada) return { texto: "nunca importada — clique pra importar (ou apague a conta em Contas, se não é usada)", cor: "text-red-500" };
     const abreviado = MESES[+mesDaLinha.slice(5, 7) - 1].toLowerCase();
     const m = c.meses[mesDaLinha];
-    if (m.imp === "completo") return { texto: "importado", cor: "text-emerald-600" };
+    if (m.imp === "completo") return { texto: m.total ? "importado" : "sem movimentação", cor: "text-emerald-600" };
     if (m.imp === "parcial") return { texto: `importado só ${(m.pedacos ?? []).map((p) => `de ${br(p.de).slice(0, 5)} a ${ultimoDia(p.ate).slice(0, 5)}`).join(", ")}`, cor: "text-amber-600" };
     if (m.imp === "antes") return { texto: "ainda sem dados neste mês", cor: "text-[#9ca3af]" };
     return { texto: `não importado — clique pra importar ${abreviado}`, cor: "text-red-500" };

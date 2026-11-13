@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db";
 import * as importPayoneer from "@/app/api/transactions/import/payoneer/route";
 import * as periodo from "@/app/api/coverage/periodo/route";
@@ -72,10 +72,13 @@ describe("leitura do extrato do Payoneer", () => {
 });
 
 describe("POST /api/transactions/import/payoneer", () => {
-  it("importa, marca a cobrança Meta (FACEBK na loja), reimportar não duplica, sugere o período e a confirmação cobre", async () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("importa, marca a cobrança Meta (FACEBK na loja), reimportar não duplica, sugere o mês inteiro e a confirmação cobre", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-12-05T12:00:00Z") });
     loginAs(admin);
     const r = await (await enviar(conta.id)).json();
-    expect(r).toMatchObject({ imported: 4, skipped: 0, naoConcluidos: 1, quebrasDeSaldo: 0, periodo: { de: "2026-11-01", ate: "2026-11-08" } });
+    expect(r).toMatchObject({ imported: 4, skipped: 0, naoConcluidos: 1, quebrasDeSaldo: 0, periodo: { de: "2026-11-01", ate: "2026-11-30" } });
     expect((await (await enviar(conta.id)).json())).toMatchObject({ imported: 0, skipped: 4 });
     const meta = await prisma.transaction.findMany({ where: { accountId: conta.id, isMetaCharge: true }, select: { metaRef: true, reference: true } });
     expect(meta).toEqual([{ metaRef: "AAAA1111B2", reference: "payoneer:9000000004" }]);
@@ -103,6 +106,22 @@ describe("POST /api/transactions/import/payoneer", () => {
     expect(r.status).toBe(409);
     expect((await r.json()).error).toMatch(/já foi importado na conta Payoneer Pixel USD da Pixel Ads LLC/);
     expect(await prisma.transaction.count({ where: { accountId: linkview.id } })).toBe(0);
+  });
+
+  it("pagamento entre duas contas Payoneer: o mesmo Transaction ID com débito num lado e crédito no outro entra nos dois (extrato de 1 linha)", async () => {
+    loginAs(admin);
+    // o recebedor (outra empresa do grupo) já importou o crédito; o pagador tem o débito (com a tarifa) — mesmo ID
+    const recebedor = await prisma.account.create({ data: { companyId: s.companies.pixel.id, bank: "Payoneer", currency: "USD", name: "Payoneer Recebedor" } });
+    const credito = "11/08/2026,03:00:16,UTC,9000000077,Payment from Pagador Exemplo,1998.00,,USD,,,Completed,1998.00,Loan payment,,Pagador Exemplo,USD balance,";
+    const debito = "11/08/2026,03:00:16,UTC,9000000077,Payment to Recebedor Exemplo,,2000.00,USD,,,Completed,500.00,Loan payment,,USD balance,Recebedor Exemplo,";
+    expect(await (await enviar(recebedor.id, [CAB, credito].join("\n"))).json()).toMatchObject({ imported: 1 });
+    const r = await enviar(conta.id, [CAB, debito].join("\n"));
+    expect(r.status).toBe(200);
+    expect(await r.json()).toMatchObject({ imported: 1 });
+    expect(await prisma.transaction.findMany({ where: { reference: "payoneer:9000000077" }, select: { accountId: true, amount: true }, orderBy: { amount: "asc" } }))
+      .toEqual([{ accountId: conta.id, amount: -2000 }, { accountId: recebedor.id, amount: 1998 }]);
+    // o MESMO lado subido na conta errada continua recusado
+    expect((await enviar(recebedor.id, [CAB, debito].join("\n"))).status).toBe(409);
   });
 
   it("conta que não é Payoneer = 400; membro = 403; outro grupo = 404 — nada gravado", async () => {

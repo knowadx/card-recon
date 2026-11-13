@@ -5,8 +5,9 @@ import { prisma } from "./db";
  * 2026-10-30: "nunca consigo saber exatamente o que já importei. Qual conta, e qual mês").
  *
  * Cada importação que leu um período INTEIRO grava um trecho (ImportCoverage): o sync da API pela janela
- * que leu até o fim, o OFX pelo período do arquivo. Mês sem lançamento mas coberto = importado (sem
- * movimento) — diferente de nunca importado. Mês completo = algum trecho (já mesclado) vai do 1º instante
+ * que leu até o fim, o OFX pelo período do arquivo; e a marcação "sem movimentação" (manual, com quem e quando —
+ * src/app/api/coverage/sem-movimento). Mês sem lançamento mas coberto = importado (sem movimento) — diferente
+ * de nunca importado. Mês completo = algum trecho (já mesclado) vai do 1º instante
  * do mês até o fim dele. Contagem de transações NÃO prova importação.
  */
 
@@ -84,7 +85,7 @@ export async function registrarCobertura(c: {
   accountId: string;
   de: Date;
   ate: Date;
-  fonte: "api" | "ofx" | "arquivo";
+  fonte: "api" | "ofx" | "arquivo"; // "manual" (sem movimentação) só pela rota /api/coverage/sem-movimento
   userId?: string | null;
   importLogId?: string | null;
 }): Promise<void> {
