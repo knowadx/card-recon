@@ -93,6 +93,24 @@ export const GET = guarded(async (request: Request) => {
     }
   }
 
+  // nome do cartão no banco (dono, 2026-11-16: "colocar o nome do cartão nessa tabela") — de QUALQUER lançamento
+  // do mesmo final (nem toda cobrança traz o nome), mas só dentro do escopo do usuário: o mesmo final em outro
+  // grupo não empresta o nome. Dois nomes pro mesmo final aparecem os dois ("A / B").
+  const finais = [...porCartaoMap.keys()].filter((c) => c !== "(sem cartão)");
+  const nomes = new Map<string, Set<string>>();
+  if (finais.length) {
+    const comNome = await prisma.transaction.findMany({
+      where: { cardLast4: { in: finais }, cardLabel: { not: null }, AND: [await transactionScope(user)] },
+      select: { cardLast4: true, cardLabel: true },
+      distinct: ["cardLast4", "cardLabel"],
+    });
+    for (const t of comNome) {
+      const nome = t.cardLabel?.trim();
+      if (t.cardLast4 && nome) nomes.set(t.cardLast4, (nomes.get(t.cardLast4) ?? new Set<string>()).add(nome));
+    }
+  }
+  const nomeDo = (cartao: string) => (nomes.has(cartao) ? [...nomes.get(cartao)!].sort().join(" / ") : null);
+
   const fmtCell = (c: Cell) => ({ qtde: c.qtde, usd: round2(c.usd) });
   const fmtMes = (r: ReturnType<typeof novo>) => ({ ok: fmtCell(r.ok), codigoSemPdf: fmtCell(r.codigoSemPdf), semCodigo: fmtCell(r.semCodigo) });
 
@@ -105,7 +123,7 @@ export const GET = guarded(async (request: Request) => {
     vazamento: {
       total: fmtMes(tot),
       porMes: [...porMesMap.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([mes, r]) => ({ mes, ...fmtMes(r) })),
-      porCartao: [...porCartaoMap.entries()].map(([cartao, v]) => ({ cartao, bank: v.bank, qtde: v.qtde, usd: round2(v.usd) })).sort((a, b) => b.usd - a.usd),
+      porCartao: [...porCartaoMap.entries()].map(([cartao, v]) => ({ cartao, nome: nomeDo(cartao), bank: v.bank, qtde: v.qtde, usd: round2(v.usd) })).sort((a, b) => b.usd - a.usd),
     },
   });
 });

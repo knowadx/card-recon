@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 type Cell = { qtde: number; usd: number };
 type MesRow = { mes: string; ok: Cell; codigoSemPdf: Cell; semCodigo: Cell };
-type CardRow = { cartao: string; bank: string | null; qtde: number; usd: number };
+type CardRow = { cartao: string; nome: string | null; bank: string | null; qtde: number; usd: number };
 type Company = { id: string; name: string };
 type AccountOpt = { id: string; name: string; company: string | null };
 type Data = {
@@ -151,6 +151,7 @@ export default function ChecagemPage() {
                   <thead className="bg-red-50 text-left text-xs uppercase text-red-700">
                     <tr>
                       <th className="px-3 py-2">Cartão</th>
+                      <th className="px-3 py-2">Nome</th>
                       <th className="px-3 py-2">Banco</th>
                       <th className="px-3 py-2 text-right">Cobranças</th>
                       <th className="px-3 py-2 text-right">Valor (US$)</th>
@@ -159,7 +160,8 @@ export default function ChecagemPage() {
                   <tbody className="divide-y divide-slate-100">
                     {v!.porCartao.map((c) => (
                       <tr key={c.cartao}>
-                        <td className="px-3 py-2 tabular-nums">•••• {c.cartao}</td>
+                        <td className="px-3 py-2 tabular-nums">{c.cartao === "(sem cartão)" ? c.cartao : `•••• ${c.cartao}`}</td>
+                        <td className="px-3 py-2">{c.nome ?? <span className="text-slate-400" title="o banco não mandou o nome deste cartão em nenhum lançamento">—</span>}</td>
                         <td className="px-3 py-2 text-slate-500">{c.bank ?? "—"}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{c.qtde}</td>
                         <td className="px-3 py-2 text-right tabular-nums font-semibold">{money(c.usd)}</td>

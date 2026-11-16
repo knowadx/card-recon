@@ -260,6 +260,19 @@ describe("/api/checagem", () => {
     expect(root.body.companies).toHaveLength(2);
   });
 
+  it("por cartão traz o nome do cartão no banco — de qualquer lançamento do mesmo final, só do próprio grupo", async () => {
+    // a cobrança Meta da Pixel (sem fatura) veio sem nome; outro lançamento da Pixel com o mesmo final tem o nome
+    await prisma.transaction.update({ where: { id: s.transactions.pixel.id }, data: { cardLast4: "1360" } });
+    await prisma.transaction.create({ data: { accountId: s.accounts.pixel.id, date: new Date("2026-08-01"), description: "Outra", amount: -1, currency: "USD", reference: "px-nome", cardLast4: "1360", cardLabel: "BM 14 Exemplo" } });
+    // o outro grupo tem um cartão com o MESMO final e outro nome — não pode aparecer pra Pixel
+    await prisma.transaction.update({ where: { id: s.transactions.outro.id }, data: { cardLast4: "1360", cardLabel: "Cartao Alheio" } });
+    expect((await call(s.users.pixel, get())).body.vazamento.porCartao).toEqual([{ cartao: "1360", nome: "BM 14 Exemplo", bank: "Mercury", qtde: 1, usd: 100 }]);
+    expect((await call(s.users.root, get())).body.vazamento.porCartao[0]).toMatchObject({ cartao: "1360", nome: "BM 14 Exemplo / Cartao Alheio", qtde: 2 });
+    // cartão sem nome em lugar nenhum = null
+    await prisma.transaction.updateMany({ where: { cardLast4: "1360" }, data: { cardLabel: null } });
+    expect((await call(s.users.pixel, get())).body.vazamento.porCartao[0].nome).toBeNull();
+  });
+
   it("empresa/conta de outro grupo = 404 (antes vazava, até deslogado); a própria filtra; deslogado = 401", async () => {
     expect((await call(s.users.pixel, get(`?company=${s.companies.outro.id}`))).status).toBe(404);
     expect((await call(s.users.pixel, get(`?account=${s.accounts.outro.id}`))).status).toBe(404);
