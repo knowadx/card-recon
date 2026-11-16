@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LayoutDashboard, Building2, Landmark, Tag, ArrowLeftRight, CheckSquare, BarChart2, Settings, X, Target, DollarSign, TrendingUp, ChevronLeft, ChevronRight, LineChart, ShieldCheck, Users, LogOut, KeyRound, Layers, Workflow, Receipt, FileUp, ListChecks, FolderOpen, Files } from "lucide-react";
+import { LayoutDashboard, Building2, Landmark, Tag, ArrowLeftRight, CheckSquare, BarChart2, Settings, X, Target, DollarSign, TrendingUp, ChevronLeft, ChevronRight, LineChart, Users, LogOut, KeyRound, Layers, Workflow, ListChecks, FolderOpen, Files } from "lucide-react";
 
 const mainNav = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/fechamento", label: "Fechamento Meta", icon: ListChecks },
-  { href: "/checagem", label: "Checagem Meta", icon: ShieldCheck },
-  { href: "/cobrancas-meta", label: "Cobranças Meta", icon: Receipt },
-  { href: "/receipts", label: "Faturas Meta (PDFs)", icon: FileUp },
+  // Checagem Meta (/checagem), Cobranças Meta (/cobrancas-meta) e Faturas Meta (/receipts) saíram do menu (dono,
+  // 2026-11-16: "pode esconder essas guias") — as páginas continuam: o Fechamento Meta importa os PDFs no passo
+  // "Faturas PDF" e leva às Cobranças Meta pelo link "sincronizar"; a Checagem abre por /checagem.
   { href: "/documents", label: "Documentos", icon: FolderOpen },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/control", label: "Control", icon: CheckSquare },
